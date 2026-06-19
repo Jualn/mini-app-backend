@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.comment.mapper.CommentMapper">
+    <select id="selectTopNByParentIds" resultType="cn.jualn.miniapp.module.comment.entity.Comment">
+        SELECT id, content, image_url, user_id, reply_to_uid,parent_id, created_at
+        FROM (
+            SELECT id, content, image_url, user_id, reply_to_uid,parent_id, created_at,
+            ROW_NUMBER() OVER (PARTITION BY parent_id ORDER BY id DESC) AS rn
+            FROM comment
+            WHERE parent_id IN
+            <foreach collection="parentIds" item="id" open="(" separator="," close=")">
+                #{id}
+            </foreach>
+            AND status = 1 AND deleted_at IS NULL
+        ) ranked
+        WHERE rn &lt;= #{limit}
+        ORDER BY parent_id, id DESC
+    </select>
+</mapper>

@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.search.mapper.SearchDocMapper">
+
+    <insert id="upsert">
+        INSERT INTO search_doc (
+            target_type, target_id, search_text, status, published_at, created_at, updated_at
+        ) VALUES (
+            #{targetType}, #{targetId}, #{searchText}, #{status}, #{publishedAt}, NOW(), NOW()
+        )
+        ON DUPLICATE KEY UPDATE
+            search_text = VALUES(search_text),
+            status = VALUES(status),
+            published_at = VALUES(published_at),
+            updated_at = NOW()
+    </insert>
+
+    <delete id="deleteByTarget">
+        DELETE FROM search_doc
+        WHERE target_type = #{targetType}
+          AND target_id = #{targetId}
+    </delete>
+
+    <select id="selectSearchResults" resultType="cn.jualn.miniapp.module.search.bo.SearchResultBO">
+        <choose>
+            <when test="targetType != null and targetType == 1">
+                SELECT
+                1 AS targetType,
+                sd.target_id AS targetId,
+                COALESCE(NULLIF(p.title, ''), LEFT(p.content, 40)) AS title,
+                IF(CHAR_LENGTH(p.content) &gt; 120, CONCAT(LEFT(p.content, 120), '...'),
+                p.content) AS summary,
+                IFNULL(p.like_count, 0) AS likeCount,
+                IFNULL(p.comment_count, 0) AS commentCount,
+                IFNULL(p.view_count, 0) AS viewCount,
+                sd.published_at AS publishedAt
+                FROM search_doc sd
+                JOIN post p ON p.id = sd.target_id AND p.deleted_at IS NULL
+                WHERE sd.target_type = 1
+                AND sd.status = 1
+                AND MATCH(sd.search_text) AGAINST(#{keyword} IN BOOLEAN MODE)
+                <if test="lastPublishedAt != null and lastId != null">
+                    AND (
+                        sd.published_at &lt; #{lastPublishedAt}
+                        OR (sd.published_at = #{lastPublishedAt} AND sd.target_id &lt; #{lastId})
+                    )
+                </if>
+                ORDER BY sd.published_at DESC, sd.target_id DESC
+                LIMIT #{limit}
+            </when>
+            <when test="targetType != null and targetType == 2">
+                SELECT
+                2 AS targetType,
+                sd.target_id AS targetId,
+                a.title AS title,
+                IF(CHAR_LENGTH(CONCAT_WS(' ', a.location, a.content)) &gt; 120, CONCAT(LEFT(CONCAT_WS(' ', a.location,
+                a.content), 120), '...'), CONCAT_WS(' ', a.location, a.content)) AS summary,
+                IFNULL(a.like_count, 0) AS likeCount,
+                IFNULL(a.comment_count, 0) AS commentCount,
+                IFNULL(a.view_count, 0) AS viewCount,
+                sd.published_at AS publishedAt
+                FROM search_doc sd
+                JOIN activity a ON a.id = sd.target_id AND a.deleted_at IS NULL
+                WHERE sd.target_type = 2
+                AND sd.status = 1
+                AND MATCH(sd.search_text) AGAINST(#{keyword} IN BOOLEAN MODE)
+                <if test="lastPublishedAt != null and lastId != null">
+                    AND (
+                        sd.published_at &lt; #{lastPublishedAt}
+                        OR (sd.published_at = #{lastPublishedAt} AND sd.target_id &lt; #{lastId})
+                    )
+                </if>
+                ORDER BY sd.published_at DESC, sd.target_id DESC
+                LIMIT #{limit}
+            </when>
+            <otherwise>
+                SELECT *
+                FROM (
+                SELECT
+                1 AS targetType,
+                sd.target_id AS targetId,
+                COALESCE(NULLIF(p.title, ''), LEFT(p.content, 40)) AS title,
+                IF(CHAR_LENGTH(p.content) &gt; 120, CONCAT(LEFT(p.content, 120), '...'), p.content) AS summary,
+                IFNULL(p.like_count, 0) AS likeCount,
+                IFNULL(p.comment_count, 0) AS commentCount,
+                IFNULL(p.view_count, 0) AS viewCount,
+                sd.published_at AS publishedAt
+                FROM search_doc sd
+                JOIN post p ON p.id = sd.target_id AND p.deleted_at IS NULL
+                WHERE sd.target_type = 1
+                AND sd.status = 1
+                AND MATCH(sd.search_text) AGAINST(#{keyword} IN BOOLEAN MODE)
+
+                UNION ALL
+
+                SELECT
+                2 AS targetType,
+                sd.target_id AS targetId,
+                a.title AS title,
+                IF(CHAR_LENGTH(CONCAT_WS(' ', a.location, a.content)) &gt; 120, CONCAT(LEFT(CONCAT_WS(' ',
+                a.location, a.content), 120), '...'), CONCAT_WS(' ', a.location, a.content)) AS summary,
+                IFNULL(a.like_count, 0) AS likeCount,
+                IFNULL(a.comment_count, 0) AS commentCount,
+                IFNULL(a.view_count, 0) AS viewCount,
+                sd.published_at AS publishedAt
+                FROM search_doc sd
+                JOIN activity a ON a.id = sd.target_id AND a.deleted_at IS NULL
+                WHERE sd.target_type = 2
+                AND sd.status = 1
+                AND MATCH(sd.search_text) AGAINST(#{keyword} IN BOOLEAN MODE)
+                ) t
+                <where>
+                    <if test="lastPublishedAt != null and lastId != null">
+                        t.publishedAt &lt; #{lastPublishedAt}
+                        OR (t.publishedAt = #{lastPublishedAt} AND t.targetId &lt; #{lastId})
+                    </if>
+                </where>
+                ORDER BY t.publishedAt DESC, t.targetId DESC
+                LIMIT #{limit}
+            </otherwise>
+        </choose>
+    </select>
+
+    <select id="selectTabCounts" resultType="cn.jualn.miniapp.module.search.bo.SearchTabCountBO">
+        SELECT
+            sd.target_type AS targetType,
+            COUNT(*) AS count
+        FROM search_doc sd
+        WHERE sd.status = 1
+          AND MATCH(sd.search_text) AGAINST(#{keyword} IN BOOLEAN MODE)
+        GROUP BY sd.target_type
+        ORDER BY sd.target_type
+    </select>
+
+</mapper>
+

@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- ========== 公共属性 ========== -->
+    <property name="APP_NAME" value="${APP_NAME:-mini-app}"/>
+    <property name="LOG_DIR" value="${LOG_DIR:-/app/mini-app/logs}"/>
+    <property name="MAX_HISTORY" value="30"/>
+    <property name="TOTAL_SIZE" value="2GB"/>
+
+    <!-- 日志格式 -->
+    <!-- %d 时间  [%t] 线程  %-5level 级别  %logger{36} 类名缩写  %X{traceId} MDC  %msg 消息 -->
+    <property name="FILE_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} [%X{traceId}] - %msg%n"/>
+    <property name="CONSOLE_PATTERN"
+              value="%d{HH:mm:ss.SSS} [%t] %highlight(%-5level) %cyan(%logger{36}:%line) [%yellow(%X{traceId})] - %msg%n"/>
+
+    <!-- ========== dev 环境 ========== -->
+    <springProfile name="dev">
+
+        <!-- 控制台，dev 环境用 -->
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>${CONSOLE_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+
+        <!-- 业务代码 DEBUG，能看到所有日志 -->
+        <logger name="cn.jualn.miniapp" level="DEBUG" additivity="false">
+            <appender-ref ref="CONSOLE"/>
+        </logger>
+
+        <!-- MyBatis SQL 打印，开发时看 SQL -->
+        <logger name="cn.jualn.miniapp.module" level="DEBUG" additivity="false">
+            <appender-ref ref="CONSOLE"/>
+        </logger>
+
+        <!-- 队列相关 DEBUG -->
+        <logger name="cn.jualn.miniapp.infrastructure.queue" level="DEBUG" additivity="false">
+            <appender-ref ref="CONSOLE"/>
+        </logger>
+
+        <!-- 第三方库只打 WARN，不刷屏 -->
+        <logger name="com.baomidou" level="WARN"/>
+        <logger name="cn.dev33.satoken" level="WARN"/>
+        <logger name="org.springframework" level="WARN"/>
+        <logger name="io.lettuce" level="WARN"/>
+        <logger name="com.zaxxer.hikari" level="WARN"/>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+
+    </springProfile>
+
+
+    <!-- ========== prod 环境 ========== -->
+    <springProfile name="prod">
+
+        <!-- 全量日志文件，按天滚动 -->
+        <appender name="APP_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>${LOG_DIR}/${APP_NAME}.log</file>
+            <encoder>
+                <pattern>${FILE_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <fileNamePattern>${LOG_DIR}/${APP_NAME}.%d{yyyy-MM-dd}.log</fileNamePattern>
+                <maxHistory>${MAX_HISTORY}</maxHistory>
+                <totalSizeCap>${TOTAL_SIZE}</totalSizeCap>
+            </rollingPolicy>
+        </appender>
+
+        <!-- ERROR 单独文件，方便快速排查 -->
+        <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>${LOG_DIR}/${APP_NAME}-error.log</file>
+            <filter class="ch.qos.logback.classic.filter.LevelFilter">
+                <level>ERROR</level>
+                <onMatch>ACCEPT</onMatch>
+                <onMismatch>DENY</onMismatch>
+            </filter>
+            <encoder>
+                <pattern>${FILE_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <fileNamePattern>${LOG_DIR}/${APP_NAME}-error.%d{yyyy-MM-dd}.log</fileNamePattern>
+                <maxHistory>${MAX_HISTORY}</maxHistory>
+            </rollingPolicy>
+        </appender>
+
+        <!-- 队列消费日志单独文件，方便排查队列问题 -->
+        <appender name="QUEUE_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>${LOG_DIR}/${APP_NAME}-queue.log</file>
+            <encoder>
+                <pattern>${FILE_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <fileNamePattern>${LOG_DIR}/${APP_NAME}-queue.%d{yyyy-MM-dd}.log</fileNamePattern>
+                <maxHistory>15</maxHistory>   <!-- 队列日志保留15天够了 -->
+            </rollingPolicy>
+        </appender>
+
+        <!-- 异步包装，减少 I/O 对业务线程的影响 -->
+        <!-- APP_FILE 异步化 -->
+        <appender name="ASYNC_APP_FILE" class="ch.qos.logback.classic.AsyncAppender">
+            <queueSize>512</queueSize>
+            <!-- 队列剩余容量低于20%时不丢弃低级别日志，默认会丢 TRACE/DEBUG/INFO -->
+            <discardingThreshold>0</discardingThreshold>
+            <!-- 停机时最多等5秒让队列排空 -->
+            <maxFlushTime>5000</maxFlushTime>
+            <appender-ref ref="APP_FILE"/>
+        </appender>
+
+        <!-- ERROR_FILE 异步化 -->
+        <appender name="ASYNC_ERROR_FILE" class="ch.qos.logback.classic.AsyncAppender">
+            <queueSize>256</queueSize>
+            <discardingThreshold>0</discardingThreshold>
+            <maxFlushTime>5000</maxFlushTime>
+            <appender-ref ref="ERROR_FILE"/>
+        </appender>
+
+        <!-- QUEUE_FILE 异步化 -->
+        <appender name="ASYNC_QUEUE_FILE" class="ch.qos.logback.classic.AsyncAppender">
+            <queueSize>256</queueSize>
+            <discardingThreshold>0</discardingThreshold>
+            <maxFlushTime>5000</maxFlushTime>
+            <appender-ref ref="QUEUE_FILE"/>
+        </appender>
+
+
+        <!-- 业务代码 INFO -->
+        <logger name="cn.jualn.miniapp" level="INFO" additivity="false">
+            <appender-ref ref="ASYNC_APP_FILE"/>
+            <appender-ref ref="ASYNC_ERROR_FILE"/>
+        </logger>
+
+        <!-- 队列消费单独输出到 queue 文件，同时也进 app 文件 -->
+        <logger name="cn.jualn.miniapp.infrastructure.queue" level="INFO" additivity="false">
+            <appender-ref ref="ASYNC_QUEUE_FILE"/>
+            <appender-ref ref="ASYNC_APP_FILE"/>
+            <appender-ref ref="ASYNC_ERROR_FILE"/>
+        </logger>
+
+        <!-- 定时任务日志也进 queue 文件，方便一起排查 -->
+        <logger name="cn.jualn.miniapp.module.notify.task" level="INFO" additivity="false">
+            <appender-ref ref="ASYNC_QUEUE_FILE"/>
+            <appender-ref ref="ASYNC_APP_FILE"/>
+            <appender-ref ref="ASYNC_ERROR_FILE"/>
+        </logger>
+
+        <!-- 第三方库 WARN -->
+        <logger name="com.baomidou" level="WARN" additivity="false">
+            <appender-ref ref="ASYNC_APP_FILE"/>
+        </logger>
+        <logger name="cn.dev33.satoken" level="WARN" additivity="false">
+            <appender-ref ref="ASYNC_APP_FILE"/>
+        </logger>
+        <logger name="org.springframework" level="WARN" additivity="false">
+            <appender-ref ref="ASYNC_APP_FILE"/>
+        </logger>
+        <logger name="io.lettuce" level="WARN" additivity="false">
+            <appender-ref ref="ASYNC_APP_FILE"/>
+        </logger>
+
+        <root level="WARN">
+            <appender-ref ref="ASYNC_APP_FILE"/>
+            <appender-ref ref="ASYNC_ERROR_FILE"/>
+        </root>
+
+    </springProfile>
+
+</configuration>

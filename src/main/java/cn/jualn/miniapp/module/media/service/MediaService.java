@@ -1,0 +1,60 @@
+package cn.jualn.miniapp.module.media.service;
+
+import cn.jualn.miniapp.common.enums.MediaType;
+import cn.jualn.miniapp.common.enums.TargetType;
+import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
+import cn.jualn.miniapp.module.media.bo.MediaAttachmentSaveBO;
+import cn.jualn.miniapp.module.media.bo.MediaAttachmentSimpleBO;
+import cn.jualn.miniapp.third.cos.dto.CosUploadCredentialDTO;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 通用附件服务（服务层接口）。
+ *
+ * <p>约定：service 间只传 DTO，不直接传 Request/VO。</p>
+ */
+public interface MediaService {
+
+    /**
+     * 覆盖保存目标附件。
+     *
+     * <p>语义为全量覆盖：会先删除目标已有附件，再按传入列表重建。</p>
+     *
+    * @param saveDTO 附件保存 DTO
+     */
+    void replaceAttachments(MediaAttachmentSaveBO saveDTO);
+
+    /**
+     * 查询目标附件列表。
+     *
+     * @param targetType 目标类型：1-帖子 2-活动 3-考试信息
+     * @param targetId   目标 ID
+    * @return 按展示顺序排序后的附件 BO 列表
+     */
+    List<MediaAttachmentBO> listAttachments(TargetType targetType, Long targetId);
+
+    List<MediaAttachmentBO> listAttachments(MediaType mediaType, TargetType targetType, Long targetId);
+
+    List<MediaAttachmentSimpleBO> listSimpleAttachments(TargetType targetType, Long targetId);
+
+    Map<Long, List<MediaAttachmentSimpleBO>> batchListSimpleAttachments(TargetType targetType, Collection<Long> targetIds);
+
+    /**
+     * 删除单条附件。
+     *
+     * @param attachmentId 附件 ID
+     */
+    void removeAttachment(Long attachmentId);
+
+    /**
+     * 获取前端直传 COS 的 STS 上传凭证。
+     *
+     * @param targetType 目标类型：1-帖子 2-活动 3-考试信息
+     * @param fileNames   原始文件名
+     * @return 上传凭证信息
+     */
+    CosUploadCredentialDTO generateUploadCredential(TargetType targetType, List<String> fileNames);
+}

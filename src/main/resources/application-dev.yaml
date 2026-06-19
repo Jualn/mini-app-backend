@@ -1,0 +1,59 @@
+wx:
+  ma:
+    app-id: ${WX_MA_APP_ID}
+    app-secret: ${WX_MA_APP_SECRET}
+    token: ${WX_MA_TOKEN} # 消息推送的token 3-32 位字符英文或数字
+    encoding-aes-key: ${WX_MA_ENCODING_AES_KEY} # 消息推送的EncodingAESKey，43位字符组成
+
+  mp:
+    app-id: ${WX_MP_APP_ID}
+    app-secret: ${WX_MP_APP_SECRET}
+    # 还没启动服务号消息推送
+    token: 'pamtest'  # 消息推送的token 3-32 位字符英文或数字
+    encoding-aes-key: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+    domain: ${WX_MP_DOMAIN} # 公众号接口地址，必须以https开头，不能有结尾的斜杠
+
+
+cos:
+  secret-id: ${COS_SECRET_ID}
+  secret-key: ${COS_SECRET_KEY}
+  bucket: ${COS_BUCKET}
+  region: ${COS_REGION}
+  public-url-prefix: ${COS_PUBLIC_URL_PREFIX}
+  presign-expire-seconds: 1800
+  custom-domain: ${COS_CUSTOM_DOMAIN}
+
+sa-token:
+  jwt-secret-key: ${SA_JWT_SECRET_KEY}
+
+spring:
+  datasource:
+    username: ${MYSQL_USER}
+    password: ${MYSQL_PASSWORD}
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+# knife4j的增强配置，不需要增强可以不配
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+server:
+  address: 0.0.0.0
+  port: 8443
+  ssl:
+    key-store: file:ssl/test.jualn.cn.pfx
+    key-store-password: ${SSL_KEY_STORE_PASSWORD}
+    key-store-type: PKCS12
+
+# 当开发有启用 https 时，留一个8080 的 HTTP 端口，方便本地调试和测试，部署到生产环境时可以关闭这个端口
+http:
+  port: 8080
+
+deep-seek:
+  api-key: ${DEEP_SEEK_API_KEY}

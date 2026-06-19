@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+    <meta name="format-detection" content="telephone=no,email=no,address=no"/>
+    <title>服务号通知</title>
+
+    <!-- wx-open-subscribe 依赖微信 JS-SDK，并且 wx.config 必须配置 openTagList -->
+    <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
+
+    <style>
+        :root {
+            --primary: #07c160;
+            --bg: #f7f8fa;
+            --text: #1f2329;
+            --sub-text: #646a73;
+            --weak-text: #8f959e;
+            --border: #edf0f3;
+            --danger: #fa5151;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+        }
+
+        .page {
+            min-height: 100vh;
+            padding: 24px 18px calc(24px + env(safe-area-inset-bottom));
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 16px;
+            padding: 24px 20px 20px;
+            box-shadow: 0 6px 20px rgba(31, 35, 41, 0.04);
+        }
+
+        .icon {
+            width: 52px;
+            height: 52px;
+            margin-bottom: 16px;
+            border-radius: 16px;
+            background: rgba(7, 193, 96, 0.12);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+        }
+
+        .title {
+            margin: 0 0 8px;
+            font-size: 22px;
+            line-height: 1.35;
+            font-weight: 700;
+        }
+
+        .desc {
+            margin: 0 0 20px;
+            font-size: 14px;
+            line-height: 1.7;
+            color: var(--sub-text);
+        }
+
+        .notice-list {
+            margin: 0 0 24px;
+            padding: 0;
+            list-style: none;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .notice-list li {
+            display: flex;
+            align-items: center;
+            min-height: 42px;
+            font-size: 15px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .notice-list li:last-child {
+            border-bottom: none;
+        }
+
+        .dot {
+            width: 7px;
+            height: 7px;
+            margin-right: 10px;
+            border-radius: 50%;
+            background: var(--primary);
+            flex: 0 0 auto;
+        }
+
+        /*
+         * 关键：
+         * 1. subscribe 模式下，wx-open-subscribe 外层标签必须一直在 DOM 中。
+         * 2. 不要在 wx.config / wx.ready 前 display:none。
+         * 3. 微信开放标签对 display:none 初始化很敏感，容易导致按钮不显示。
+         */
+        wx-open-subscribe#subscribe-btn {
+            display: block;
+            width: 100%;
+            height: 46px;
+            min-height: 46px;
+            visibility: hidden;
+        }
+
+        .fallback-btn,
+        .back-btn,
+        .retry-btn {
+            width: 100%;
+            height: 46px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            line-height: 46px;
+            text-align: center;
+        }
+
+        .fallback-btn {
+            display: block;
+            color: #fff;
+            background: #c9cdd4;
+        }
+
+        .retry-btn {
+            display: none;
+            margin-top: 10px;
+            color: #fff;
+            background: var(--primary);
+        }
+
+        .back-btn {
+            display: none;
+            margin-top: 10px;
+            color: var(--primary);
+            background: rgba(7, 193, 96, 0.08);
+        }
+
+        .tips {
+            margin-top: 16px;
+            font-size: 13px;
+            line-height: 1.65;
+            color: var(--weak-text);
+        }
+
+        .status {
+            min-height: 22px;
+            margin-top: 14px;
+            font-size: 14px;
+            line-height: 1.6;
+            text-align: center;
+            color: var(--weak-text);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .status.success {
+            color: var(--primary);
+        }
+
+        .status.error {
+            color: var(--danger);
+        }
+
+        .debug {
+            display: none;
+            margin-top: 12px;
+            padding: 10px;
+            border-radius: 8px;
+            background: #f2f3f5;
+            color: #646a73;
+            font-size: 12px;
+            line-height: 1.5;
+            word-break: break-all;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+
+<body>
+<div class="page">
+    <div class="card">
+        <div id="page-icon" class="icon">🔔</div>
+
+        <h1 id="page-title" class="title">开启服务号通知</h1>
+
+        <p id="page-desc" class="desc">
+            开启后，校园社区会通过服务号提醒你，不错过评论、回复和活动消息。
+        </p>
+
+        <ul id="notice-list" class="notice-list">
+            <li><span class="dot"></span><span>正在加载通知类型...</span></li>
+        </ul>
+
+        <!--
+          订阅按钮：
+          1. 不动态创建 wx-open-subscribe。
+          2. subscribe 模式下，在 wx.config 前通过 JS 设置 template。
+          3. bind-success / unbound 模式不会初始化 wx.config，也不会显示该按钮。
+        -->
+        <wx-open-subscribe
+                id="subscribe-btn"
+                template=""
+                style="display:block;width:100%;height:46px;min-height:46px;visibility:hidden;"
+        >
+            <script type="text/wxtag-template">
+                <style>
+                    .subscribe-btn {
+                        width: 100%;
+                        height: 46px;
+                        border: none;
+                        border-radius: 10px;
+                        color: #fff;
+                        background-color: #07c160;
+                        font-size: 16px;
+                        font-weight: 500;
+                    }
+                </style>
+
+                <button class="subscribe-btn">开启通知</button>
+            </script>
+        </wx-open-subscribe>
+
+        <button id="loading-btn" class="fallback-btn">正在加载微信环境...</button>
+        <button id="retry-btn" class="retry-btn">重新加载</button>
+        <button id="back-btn" class="back-btn">返回小程序</button>
+
+        <div id="tips" class="tips">
+            提示：请在微信内打开本页面。开启后，服务号通知会通过公众号会话或服务通知送达。
+        </div>
+
+        <div id="status" class="status"></div>
+        <pre id="debug" class="debug"></pre>
+    </div>
+</div>
+
+<script>
+    /**
+     * 服务号通知 H5。
+     *
+     * 这个页面不是单一绑定页，而是三种模式共用：
+     *
+     * 1. mode=bind-success
+     *    小程序通知设置页完成服务号 openid 绑定后展示。
+     *    不出现 wx-open-subscribe。
+     *
+     * 2. mode=unbound
+     *    用户从服务号菜单进入，但 mpOpenid 没有绑定 userId 时展示。
+     *    不出现 wx-open-subscribe。
+     *
+     * 3. mode=subscribe&state=xxx
+     *    用户从服务号菜单进入，并且后端已根据 mpOpenid 查到 userId。
+     *    展示 wx-open-subscribe，用户点击“开启通知”。
+     */
+    (function () {
+        var JS_SDK_CONFIG_API = '/third/wx/js-sdk-config';
+        var SUBSCRIBE_RESULT_API = '/third/wx/mp-notice-subscribe/result';
+        var TEMPLATES_API = '/third/wx/mp-notice-subscribe/templates';
+
+        var mode = getQuery('mode') || 'subscribe';
+        var state = getQuery('state');
+        var debugMode = getQuery('debug') === '1';
+
+        var pageIcon = document.getElementById('page-icon');
+        var pageTitle = document.getElementById('page-title');
+        var pageDesc = document.getElementById('page-desc');
+        var tipsEl = document.getElementById('tips');
+
+        var subscribeBtn = document.getElementById('subscribe-btn');
+        var loadingBtn = document.getElementById('loading-btn');
+        var retryBtn = document.getElementById('retry-btn');
+        var backBtn = document.getElementById('back-btn');
+        var statusEl = document.getElementById('status');
+        var debugEl = document.getElementById('debug');
+        var noticeList = document.getElementById('notice-list');
+
+        var templateIds = [];
+        var eventsBound = false;
+        var wxConfigStarted = false;
+
+        bootstrap();
+
+        async function bootstrap() {
+            try {
+                if (debugMode) {
+                    debugEl.style.display = 'block';
+                }
+
+                resetPageBeforeLoad();
+
+                debug('userAgent', window.navigator.userAgent || '');
+                debug('location.href', window.location.href);
+                debug('mode', mode);
+                debug('state', state || '(empty)');
+
+                if (mode === 'bind-success') {
+                    renderBindSuccessPage();
+                    return;
+                }
+
+                if (mode === 'unbound') {
+                    renderUnboundPage();
+                    return;
+                }
+
+                if (mode !== 'subscribe') {
+                    fail('页面模式错误，请重新打开页面。');
+                    return;
+                }
+
+                if (!state) {
+                    fail('页面参数缺失，请从服务号菜单重新打开。');
+                    return;
+                }
+
+                if (!isWechat()) {
+                    fail('请在微信内打开该页面。当前不是微信内置浏览器环境。');
+                    return;
+                }
+
+                if (!window.wx) {
+                    fail('微信 JS-SDK 未加载，请检查 jweixin-1.6.0.js 是否能正常访问。');
+                    return;
+                }
+
+                renderSubscribeLoadingPage();
+
+                setStatus('正在加载通知模板...');
+                await loadTemplates();
+
+                setStatus('正在初始化微信环境...');
+                await initWxConfig();
+
+                bindEvents();
+
+                loadingBtn.style.display = 'none';
+                retryBtn.style.display = 'none';
+                showSubscribeButton();
+
+                setStatus('');
+
+                setTimeout(function () {
+                    debugSubscribeRect('after show');
+                }, 300);
+            } catch (err) {
+                console.error('页面初始化失败:', err);
+                debug('bootstrap error', err && err.message ? err.message : err);
+                fail(err && err.message ? err.message : '页面初始化失败，请返回后重试。');
+            }
+        }
+
+        function resetPageBeforeLoad() {
+            subscribeBtn.style.visibility = 'hidden';
+
+            loadingBtn.style.display = 'block';
+            loadingBtn.textContent = '正在加载微信环境...';
+
+            retryBtn.style.display = 'none';
+            backBtn.style.display = 'none';
+
+            setStatus('');
+        }
+
+        /**
+         * 小程序绑定成功页。
+         *
+         * 这个页面只说明“已绑定”，不拉起订阅。
+         */
+        function renderBindSuccessPage() {
+            document.title = '服务号绑定成功';
+
+            pageIcon.textContent = '✅';
+            pageTitle.textContent = '服务号绑定成功';
+
+            pageDesc.textContent = '你已完成小程序账号与服务号的绑定。之后可以在服务号菜单中点击“开启通知”，接收评论、回复、活动等重要提醒。';
+
+            noticeList.style.display = 'none';
+            subscribeBtn.style.display = 'none';
+            loadingBtn.style.display = 'none';
+            retryBtn.style.display = 'none';
+
+            backBtn.textContent = '返回小程序';
+            backBtn.style.display = 'block';
+            backBtn.onclick = backToMiniProgram;
+
+            tipsEl.textContent = '提示：绑定成功只代表已完成身份关联，是否接收服务号通知还需要在服务号菜单中点击“开启通知”。';
+
+            setStatus('绑定成功', 'success');
+        }
+
+        /**
+         * 服务号菜单未绑定兜底页。
+         *
+         * 用户从服务号菜单进入，但后端查不到 userId 时展示。
+         * 不要让用户先点 wx-open-subscribe 再发现没绑定。
+         */
+        function renderUnboundPage() {
+            document.title = '请先绑定小程序账号';
+
+            pageIcon.textContent = '🔗';
+            pageTitle.textContent = '请先绑定小程序账号';
+
+            pageDesc.textContent = '为了把服务号通知发送给你本人，请先回到小程序，在“通知设置”中完成服务号绑定。';
+
+            noticeList.style.display = 'none';
+            subscribeBtn.style.display = 'none';
+            loadingBtn.style.display = 'none';
+            retryBtn.style.display = 'none';
+
+            backBtn.textContent = '我知道了';
+            backBtn.style.display = 'block';
+            backBtn.onclick = closeWechatPageOrBack;
+
+            tipsEl.textContent = '提示：完成绑定后，再从服务号菜单点击“开启通知”。';
+
+            setStatus('');
+        }
+
+        /**
+         * 服务号菜单开启通知页。
+         *
+         * 只有这个模式会显示 wx-open-subscribe。
+         */
+        function renderSubscribeLoadingPage() {
+            document.title = '开启服务号通知';
+
+            pageIcon.textContent = '🔔';
+            pageTitle.textContent = '开启服务号通知';
+
+            pageDesc.textContent = '开启后，校园社区会通过服务号提醒你，不错过评论、回复和活动消息。';
+
+            noticeList.style.display = 'block';
+            subscribeBtn.style.display = 'block';
+
+            tipsEl.textContent = '提示：请在微信内打开本页面。开启后，服务号通知会通过公众号会话或服务通知送达。';
+        }
+
+        async function loadTemplates() {
+            var res = await fetch(TEMPLATES_API, {
+                method: 'GET',
+                credentials: 'same-origin'
+            });
+
+            if (!res.ok) {
+                throw new Error('加载通知模板失败：HTTP ' + res.status);
+            }
+
+            var templates = await res.json();
+
+            debug('templates raw', templates);
+
+            if (!Array.isArray(templates)) {
+                throw new Error('通知模板接口返回格式错误，应该返回数组。');
+            }
+
+            if (!templates.length) {
+                throw new Error('暂无可订阅的通知模板，请检查 wx.mp.notice-templates 配置。');
+            }
+
+            templateIds = templates
+                .map(function (item) {
+                    return item && item.templateId;
+                })
+                .filter(function (templateId) {
+                    return !!templateId;
+                });
+
+            if (!templateIds.length) {
+                throw new Error('通知模板 ID 为空，请检查后端模板配置。');
+            }
+
+            /*
+             * 调试建议：
+             * 如果按钮不显示，先只放一个模板。
+             * 确认一个模板能显示 / 能弹窗后，再恢复多个模板。
+             */
+            // templateIds = templateIds.slice(0, 1);
+
+            var templateText = templateIds.join(',');
+
+            /*
+             * 关键：
+             * 在 wx.config 之前设置 template。
+             * 不建议继续写死在 HTML 上，否则后端模板配置变了，H5 还要同步改。
+             */
+            subscribeBtn.setAttribute('template', templateText);
+
+            noticeList.innerHTML = templates
+                .map(function (item) {
+                    return '<li><span class="dot"></span><span>' + escapeHtml(item.name || item.type || '通知') + '</span></li>';
+                })
+                .join('');
+
+            debug('templateIds', templateIds);
+            debug('subscribe template attr', subscribeBtn.getAttribute('template'));
+        }
+
+        function initWxConfig() {
+            return new Promise(function (resolve, reject) {
+                if (wxConfigStarted) {
+                    reject(new Error('微信 JS-SDK 正在初始化，请不要重复点击。'));
+                    return;
+                }
+
+                wxConfigStarted = true;
+
+                var currentUrl = window.location.href.split('#')[0];
+                var apiUrl = JS_SDK_CONFIG_API + '?url=' + encodeURIComponent(currentUrl);
+
+                debug('js-sdk sign url', currentUrl);
+                debug('js-sdk config api', apiUrl);
+
+                fetch(apiUrl, {
+                    method: 'GET',
+                    credentials: 'same-origin'
+                })
+                    .then(checkResponse)
+                    .then(function (config) {
+                        debug('js sdk config response', config);
+
+                        if (!config || !config.appId || !config.timestamp || !config.nonceStr || !config.signature) {
+                            reject(new Error('微信 JS-SDK 配置返回不完整。'));
+                            return;
+                        }
+
+                        window.wx.config({
+                            debug: debugMode,
+                            appId: config.appId,
+                            timestamp: config.timestamp,
+                            nonceStr: config.nonceStr,
+                            signature: config.signature,
+                            jsApiList: [],
+                            openTagList: ['wx-open-subscribe']
+                        });
+
+                        window.wx.ready(function () {
+                            debug('wx ready', 'ok');
+                            resolve();
+                        });
+
+                        window.wx.error(function (err) {
+                            debug('wx config error', err);
+                            reject(new Error('微信环境初始化失败：请检查 JS接口安全域名、appId、签名 URL 是否一致。\n'+
+                                JSON.stringify(err)));
+                        });
+                    })
+                    .catch(function (err) {
+                        debug('config request error', err && err.message ? err.message : err);
+                        reject(err);
+                    });
+            });
+        }
+
+        function bindEvents() {
+            if (eventsBound) {
+                return;
+            }
+
+            eventsBound = true;
+
+            subscribeBtn.addEventListener('click', function () {
+                debug('subscribe host click', 'clicked');
+                debugSubscribeRect('on click');
+            }, true);
+
+            subscribeBtn.addEventListener('success', function (event) {
+                var detail = normalizeEventDetail(event);
+                var summary = parseSubscribeSummary(detail);
+                var reportDetail = {
+                    eventDetail: detail,
+                    summary: summary
+                };
+
+                debug('subscribe success detail', detail);
+                debug('subscribe summary', summary);
+
+                if (summary.accepted.length > 0) {
+                    var message = summary.rejected.length || summary.canceled.length || summary.filtered.length
+                        ? '已开启部分通知，部分通知未授权。'
+                        : '服务号通知已开启。';
+
+                    setStatus(message, 'success');
+
+                    backBtn.textContent = '完成';
+                    backBtn.style.display = 'block';
+                    backBtn.onclick = closeWechatPageOrBack;
+
+                    reportSubscribeResult(true, reportDetail, null);
+                    return;
+                }
+
+                var reason = buildSubscribeRejectMessage(summary);
+
+                setStatus(reason, 'error');
+
+                backBtn.textContent = '我知道了';
+                backBtn.style.display = 'block';
+                backBtn.onclick = closeWechatPageOrBack;
+
+                reportSubscribeResult(false, reportDetail, reason);
+            });
+
+            subscribeBtn.addEventListener('error', function (event) {
+                var detail = normalizeEventDetail(event);
+                var message = buildSubscribeErrorMessage(detail);
+
+                debug('subscribe error detail', detail);
+
+                setStatus(message, 'error');
+
+                backBtn.textContent = '我知道了';
+                backBtn.style.display = 'block';
+                backBtn.onclick = closeWechatPageOrBack;
+
+                reportSubscribeResult(false, detail, message);
+            });
+
+            retryBtn.addEventListener('click', function () {
+                window.location.reload();
+            });
+
+            backBtn.addEventListener('click', closeWechatPageOrBack);
+        }
+
+        function normalizeEventDetail(event) {
+            if (!event || !event.detail) {
+                return {};
+            }
+            return event.detail;
+        }
+
+        function parseSubscribeSummary(detail) {
+            var summary = {
+                accepted: [],
+                rejected: [],
+                canceled: [],
+                filtered: [],
+                unknown: []
+            };
+
+            if (!detail || detail.errMsg !== 'subscribe:ok') {
+                summary.unknown = templateIds.slice();
+                return summary;
+            }
+
+            var subscribeDetails = parseMaybeJson(detail.subscribeDetails) || {};
+
+            templateIds.forEach(function (templateId) {
+                var item = subscribeDetails[templateId];
+                item = parseMaybeJson(item) || item || {};
+
+                var status = typeof item === 'string' ? item : item.status;
+
+                if (status === 'accept') {
+                    summary.accepted.push(templateId);
+                } else if (status === 'reject') {
+                    summary.rejected.push(templateId);
+                } else if (status === 'cancel') {
+                    summary.canceled.push(templateId);
+                } else if (status === 'filter') {
+                    summary.filtered.push(templateId);
+                } else {
+                    summary.unknown.push(templateId);
+                }
+            });
+
+            return summary;
+        }
+
+        function parseMaybeJson(value) {
+            if (typeof value !== 'string') {
+                return value;
+            }
+
+            try {
+                return JSON.parse(value);
+            } catch (e) {
+                return value;
+            }
+        }
+
+        function buildSubscribeRejectMessage(summary) {
+            if (summary.rejected.length) {
+                return '你已拒绝订阅，请在公众号通知设置中开启后重试。';
+            }
+
+            if (summary.canceled.length) {
+                return '你已取消订阅，请重新点击开启通知。';
+            }
+
+            if (summary.filtered.length) {
+                return '订阅失败：模板标题重复或被微信过滤，请检查公众号模板配置。';
+            }
+
+            return '未获取到订阅授权结果，请重试。';
+        }
+
+        function buildSubscribeErrorMessage(detail) {
+            var code = detail && detail.errCode ? String(detail.errCode) : '';
+
+            var map = {
+                '10001': '订阅失败：模板参数为空。',
+                '10002': '订阅失败：网络异常，获取模板列表失败。',
+                '10003': '订阅失败：网络异常，请重试。',
+                '10004': '订阅失败：模板 ID 参数错误。',
+                '20001': '订阅失败：模板不存在或模板类型不匹配。',
+                '20002': '订阅失败：一次性和长期模板不能混用。',
+                '20003': '订阅失败：模板数量超过微信限制。',
+                '20004': '订阅失败：用户关闭了订阅消息总开关。',
+                '20005': '订阅失败：服务号状态异常或被封禁。'
+            };
+
+            return map[code] || ('订阅失败，请稍后重试' + (code ? '（错误码：' + code + '）' : '。'));
+        }
+
+        function reportSubscribeResult(success, detail, error) {
+            return fetch(SUBSCRIBE_RESULT_API, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({
+                    state: state,
+                    success: success,
+                    detail: detail,
+                    error: error
+                })
+            })
+                .then(function (res) {
+                    if (!res.ok) {
+                        debug('report failed', 'HTTP ' + res.status);
+                    }
+                })
+                .catch(function (err) {
+                    debug('report error', err && err.message ? err.message : err);
+                });
+        }
+
+        function backToMiniProgram() {
+            try {
+                if (window.wx && window.wx.miniProgram) {
+                    window.wx.miniProgram.navigateBack();
+                    return;
+                }
+            } catch (e) {
+                debug('miniProgram navigateBack error', e && e.message ? e.message : e);
+            }
+
+            if (window.history.length > 1) {
+                window.history.back();
+            }
+        }
+
+        function closeWechatPageOrBack() {
+            try {
+                if (window.WeixinJSBridge) {
+                    window.WeixinJSBridge.call('closeWindow');
+                    return;
+                }
+            } catch (e) {
+                debug('closeWindow error', e && e.message ? e.message : e);
+            }
+
+            if (window.history.length > 1) {
+                window.history.back();
+                return;
+            }
+
+            setStatus('请手动关闭当前页面。');
+        }
+
+        function fail(message) {
+            subscribeBtn.style.visibility = 'hidden';
+
+            loadingBtn.style.display = 'none';
+
+            retryBtn.style.display = 'block';
+
+            backBtn.textContent = '我知道了';
+            backBtn.style.display = 'block';
+            backBtn.onclick = closeWechatPageOrBack;
+
+            setStatus(message, 'error');
+        }
+
+        function showSubscribeButton() {
+            subscribeBtn.style.display = 'block';
+            subscribeBtn.style.width = '100%';
+            subscribeBtn.style.height = '46px';
+            subscribeBtn.style.minHeight = '46px';
+            subscribeBtn.style.visibility = 'visible';
+        }
+
+        function debugSubscribeRect(label) {
+            var rect = subscribeBtn.getBoundingClientRect();
+            var style = window.getComputedStyle(subscribeBtn);
+
+            debug('subscribe rect ' + label, {
+                width: rect.width,
+                height: rect.height,
+                top: rect.top,
+                left: rect.left,
+                display: style.display,
+                visibility: style.visibility,
+                template: subscribeBtn.getAttribute('template')
+            });
+        }
+
+        function getQuery(name) {
+            var params = new URLSearchParams(window.location.search);
+            return params.get(name) || '';
+        }
+
+        function isWechat() {
+            return /MicroMessenger/i.test(window.navigator.userAgent || '');
+        }
+
+        function checkResponse(res) {
+            if (!res.ok) {
+                throw new Error('HTTP ' + res.status);
+            }
+
+            return res.json();
+        }
+
+        function setStatus(text, type) {
+            statusEl.textContent = text || '';
+            statusEl.className = 'status' + (type ? ' ' + type : '');
+        }
+
+        function escapeHtml(text) {
+            return String(text || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function debug(label, data) {
+            if (!debugMode) {
+                return;
+            }
+
+            var text;
+
+            try {
+                text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+            } catch (e) {
+                text = String(data);
+            }
+
+            debugEl.textContent += '[' + label + '] ' + text + '\n';
+        }
+    })();
+</script>
+</body>
+</html>

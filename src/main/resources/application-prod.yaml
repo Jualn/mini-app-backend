@@ -1,0 +1,38 @@
+wx:
+  ma:
+    app-id: ${WX_MA_APP_ID}
+    app-secret: ${WX_MA_APP_SECRET}
+    token: ${WX_MA_TOKEN}
+    encoding-aes-key: ${WX_MA_ENCODING_AES_KEY}
+
+  mp:
+    app-id: ${WX_MP_APP_ID}
+    app-secret: ${WX_MP_APP_SECRET}
+    token: ${WX_MP_TOKEN}
+    encoding-aes-key: ${WX_MP_ENCODING_AES_KEY}
+    domain: ${WX_MP_DOMAIN}
+
+cos:
+  secret-id: ${COS_SECRET_ID}
+  secret-key: ${COS_SECRET_KEY}
+  bucket: ${COS_BUCKET}
+  region: ${COS_REGION}
+  public-url-prefix: ${COS_PUBLIC_URL_PREFIX}
+  presign-expire-seconds: 1800
+  custom-domain: ${COS_CUSTOM_DOMAIN}
+
+deep-seek:
+  api-key: ${DEEP_SEEK_API_KEY}
+
+sa-token:
+  jwt-secret-key: ${SA_TOKEN_JWT_SECRET_KEY}
+
+spring:
+  datasource:
+    username: ${MYSQL_USER}
+    password: ${MYSQL_PASSWORD}
+    url: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?sslMode=DISABLED&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+  data:
+    redis:
+      host: redis
+      password: ${REDIS_PASSWORD}

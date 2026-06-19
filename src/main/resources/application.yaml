@@ -1,0 +1,227 @@
+sa-token:
+  token-name: Authorization # token 名称，默认 Authorization
+  token-prefix: Bearer      # token 前缀，默认为空字符串
+  timeout: 2592000          # token 有效期 30 天（秒）
+  is-concurrent: true       # 允许多端同时登录
+  is-share: false           # 每次登录生成新 token
+  token-style: uuid
+  is-print: false
+  cookie-auto-fill-prefix: true # 自动填充 token 前缀, 没开启就添加前缀的话cookie就认证不成功
+
+mybatis-plus:
+  global-config:
+    banner: false
+    db-config:
+      logic-delete-field: deletedAt # logical delete field
+      logic-delete-value: "NOW()" # value used when deleting
+      logic-not-delete-value: "NULL" # value used when not deleted
+      id-type: auto # auto-increment primary key strategy
+  mapper-locations: classpath*:/mapper/*.xml
+  type-aliases-package: cn.jualn.miniapp.module.*.entity
+  configuration:
+    map-underscore-to-camel-case: true
+
+server:
+  port: 8080
+  # 让 Spring Boot 正确识别 Nginx 转发过来的 HTTPS、真实 IP 等信息
+  forward-headers-strategy: framework
+
+  # 压缩配置，提升性能，减少带宽占用
+  compression:
+    enabled: true # 启用响应压缩
+    min-response-size: 1024 # 只有响应体大于 1KB 的才压缩
+    mime-types: # 压缩以下类型的响应
+      - text/html # 压缩 HTML 内容
+      - text/css # 压缩 CSS 文件
+      - application/javascript # 压缩 JavaScript 文件
+      - application/json # 压缩 JSON 数据
+      - application/xml # 压缩 XML 数据
+      - image/svg+xml # 压缩 SVG 图像
+      - text/plain # 压缩纯文本内容
+
+spring:
+  application:
+    name: mini-app
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev} # 默认使用 dev 配置
+  main:
+    banner-mode: off
+    # 明确指定为 Servlet 应用，避免被误判为 Reactive 应用导致启动 Netty 服务器 跟Tomcat冲突无法启动
+    web-application-type: servlet
+  # Jackson global settings (overridden by JacksonConfig.java if needed)
+  Jackson:
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      timeout: 15s  # 最大等待 redis 响应时间，也就是执行 redis 指令后，10s后没有响应结果就报错
+      connect-timeout: 5s # 客户端与 redis 建立连接的最大等待时间
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 6
+          min-idle: 2
+          max-wait: 1500ms # 从连接池获取可用连接的最大等待时间
+  datasource:
+    #    关闭 SSL 连接（避免控制台报警告） 连接数据库时初始化字符集 Java 端用 UTF-8 编码即可安全存储 Emoji 等字符。JDBC 驱动会自动做编码转换
+    url: jdbc:mysql://localhost:3306/jualncampus?sslMode=DISABLED&serverTimezone=Asia/Shanghai
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      minimum-idle: 5       # 最小空闲连接
+      maximum-pool-size: 10 # 最大连接数
+      connection-timeout: 30000 # 获取连接超时 30s
+      idle-timeout: 600000      # 空闲 10 分钟释放
+      max-lifetime: 1800000     # 连接最大寿命 30 分钟
+      auto-commit: true
+
+wx:
+  mp:
+    notice-templates:
+      audit-result:
+        type: audit_result
+        name: 审核结果通知
+        template-id: R7Eowu1hJGBxAAK3el4WK9iU6QYv9PuHp5vVQ9d_bi4
+        enabled: true
+        subscribe-visible: true
+        page-path: /pages/index/index
+
+        fields:
+          thing5:
+            name: 审核内容
+            source: auditContent
+            required: true
+            max-length: 20
+            formatter: text
+
+          phrase1:
+            name: 审核结果
+            source: auditResult
+            required: true
+            default-value: 拒绝
+            formatter: text
+
+          thing16:
+            name: 未通过原因
+            source: auditReason
+            required: true
+            default-value: 存在违规内容
+            max-length: 20
+            formatter: text
+
+          date4:
+            name: 审核时间
+            source: auditTime
+            required: true
+            formatter: datetime
+
+      comment-reply:
+        type: comment_reply
+        name: 评论回复通知
+        template-id: zzmihiosaF4UVKQxeY_wakMcfQPpMnP_j1lLqMEzVug
+        enabled: true
+        subscribe-visible: true
+        page-path: /subpkg_community/pages/detail/detail?postId={postId}
+
+        fields:
+          thing6:
+            name: 帖子内容
+            source: postTitle
+            required: true
+            max-length: 20
+            formatter: text
+
+          thing5:
+            name: 评论用户
+            source: replyUserName
+            required: false
+            default-value: 同学
+            max-length: 20
+            formatter: text
+
+          thing2:
+            name: 评论内容
+            source: replyContent
+            required: true
+            max-length: 20
+            formatter: text
+
+          time3:
+            name: 评论时间
+            source: replyTime
+            required: true
+            formatter: datetime
+
+      activity-start:
+        type: activity_start
+        name: 活动开始提醒
+        template-id: aqm21k-qtN07pIGKqyXyHNeIMjyWQA07BDcu2i-f_bM
+        enabled: true
+        subscribe-visible: true
+        page-path: /subpkg_activity/pages/detail/detail?activityId={activityId}
+
+        fields:
+          thing1:
+            name: 活动名称
+            source: activityTitle
+            required: true
+            max-length: 20
+            formatter: text
+
+          date2:
+            name: 活动时间
+            source: startTime
+            required: true
+            formatter: datetime
+
+          thing8:
+            name: 活动地点
+            source: location
+            required: false
+            default-value: 详见活动页
+            max-length: 20
+            formatter: text
+
+      reply:
+        type: reply
+        name: 新的回复提醒
+        template-id: 02lmG8krB2briz6jtYUkKo1AtKjwkDrWo5vAj19s0ZQ
+        enabled: true
+        subscribe-visible: true
+        page-path: /pages/index/index
+
+        fields:
+          thing8:
+            name: 原文内容
+            source: originalContent
+            required: true
+            max-length: 20
+            formatter: text
+
+          thing12:
+            name: 回复者
+            source: replyUserName
+            required: false
+            default-value: 同学
+            max-length: 20
+            formatter: text
+
+          thing2:
+            name: 回复内容
+            source: replyContent
+            required: true
+            max-length: 20
+            formatter: text
+
+          date3:
+            name: 回复时间
+            source: replyTime
+            required: true
+            formatter: datetime

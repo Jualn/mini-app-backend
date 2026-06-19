@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.activity.mapper.ActivityMapper">
+
+    <select id="selectByIdNotDeleted" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
+        SELECT id, user_id,title,content,location,category,organizer,audience_scope,contact_info,
+            join_method,qrcode_url,start_time,end_time,enroll_deadline,max_participants,comment_count,
+            like_count,view_count,published_at,
+            <![CDATA[
+            CASE
+                WHEN NOW() < enroll_deadline THEN 2
+                WHEN NOW() >= start_time AND NOW() < end_time THEN 3
+                WHEN NOW() >= end_time THEN 4
+                WHEN status = 5 THEN 5
+                ELSE 0
+            END AS status
+            ]]>
+        FROM activity
+        WHERE id = #{activityId}
+          AND deleted_at IS NULL
+    </select>
+
+    <select id="selectByIdAndUserId" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
+        SELECT *
+        FROM activity
+        WHERE id = #{activityId}
+          AND user_id = #{userId}
+          AND deleted_at IS NULL
+    </select>
+
+    <select id="selectPageActivities" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
+        SELECT id, title, category, organizer, audience_scope, enroll_deadline, published_at,
+            location,max_participants,
+            <![CDATA[
+                CASE
+                    WHEN NOW() < enroll_deadline THEN 2
+                    WHEN NOW() >= start_time AND NOW() < end_time THEN 3
+                    WHEN NOW() >= end_time THEN 4
+                    WHEN status = 5 THEN 5
+                    ELSE 0
+                END AS status
+            ]]>
+        FROM activity
+        WHERE status = #{status}
+          AND deleted_at IS NULL
+        <if test="category != null">
+            AND category = #{category}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND MATCH(title, content, organizer) AGAINST(#{keyword} IN BOOLEAN MODE)
+        </if>
+        <if test="lastId != null">
+            AND id &lt; #{lastId}
+        </if>
+        ORDER BY id, published_at DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>
