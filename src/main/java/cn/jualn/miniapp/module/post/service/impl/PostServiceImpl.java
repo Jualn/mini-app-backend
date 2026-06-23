@@ -9,9 +9,12 @@ import cn.jualn.miniapp.common.result.PageResult;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.infrastructure.queue.contract.QueueProducer;
+import cn.jualn.miniapp.module.audit.bo.AuditReserveBO;
+import cn.jualn.miniapp.module.audit.bo.AuditReserveResultBO;
 import cn.jualn.miniapp.module.audit.enums.AuditStatus;
 import cn.jualn.miniapp.module.audit.payload.AuditMediaBatchPayload;
 import cn.jualn.miniapp.module.audit.payload.AuditTextPayload;
+import cn.jualn.miniapp.module.audit.service.AuditService;
 import cn.jualn.miniapp.module.interact.bo.UserLikeBO;
 import cn.jualn.miniapp.module.interact.dto.inner.UserLikeQuery;
 import cn.jualn.miniapp.module.interact.service.InteractService;
@@ -61,6 +64,10 @@ public class PostServiceImpl implements PostService {
 
     private static final Integer DEFAULT_PAGE_SIZE = 20;
     private static final Integer MAX_PAGE_SIZE = 50;
+    // TODO 如果后续发现 PENDING 帖子积压较多，
+    //      再增加定时任务扫描超时 PENDING 帖子并下架或迁移到 PostMapper.xml 优化查询。
+    private static final long PENDING_AUDIT_VISIBLE_MINUTES = 10;
+
 
     private final PostMapper postMapper;
     private final PostConverter postConverter;
@@ -69,6 +76,7 @@ public class PostServiceImpl implements PostService {
     private final RedisService redisService;
     private final QueueProducer queueProducer;
     private final InteractService interactService;
+    private final AuditService auditService;
 
     /**
      * 创建帖子并按需写入图片附件。
@@ -81,16 +89,19 @@ public class PostServiceImpl implements PostService {
         if (command == null) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "请求参数不能为空");
         }
+
         Long userId = requireUserId();
         long start = System.currentTimeMillis();
         log.info("[PostService.createPost][开始] userId={}, title={}", userId, command.getTitle());
-
 
         Post post = Post.builder()
                 .userId(userId)
                 .title(command.getTitle())
                 .content(command.getContent())
+                // 乐观发布：创建后先可见
                 .status(PostStatus.PUBLISHED.getCode())
+                // 默认先置为 PENDING，后面根据是否真的有审核任务修正
+                .auditStatus(AuditStatus.PENDING.getCode())
                 .publishedAt(LocalDateTime.now())
                 .build();
 
@@ -104,12 +115,31 @@ public class PostServiceImpl implements PostService {
                     .build());
         }
 
+        AuditReserveResultBO reserveResult = auditService.reserveAuditLogs(
+                AuditReserveBO.builder()
+                        .targetType(TargetType.POST)
+                        .targetId(post.getId())
+                        .textContent(post.getContent())
+                        .mediaItems(buildAuditReserveMediaItems(command.getAttachmentItems()))
+                        .build()
+        );
+
+        if (!reserveResult.hasAuditTask()) {
+            postMapper.update(
+                    new LambdaUpdateWrapper<Post>()
+                            .set(Post::getAuditStatus, AuditStatus.PASS.getCode())
+                            .eq(Post::getId, post.getId())
+            );
+        }
+
         UserSimpleBO author = userService.getSimpleInfo(userId);
-        List<MediaAttachmentSimpleBO> attachments = buildSimpleAttachments(post.getId(), command.getAttachmentItems());
+        List<MediaAttachmentSimpleBO> attachments =
+                buildSimpleAttachments(post.getId(), command.getAttachmentItems());
 
-        afterCommit(() -> enqueueAudit(post.getId(), post.getContent(), command.getAttachmentItems()));
+        afterCommit(() -> enqueueAudit(post.getId(), post.getContent(), reserveResult));
 
-        log.info("[PostService.createPost][完成] userId={}, postId={}, costMs={}", userId, post.getId(), System.currentTimeMillis() - start);
+        log.info("[PostService.createPost][完成] userId={}, postId={}, costMs={}",
+                userId, post.getId(), System.currentTimeMillis() - start);
 
         return PostListBO.builder()
                 .id(post.getId())
@@ -118,7 +148,7 @@ public class PostServiceImpl implements PostService {
                 .likeCount(0)
                 .commentCount(0)
                 .viewCount(0)
-                .publishedAt(LocalDateTime.now())
+                .publishedAt(post.getPublishedAt())
                 .author(author)
                 .attachments(attachments)
                 .liked(false)
@@ -148,9 +178,9 @@ public class PostServiceImpl implements PostService {
     /**
      * 分页查询用户点赞的帖子列表。
      *
-     * @param userId 用户 ID
+     * @param userId     用户 ID
      * @param lastLikeId 上一页最后一个点赞记录 ID，首次查询可为空
-     * @param pageSize 每页条数
+     * @param pageSize   每页条数
      * @return 分页结果
      */
     @Override
@@ -173,13 +203,15 @@ public class PostServiceImpl implements PostService {
                 .toList();
 
         // 第二跳：按 postId 批量查帖子
-        List<Post> posts = postMapper.selectList(
-                new LambdaQueryWrapper<Post>()
-                        .select(Post::getId, Post::getUserId, Post::getTitle,
-                                Post::getContent, Post::getCommentCount, Post::getPublishedAt)
-                        .in(Post::getId, postIds)
-                        .eq(Post::getStatus, PostStatus.PUBLISHED.getCode())
-        );
+        LambdaQueryWrapper<Post> wrapper = new LambdaQueryWrapper<Post>()
+                .select(Post::getId, Post::getUserId, Post::getTitle,
+                        Post::getContent, Post::getCommentCount, Post::getPublishedAt)
+                .in(Post::getId, postIds)
+                .eq(Post::getStatus, PostStatus.PUBLISHED.getCode());
+
+        applyPublicAuditVisibleCondition(wrapper);
+
+        List<Post> posts = postMapper.selectList(wrapper);
 
         // 按 likeRecords 顺序排列（selectBatchIds 不保证顺序）
         Map<Long, Post> postMap = posts.stream()
@@ -201,8 +233,8 @@ public class PostServiceImpl implements PostService {
     /**
      * 搜索帖子（全文索引）。
      *
-     * @param keyword 搜索关键词
-     * @param lastId 上一页最后一个帖子 ID，首次查询可为空
+     * @param keyword  搜索关键词
+     * @param lastId   上一页最后一个帖子 ID，首次查询可为空
      * @param pageSize 每页条数
      * @return 分页结果
      */
@@ -227,24 +259,29 @@ public class PostServiceImpl implements PostService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "postId 不能为空");
         }
 
+        Post post = requireExistingPost(postId);
+
         String detailCacheKey = buildPostDetailCacheKey(postId);
+        PostDetailBO detailBO = null;
 
-        PostDetailBO detailBO;
+        // 只有审核通过的帖子才读缓存，避免 PENDING 过期后仍从缓存展示。
+        if (Objects.equals(post.getAuditStatus(), AuditStatus.PASS.getCode())) {
+            detailBO = redisService.get(detailCacheKey, PostDetailBO.class);
+        }
 
-        PostDetailBO cachedDetail = redisService.get(detailCacheKey, PostDetailBO.class);
-        if (cachedDetail != null) {
-            detailBO = cachedDetail;
-        } else {
-            Post post = requireExistingPost(postId);
-
+        if (detailBO == null) {
             UserSimpleBO author = userService.getSimpleInfo(post.getUserId());
-            List<MediaAttachmentSimpleBO> attachments = mediaService.listSimpleAttachments(TargetType.POST, postId);
+            List<MediaAttachmentSimpleBO> attachments =
+                    mediaService.listSimpleAttachments(TargetType.POST, postId);
 
             detailBO = postConverter.toDetailBO(post);
             detailBO.setAuthor(author);
             detailBO.setAttachments(attachments);
 
-            redisService.set(detailCacheKey, detailBO, RedisKeyConstant.POST_DETAIL_TTL);
+            // 只有 PASS 帖子才缓存。PENDING 只是短期乐观展示，不缓存。
+            if (Objects.equals(post.getAuditStatus(), AuditStatus.PASS.getCode())) {
+                redisService.set(detailCacheKey, detailBO, RedisKeyConstant.POST_DETAIL_TTL);
+            }
         }
 
         PostDetailVO detailVO = postConverter.toDetailVO(detailBO);
@@ -252,7 +289,6 @@ public class PostServiceImpl implements PostService {
 
         return detailVO;
     }
-
     /**
      * 软删除帖子，并清理详情缓存。
      */
@@ -289,6 +325,42 @@ public class PostServiceImpl implements PostService {
         redisService.delete(buildPostDetailCacheKey(postId));
     }
 
+    /**
+     * 公开展示规则：
+     * 1. PASS：长期展示
+     * 2. PENDING：只在短时间窗口内乐观展示
+     * 3. REJECT / 超时 PENDING：不展示
+     * <p>
+     * TODO 如果后续查询条件继续复杂化，迁移到 PostMapper.xml 中写动态 SQL。
+     */
+    private void applyPublicAuditVisibleCondition(LambdaQueryWrapper<Post> wrapper) {
+        LocalDateTime pendingVisibleAfter =
+                LocalDateTime.now().minusMinutes(PENDING_AUDIT_VISIBLE_MINUTES);
+
+        wrapper.and(w -> w
+                .eq(Post::getAuditStatus, AuditStatus.PASS.getCode())
+                .or(ow -> ow
+                        .eq(Post::getAuditStatus, AuditStatus.PENDING.getCode())
+                        .ge(Post::getPublishedAt, pendingVisibleAfter)
+                )
+        );
+    }
+
+    private List<AuditReserveBO.MediaItem> buildAuditReserveMediaItems(List<AttachmentItemBO> attachmentItems) {
+        if (CollectionUtils.isEmpty(attachmentItems)) {
+            return List.of();
+        }
+
+        return attachmentItems.stream()
+                .filter(Objects::nonNull)
+                .filter(item -> StringUtils.hasText(item.getUrl()))
+                .map(item -> AuditReserveBO.MediaItem.builder()
+                        .mediaType(item.getType())
+                        .mediaUrl(item.getUrl())
+                        .build())
+                .toList();
+    }
+
     private List<PostListBO> enrichPosts(List<Post> posts) {
         Set<Long> postIds = posts.stream().map(Post::getId).collect(Collectors.toSet());
 
@@ -311,19 +383,26 @@ public class PostServiceImpl implements PostService {
     }
 
     private LambdaQueryWrapper<Post> buildWrapper(PostPageQuery query, int pageSize) {
-        return new LambdaQueryWrapper<Post>()
+        LambdaQueryWrapper<Post> wrapper = new LambdaQueryWrapper<Post>()
                 .select(Post::getId, Post::getUserId, Post::getTitle, Post::getContent,
                         Post::getCommentCount, Post::getPublishedAt)
                 .eq(Post::getStatus, resolveListStatus(query.getStatus()))
-                // 按用户过滤（新增）
                 .eq(query.getUserId() != null, Post::getUserId, query.getUserId())
-                // 全文搜索, 有 keyword 时走 FULLTEXT，无 keyword 走原逻辑
                 .apply(StringUtils.hasText(query.getKeyword()),
                         "MATCH(content) AGAINST({0} IN BOOLEAN MODE)",
                         query.getKeyword())
                 .lt(query.getLastId() != null, Post::getId, query.getLastId())
                 .orderByDesc(Post::getId)
                 .last("LIMIT " + pageSize);
+
+        // 普通公开列表：PASS 永久展示；PENDING 只在短时间内展示。
+        // 管理员查询 REJECTED / DELETED 等其他状态时，不套这个公开展示规则。
+        if (query.getStatus() == null
+                || query.getStatus().equals(PostStatus.PUBLISHED.getCode())) {
+            applyPublicAuditVisibleCondition(wrapper);
+        }
+
+        return wrapper;
     }
 
     private Long requireUserId() {
@@ -334,15 +413,21 @@ public class PostServiceImpl implements PostService {
         return userId;
     }
 
-    private void enqueueAudit(Long postId, String content, List<AttachmentItemBO> attachmentItems) {
-        if (!CollectionUtils.isEmpty(attachmentItems)) {
-            List<AuditMediaBatchPayload.AuditMediaItem> items = attachmentItems.stream()
+    private void enqueueAudit(Long postId, String content, AuditReserveResultBO reserveResult) {
+        if (reserveResult == null || !reserveResult.hasAuditTask()) {
+            return;
+        }
+
+        if (!CollectionUtils.isEmpty(reserveResult.getMediaItems())) {
+            List<AuditMediaBatchPayload.AuditMediaItem> items = reserveResult.getMediaItems().stream()
                     .filter(Objects::nonNull)
                     .map(item -> AuditMediaBatchPayload.AuditMediaItem.builder()
-                            .mediaType(item.getType())
-                            .mediaUrl(item.getUrl())
+                            .auditLogId(item.getAuditLogId())
+                            .mediaType(item.getMediaType())
+                            .mediaUrl(item.getMediaUrl())
                             .build())
                     .toList();
+
             if (!items.isEmpty()) {
                 queueProducer.send(AuditMediaBatchPayload.builder()
                         .targetType(TargetType.POST)
@@ -353,14 +438,17 @@ public class PostServiceImpl implements PostService {
             }
         }
 
-        queueProducer.send(
-                AuditTextPayload.builder()
-                        .targetId(postId)
-                        .targetType(TargetType.POST)
-                        .content(content)
-                        .scene(3)
-                        .build()
-        );
+        if (reserveResult.getTextAuditLogId() != null && StringUtils.hasText(content)) {
+            queueProducer.send(
+                    AuditTextPayload.builder()
+                            .auditLogId(reserveResult.getTextAuditLogId())
+                            .targetId(postId)
+                            .targetType(TargetType.POST)
+                            .content(content)
+                            .scene(3)
+                            .build()
+            );
+        }
     }
 
     private List<MediaAttachmentSimpleBO> buildSimpleAttachments(Long postId, List<AttachmentItemBO> attachmentItems) {
@@ -422,16 +510,22 @@ public class PostServiceImpl implements PostService {
         if (postId == null) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "postId 不能为空");
         }
-        Post post = postMapper.selectOne(new LambdaQueryWrapper<Post>()
+
+        LambdaQueryWrapper<Post> wrapper = new LambdaQueryWrapper<Post>()
                 .select(Post::getId, Post::getUserId, Post::getTitle, Post::getContent,
                         Post::getViewCount, Post::getLikeCount, Post::getCommentCount,
-                        Post::getPublishedAt)
+                        Post::getPublishedAt, Post::getAuditStatus)
                 .eq(Post::getStatus, PostStatus.PUBLISHED.getCode())
-                .eq(Post::getAuditStatus, AuditStatus.PASS.getCode())
-                .eq(Post::getId, postId));
+                .eq(Post::getId, postId);
+
+        applyPublicAuditVisibleCondition(wrapper);
+
+        Post post = postMapper.selectOne(wrapper);
+
         if (post == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "帖子不存在");
         }
+
         return post;
     }
 

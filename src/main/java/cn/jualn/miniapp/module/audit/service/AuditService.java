@@ -1,10 +1,9 @@
 package cn.jualn.miniapp.module.audit.service;
 
 import cn.jualn.miniapp.common.exception.BusinessException;
-import cn.jualn.miniapp.module.audit.bo.AuditCheckResultBO;
-import cn.jualn.miniapp.module.audit.bo.AuditMediaCheckBO;
-import cn.jualn.miniapp.module.audit.bo.AuditTextCheckBO;
+import cn.jualn.miniapp.module.audit.bo.*;
 import cn.jualn.miniapp.module.wx.dto.WxaMediaCheckMessage;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface AuditService {
 
@@ -51,4 +50,6 @@ public interface AuditService {
      * @throws BusinessException 当回调消息缺失必要字段或 traceId 无法关联到任何待审核记录时抛出
      */
     void handleWxMediaCallback(WxaMediaCheckMessage message);
+
+    AuditReserveResultBO reserveAuditLogs(AuditReserveBO bo);
 }

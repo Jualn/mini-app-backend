@@ -5,9 +5,7 @@ import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.module.audit.bo.AuditCheckResultBO;
-import cn.jualn.miniapp.module.audit.bo.AuditMediaCheckBO;
-import cn.jualn.miniapp.module.audit.bo.AuditTextCheckBO;
+import cn.jualn.miniapp.module.audit.bo.*;
 import cn.jualn.miniapp.module.audit.entity.ContentAuditLog;
 import cn.jualn.miniapp.module.audit.enums.AuditStatus;
 import cn.jualn.miniapp.module.audit.enums.AuditSourceEnum;
@@ -27,12 +25,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
-import java.util.Collections;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 @Slf4j
 @Service
@@ -60,6 +57,10 @@ public class AuditServiceImpl implements AuditService {
     @Override
     public AuditCheckResultBO doTextCheck(AuditTextCheckBO bo) {
         assertTargetType(bo.getTargetType());
+
+        if (bo.getAuditLogId() == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "auditLogId 不能为空");
+        }
         if (bo.getTargetId() == null) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "targetId 不能为空");
         }
@@ -73,21 +74,31 @@ public class AuditServiceImpl implements AuditService {
                 .scene(bo.getScene() == null ? DEFAULT_SCENE : bo.getScene())
                 .openid(bo.getOpenid())
                 .build();
+
         WxMsgSecCheckResponse wxResponse = wxClient.msgSecCheck(wxRequest);
 
         String suggest = wxResponse.getResultSuggest();
         Integer label = wxResponse.getResultLabel();
         AuditStatus finalResult = mapFinalResult(suggest);
 
-        saveAuditLog(ContentAuditLog.builder()
-                .targetType(bo.getTargetType().getCode())
-                .targetId(bo.getTargetId())
-                .auditSource(AuditSourceEnum.WX_AUTO.getCode())
-                .wxTraceId(wxResponse.getTraceId())
-                .wxResult(finalResult == AuditStatus.PASS ? WX_RESULT_NORMAL : WX_RESULT_RISK)
-                .wxDetail(toJson(wxResponse))
-                .finalResult(finalResult.getCode())
-                .build());
+        int rows = contentAuditLogMapper.update(
+                ContentAuditLog.builder()
+                        .wxTraceId(wxResponse.getTraceId())
+                        .wxResult(finalResult == AuditStatus.PASS ? WX_RESULT_NORMAL : WX_RESULT_RISK)
+                        .wxDetail(toJson(wxResponse))
+                        .finalResult(finalResult.getCode())
+                        .build(),
+                new LambdaUpdateWrapper<ContentAuditLog>()
+                        .eq(ContentAuditLog::getId, bo.getAuditLogId())
+                        .eq(ContentAuditLog::getTargetType, bo.getTargetType().getCode())
+                        .eq(ContentAuditLog::getTargetId, bo.getTargetId())
+                        .eq(ContentAuditLog::getFinalResult, AuditStatus.PENDING.getCode())
+        );
+
+        if (rows <= 0) {
+            log.warn("[AuditService.doTextCheck] 文本审核记录未更新，可能已处理或记录不存在，auditLogId={}, targetType={}, targetId={}",
+                    bo.getAuditLogId(), bo.getTargetType(), bo.getTargetId());
+        }
 
         return AuditCheckResultBO.builder()
                 .passed(finalResult == AuditStatus.PASS)
@@ -144,6 +155,10 @@ public class AuditServiceImpl implements AuditService {
     @Override
     public AuditCheckResultBO doMediaCheck(AuditMediaCheckBO bo) {
         assertTargetType(bo.getTargetType());
+
+        if (bo.getAuditLogId() == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "auditLogId 不能为空");
+        }
         if (bo.getTargetId() == null) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "targetId 不能为空");
         }
@@ -158,11 +173,25 @@ public class AuditServiceImpl implements AuditService {
                 .scene(bo.getScene() == null ? DEFAULT_SCENE : bo.getScene())
                 .openid(bo.getOpenid())
                 .build();
+
         WxMediaCheckAsyncResponse wxResponse = wxClient.mediaCheckAsync(wxRequest);
 
-        // 双绑定：db + redis，提高可靠性。
-        // 先落库，再写 Redis，确保 Redis 丢失时可从数据库恢复 trace 绑定。
-        savePendingAuditLog(bo.getTargetType().getCode(), bo.getTargetId(), wxResponse.getTraceId());
+        int rows = contentAuditLogMapper.update(
+                ContentAuditLog.builder()
+                        .wxTraceId(wxResponse.getTraceId())
+                        .build(),
+                new LambdaUpdateWrapper<ContentAuditLog>()
+                        .eq(ContentAuditLog::getId, bo.getAuditLogId())
+                        .eq(ContentAuditLog::getTargetType, bo.getTargetType().getCode())
+                        .eq(ContentAuditLog::getTargetId, bo.getTargetId())
+                        .eq(ContentAuditLog::getFinalResult, AuditStatus.PENDING.getCode())
+        );
+
+        if (rows <= 0) {
+            log.warn("[AuditService.doMediaCheck] 媒体审核记录未绑定 traceId，可能已处理或记录不存在，auditLogId={}, targetType={}, targetId={}, traceId={}",
+                    bo.getAuditLogId(), bo.getTargetType(), bo.getTargetId(), wxResponse.getTraceId());
+        }
+
         bindTraceTarget(wxResponse.getTraceId(), bo.getTargetType(), bo.getTargetId());
 
         return AuditCheckResultBO.builder()
@@ -241,6 +270,61 @@ public class AuditServiceImpl implements AuditService {
                 message.getTraceId(), binding.getTargetType(), binding.getTargetId(), finalResult.getDesc());
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AuditReserveResultBO reserveAuditLogs(AuditReserveBO bo) {
+        if (bo == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "审核预占参数不能为空");
+        }
+        assertTargetType(bo.getTargetType());
+        if (bo.getTargetId() == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "targetId 不能为空");
+        }
+
+        Long textAuditLogId = null;
+        List<AuditReserveResultBO.MediaItem> mediaResults = new ArrayList<>();
+
+        if (StringUtils.hasText(bo.getTextContent())) {
+            ContentAuditLog textLog = ContentAuditLog.builder()
+                    .targetType(bo.getTargetType().getCode())
+                    .targetId(bo.getTargetId())
+                    .auditSource(AuditSourceEnum.WX_AUTO.getCode())
+                    .finalResult(AuditStatus.PENDING.getCode())
+                    .build();
+
+            contentAuditLogMapper.insert(textLog);
+            textAuditLogId = textLog.getId();
+        }
+
+        if (!CollectionUtils.isEmpty(bo.getMediaItems())) {
+            for (AuditReserveBO.MediaItem item : bo.getMediaItems()) {
+                if (item == null || !StringUtils.hasText(item.getMediaUrl())) {
+                    continue;
+                }
+
+                ContentAuditLog mediaLog = ContentAuditLog.builder()
+                        .targetType(bo.getTargetType().getCode())
+                        .targetId(bo.getTargetId())
+                        .auditSource(AuditSourceEnum.WX_AUTO.getCode())
+                        .finalResult(AuditStatus.PENDING.getCode())
+                        .build();
+
+                contentAuditLogMapper.insert(mediaLog);
+
+                mediaResults.add(AuditReserveResultBO.MediaItem.builder()
+                        .auditLogId(mediaLog.getId())
+                        .mediaType(item.getMediaType())
+                        .mediaUrl(item.getMediaUrl())
+                        .build());
+            }
+        }
+
+        return AuditReserveResultBO.builder()
+                .textAuditLogId(textAuditLogId)
+                .mediaItems(mediaResults)
+                .build();
+    }
+
     /**
      * 校验目标类型。
      *
@@ -277,12 +361,15 @@ public class AuditServiceImpl implements AuditService {
         if (message.getResult() != null && StringUtils.hasText(message.getResult().getSuggest())) {
             return message.getResult().getSuggest();
         }
-        CollectionUtils.isEmpty(Collections.singleton(message.getDetail()));
-        for (WxaMediaCheckMessage.Detail detail : message.getDetail()) {
-            if (detail != null && StringUtils.hasText(detail.getSuggest())) {
-                return detail.getSuggest();
+
+        if (!CollectionUtils.isEmpty(message.getDetail())) {
+            for (WxaMediaCheckMessage.Detail detail : message.getDetail()) {
+                if (detail != null && StringUtils.hasText(detail.getSuggest())) {
+                    return detail.getSuggest();
+                }
             }
         }
+
         return null;
     }
 
@@ -411,19 +498,25 @@ public class AuditServiceImpl implements AuditService {
                     .finalResult(finalResult.getCode())
                     .build();
 
-            // 更新已存在的记录（按 targetType + targetId + traceId 定位）
-            contentAuditLogMapper.update(updateLog,
+            int rows = contentAuditLogMapper.update(updateLog,
                     new LambdaUpdateWrapper<ContentAuditLog>()
                             .eq(ContentAuditLog::getTargetType, targetType)
                             .eq(ContentAuditLog::getTargetId, targetId)
                             .eq(ContentAuditLog::getWxTraceId, wxTraceId)
+                            .eq(ContentAuditLog::getFinalResult, AuditStatus.PENDING.getCode())
             );
+
+            if (rows <= 0) {
+                log.warn("[AuditService.updateAuditLogWithResult] 审核结果未更新，可能已处理或记录不存在，targetType={}, targetId={}, traceId={}",
+                        targetType, targetId, wxTraceId);
+                return;
+            }
+
             log.debug("[AuditService.updateAuditLogWithResult] 更新审核结果，targetType={}, targetId={}, result={}",
                     targetType, targetId, finalResult.getDesc());
         } catch (Exception e) {
             log.warn("[AuditService.updateAuditLogWithResult] 更新审核日志失败，targetType={}, targetId={}, traceId={}",
                     targetType, targetId, wxTraceId, e);
-            // 非阻塞：如果更新失败，回调已处理，但审核记录状态可能仍为PENDING，业务侧可自行查询最新状态
         }
     }
 

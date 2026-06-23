@@ -46,13 +46,6 @@ public interface TimelineConverter {
     @Mapping(target = "updatedAt", ignore = true)
     Timeline toEntity(TimelineUpdateBO bo);
 
-    /**
-     * BO 转 VO
-     */
-    TimelineVO toVO(TimelineItemDTO bo);
-
-    List<TimelineVO> toVOList(List<TimelineItemDTO> bos);
-
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)

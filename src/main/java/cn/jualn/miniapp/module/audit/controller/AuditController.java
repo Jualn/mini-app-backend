@@ -8,6 +8,7 @@ import cn.jualn.miniapp.module.audit.dto.request.AuditMediaCheckRequest;
 import cn.jualn.miniapp.module.audit.dto.request.AuditTextCheckRequest;
 import cn.jualn.miniapp.module.audit.service.AuditService;
 import cn.jualn.miniapp.module.audit.vo.AuditCheckResultVO;
+import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
@@ -49,7 +50,7 @@ public class AuditController {
      *
      * @param request 多媒体审核请求，包含 targetType、targetId、mediaUrl、mediaType、scene、openid
      * @return 审核结果，pending=true 表示已提交异步审核任务，traceId 用于回调关联
-     * @throws jakarta.validation.ConstraintViolationException 当请求参数未通过 Bean Validation 校验时抛出
+     * @throws ConstraintViolationException 当请求参数未通过 Bean Validation 校验时抛出
      */
     @PostMapping("/media-check")
     public Result<AuditCheckResultVO> mediaCheck(@Valid @RequestBody AuditMediaCheckRequest request) {

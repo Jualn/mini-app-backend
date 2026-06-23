@@ -18,6 +18,11 @@ import lombok.NoArgsConstructor;
 public class AuditTextCheckBO {
 
     /**
+     * 空状态的审核日志 ID 用于更新审核日志中的结果
+     */
+    private Long auditLogId;
+
+    /**
      * 审核目标类型：1-帖子 2-活动 3-考试信息 4-评论。
      */
     private TargetType targetType;

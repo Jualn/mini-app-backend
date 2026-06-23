@@ -150,11 +150,12 @@ public class MediaServiceImpl implements MediaService {
 
     /**
      * 查询目标附件列表（简化版）。
+     *
      * @param targetType 目标类型
-     * @param targetId 目标 ID
+     * @param targetId   目标 ID
      * @return 按 sortOrder、id 升序排列的附件简化视图列表
-      * @throws BusinessException 参数非法或目标不存在
-      * @see #listAttachments(TargetType, Long)
+     * @throws BusinessException 参数非法或目标不存在
+     * @see #listAttachments(TargetType, Long)
      */
     @Override
     public List<MediaAttachmentSimpleBO> listSimpleAttachments(TargetType targetType, Long targetId) {
@@ -221,9 +222,24 @@ public class MediaServiceImpl implements MediaService {
 
     /**
      * 生成前端直传 COS 的 STS 上传凭证。
+     * <p>
+     * 当前设计：
+     * 1. 前端选择图片/文件时不调用本接口；
+     * 2. 仅在用户确认发布 post/comment/activity/exam 时调用；
+     * 3. 前端上传 COS 成功后，将访问地址随业务内容一起提交。
+     * <p>
+     * TODO:
+     *  当前暂未引入上传临时表、PENDING/USED 状态流转、定时清理任务。
+     *  如果后续观察到 COS 中出现较多无业务引用的孤儿文件，
+     *  再考虑增加 media_upload_temp 表，记录 objectKey 生命周期，
+     *  并通过定时任务清理超时未绑定业务数据的对象。
+     * <p>
+     * 注意：
+     * 如果前端在“选择图片后立即上传”，用户取消编辑或退出页面时，
+     * COS 可能产生无引用文件。因此前端必须保持“最终提交时才上传”。
      *
      * @param targetType 目标类型
-     * @param fileNames   原始文件名
+     * @param fileNames  原始文件名
      * @return 上传凭证
      * @throws BusinessException 未登录或参数非法
      */
@@ -281,6 +297,19 @@ public class MediaServiceImpl implements MediaService {
 
     /**
      * 构建 COS 对象路径。
+     * <p>
+     * 构建 COS objectKey。
+     * <p>
+     * 当前直接按业务类型归档：
+     * post/{userId}/{timestamp}_{uuid}_{fileName}
+     * <p>
+     * TODO:
+     *  如果后续增加临时上传保护，可以改为：
+     *  temp/post/{userId}/{timestamp}_{uuid}_{fileName}
+     *  并在业务提交成功后标记为 USED，或迁移为正式对象。
+     * <p>
+     * 现阶段为了减少数据库表、定时任务和额外服务器负担，
+     * 暂不引入上传生命周期管理。
      *
      * <p>路径格式：{category}/{userId}/{timestamp}_{uuid}_{fileName}</p>
      *

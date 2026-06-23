@@ -56,6 +56,7 @@ public class AuditMediaBatchHandler implements QueueHandler<AuditMediaBatchPaylo
                         .targetType(payload.getTargetType())
                         .targetId(payload.getTargetId())
                         .scene(payload.getScene())
+                        .auditLogId(item.getAuditLogId())
                         .mediaType(item.getMediaType())
                         .mediaUrl(item.getMediaUrl())
                         .openid(openid)

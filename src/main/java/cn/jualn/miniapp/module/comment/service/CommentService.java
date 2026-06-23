@@ -5,6 +5,7 @@ import cn.jualn.miniapp.module.comment.bo.CommentCreateBO;
 import cn.jualn.miniapp.module.comment.bo.CommentPageBO;
 import cn.jualn.miniapp.module.comment.vo.CommentVO;
 import cn.jualn.miniapp.module.comment.vo.ReplyVO;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Comment service.
@@ -35,5 +36,4 @@ public interface CommentService {
 	 * @param commentId comment id
 	 */
 	void removeComment(Long commentId);
-
 }

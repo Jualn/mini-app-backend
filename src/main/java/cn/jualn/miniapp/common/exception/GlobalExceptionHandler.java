@@ -19,6 +19,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Objects;
 
@@ -138,7 +139,17 @@ public class GlobalExceptionHandler {
                 .body(Result.fail(ResultCode.SERVER_ERROR));
     }
 
-    // 3. 兜底 Exception → 同样 500，但要完整打堆栈
+    // 3. 静态资源不存在 / 无效路径 -> 404 例如 /wp-admin/install.php、/.well-known/ucp
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Result<?>> handleNoResourceFound(NoResourceFoundException e) {
+        // 公网扫描请求很多，不能打 error 堆栈
+        log.debug("资源不存在: {}", e.getResourcePath());
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(Result.fail(ResultCode.NOT_FOUND));
+    }
+
+    // 4. 兜底 Exception → 同样 500，但要完整打堆栈
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Result<?>> handleException(Exception e) {
         log.error("未知异常", e); // ⚠️ 注意：这里要打完整堆栈，不能只打 message

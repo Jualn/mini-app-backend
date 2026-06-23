@@ -34,7 +34,12 @@ public class InteractCountSyncTask {
     public void syncInteractCounts() {
         int likeSynced = syncLikeCounts();
         int viewSynced = syncViewCounts();
-        log.info("[InteractCountSyncTask] 同步完成，likeSynced={}, viewSynced={}", likeSynced, viewSynced);
+
+        if (likeSynced > 0 || viewSynced > 0) {
+            log.info("[InteractCountSyncTask] 同步完成，likeSynced={}, viewSynced={}", likeSynced, viewSynced);
+        } else {
+            log.debug("[InteractCountSyncTask] 无需同步");
+        }
     }
 
     private int syncLikeCounts() {

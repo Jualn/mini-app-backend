@@ -36,6 +36,7 @@ public class AuditMediaBatchPayload implements MessagePayload {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class AuditMediaItem {
+        private Long auditLogId;
         private String mediaUrl;
         private MediaType mediaType;
     }
