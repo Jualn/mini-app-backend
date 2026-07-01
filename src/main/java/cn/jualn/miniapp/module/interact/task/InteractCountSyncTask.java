@@ -73,24 +73,38 @@ public class InteractCountSyncTask {
         Set<String> keys = redisService.sMembers(RedisKeyConstant.VIEW_DIRTY_SET);
         if (keys.isEmpty()) return 0;
 
-        redisService.delete(RedisKeyConstant.VIEW_DIRTY_SET);
-
         int synced = 0;
+
         for (String key : keys) {
-            CounterTarget target = parseCounterTarget(key, RedisKeyConstant.VIEW_COUNT_PREFIX);
+            CounterTarget target = parseCounterTarget(key, RedisKeyConstant.VIEW_DELTA_PREFIX);
             if (target == null) {
+                redisService.sRemove(RedisKeyConstant.VIEW_DIRTY_SET, key);
                 continue;
             }
 
-            Long count = redisService.getLong(key);
-            if (count == null) {
+            Long delta = redisService.getAndDeleteLong(key);
+            if (delta == null || delta <= 0) {
+                redisService.sRemove(RedisKeyConstant.VIEW_DIRTY_SET, key);
                 continue;
             }
 
-            if (applyViewCount(target.type(), target.targetId(), Math.max(0L, count))) {
-                synced++;
+            try {
+                if (applyViewDelta(target.type(), target.targetId(), delta)) {
+                    redisService.sRemove(RedisKeyConstant.VIEW_DIRTY_SET, key);
+                    synced++;
+                } else {
+                    // 目标类型不支持或更新失败，回补 delta，避免丢数
+                    redisService.incrementByAndRefresh(key, delta, RedisKeyConstant.VIEW_DELTA_TTL);
+                    redisService.sAdd(RedisKeyConstant.VIEW_DIRTY_SET, key);
+                }
+            } catch (Exception e) {
+                // DB 更新异常，回补 delta，避免丢数
+                redisService.incrementByAndRefresh(key, delta, RedisKeyConstant.VIEW_DELTA_TTL);
+                redisService.sAdd(RedisKeyConstant.VIEW_DIRTY_SET, key);
+                log.warn("[InteractCountSyncTask] view delta 同步失败，key={}, delta={}", key, delta, e);
             }
         }
+
         return synced;
     }
 
@@ -108,17 +122,22 @@ public class InteractCountSyncTask {
         return true;
     }
 
-    private boolean applyViewCount(TargetType type, Long targetId, Long count) {
-        switch (type) {
-            case POST -> postMapper.setViewCount(targetId, count);
-            case ACTIVITY -> activityMapper.setViewCount(targetId, count);
-            case EXAM -> examInfoMapper.setViewCount(targetId, count);
+    private boolean applyViewDelta(TargetType type, Long targetId, Long delta) {
+        if (delta == null || delta <= 0) {
+            return false;
+        }
+
+        int affected = switch (type) {
+            case POST -> postMapper.incrementViewCount(targetId, delta);
+            case ACTIVITY -> activityMapper.incrementViewCount(targetId, delta);
+            case EXAM -> examInfoMapper.incrementViewCount(targetId, delta);
             default -> {
                 log.warn("[InteractCountSyncTask] 跳过不支持的 view 目标类型，type={}, targetId={}", type, targetId);
-                return false;
+                yield 0;
             }
-        }
-        return true;
+        };
+
+        return affected > 0;
     }
 
     private CounterTarget parseCounterTarget(String key, String prefix) {

@@ -25,15 +25,9 @@ public class UserProfileBO {
 
     private Integer gender;
 
-    private String phone;
-
     private UserRole role;
 
     private UserStatus status;
-
-    private String banReason;
-
-    private LocalDateTime banExpireAt;
 
     private LocalDateTime lastLoginAt;
 

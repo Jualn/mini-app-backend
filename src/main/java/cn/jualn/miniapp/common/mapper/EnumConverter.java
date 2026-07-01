@@ -1,11 +1,7 @@
 package cn.jualn.miniapp.common.mapper;
 
-import cn.jualn.miniapp.common.enums.ActivityCategory;
-import cn.jualn.miniapp.common.enums.ActivityStatus;
-import cn.jualn.miniapp.common.enums.MediaType;
-import cn.jualn.miniapp.common.enums.TargetType;
+import cn.jualn.miniapp.common.enums.*;
 import cn.jualn.miniapp.module.audit.enums.AuditStatus;
-import cn.jualn.miniapp.common.enums.PostStatus;
 import cn.jualn.miniapp.module.report.enums.ReportReason;
 import cn.jualn.miniapp.module.report.enums.ReportStatus;
 import org.springframework.stereotype.Component;
@@ -18,7 +14,6 @@ public class EnumConverter {
         if (code == null) return null;
         return MediaType.fromCode(code);
     }
-
     public Integer fromMediaType(MediaType mediaType) {
         return mediaType == null ? null : mediaType.getCode();
     }
@@ -28,7 +23,6 @@ public class EnumConverter {
         if (code == null) return null;
         return TargetType.fromCode(code);
     }
-
     public Integer fromTargetType(TargetType targetType) {
         return targetType == null ? null : targetType.getCode();
     }
@@ -38,7 +32,6 @@ public class EnumConverter {
         if (code == null) return null;
         return PostStatus.fromCode(code);
     }
-
     public Integer fromPostStatus(PostStatus status) {
         return status == null ? null : status.getCode();
     }
@@ -53,7 +46,6 @@ public class EnumConverter {
             default -> null;
         };
     }
-
     public Integer fromAuditStatus(AuditStatus status) {
         return status == null ? null : status.getCode();
     }
@@ -63,7 +55,6 @@ public class EnumConverter {
         if (code == null) return null;
         return ActivityCategory.fromCode(code);
     }
-
     public Integer fromActivityCategory(ActivityCategory category) {
         return category == null ? null : category.getCode();
     }
@@ -73,7 +64,6 @@ public class EnumConverter {
         if (code == null) return null;
         return ActivityStatus.fromCode(code);
     }
-
     public Integer fromActivityStatus(ActivityStatus status) {
         return status == null ? null : status.getCode();
     }
@@ -83,7 +73,6 @@ public class EnumConverter {
         if (code == null) return null;
         return ReportStatus.fromCode(code);
     }
-
     public Integer fromReportStatus(ReportStatus status) {
         return status == null ? null : status.getCode();
     }
@@ -93,10 +82,17 @@ public class EnumConverter {
         if (code == null) return null;
         return ReportReason.fromCode(code);
     }
-
     public Integer fromReportReason(ReportReason status) {
         return status == null ? null : status.getCode();
     }
 
+    // AuditScene
+    public AuditScene toAuditScene(Integer code) {
+        if (code == null) return null;
+        return AuditScene.fromCode(code);
+    }
+    public Integer fromAuditScene(AuditScene scene) {
+        return scene == null ? null : scene.getCode();
+    }
 }
 

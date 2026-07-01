@@ -1,6 +1,7 @@
 package cn.jualn.miniapp.module.comment.service.impl;
 
 import cn.jualn.miniapp.common.constant.UserContext;
+import cn.jualn.miniapp.common.enums.AuditScene;
 import cn.jualn.miniapp.common.enums.MediaType;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.enums.UserRole;
@@ -115,7 +116,7 @@ public class CommentServiceImpl implements CommentService {
 
         AuditReserveResultBO reserveResult = auditService.reserveAuditLogs(
                 AuditReserveBO.builder()
-                        .targetType(TargetType.COMMENT)
+                        .auditScene(AuditScene.COMMENT)
                         .targetId(comment.getId())
                         .textContent(comment.getContent())
                         .mediaItems(buildCommentAuditMediaItems(comment.getImageUrl()))
@@ -299,7 +300,7 @@ public class CommentServiceImpl implements CommentService {
         if (reserveResult.getTextAuditLogId() != null && StringUtils.hasText(content)) {
             queueProducer.send(AuditTextPayload.builder()
                     .auditLogId(reserveResult.getTextAuditLogId())
-                    .targetType(TargetType.COMMENT)
+                    .auditScene(AuditScene.COMMENT)
                     .targetId(commentId)
                     .scene(2)
                     .content(content)
@@ -319,7 +320,7 @@ public class CommentServiceImpl implements CommentService {
 
             if (!items.isEmpty()) {
                 queueProducer.send(AuditMediaBatchPayload.builder()
-                        .targetType(TargetType.COMMENT)
+                        .auditScene(AuditScene.COMMENT)
                         .targetId(commentId)
                         .scene(2)
                         .items(items)

@@ -2,6 +2,7 @@ package cn.jualn.miniapp.module.audit.converter;
 
 import cn.jualn.miniapp.common.enums.MediaType;
 import cn.jualn.miniapp.common.enums.TargetType;
+import cn.jualn.miniapp.common.mapper.EnumConverter;
 import cn.jualn.miniapp.module.audit.bo.AuditCheckResultBO;
 import cn.jualn.miniapp.module.audit.bo.AuditMediaCheckBO;
 import cn.jualn.miniapp.module.audit.bo.AuditTextCheckBO;
@@ -22,7 +23,7 @@ import org.mapstruct.Mapping;
  * <p>负责在 Request、BO、DTO、VO、Payload 等多层对象之间的转换，使用 MapStruct 自动生成实现。
  * 支持同一个源类型到多个目标类型的转换（重载方法）。</p>
  */
-@Mapper(componentModel = "spring")
+@Mapper(componentModel = "spring", uses = {EnumConverter.class})
 public interface AuditConverter {
 
     /**
@@ -61,20 +62,4 @@ public interface AuditConverter {
      * @return 前端展示对象
      */
     AuditCheckResultVO toCheckResultVO(AuditCheckResultBO bo);
-
-    default Integer resolveMediaTypeCode(MediaType mediaType) {
-        return mediaType.getCode();
-    }
-
-    default MediaType resolveMediaType(Integer mediaTypeCode){
-        return MediaType.fromCode(mediaTypeCode);
-    }
-
-    default Integer resolveTargetTypeCode(TargetType targetType) {
-        return targetType.getCode();
-    }
-
-    default TargetType resolveTargetType(Integer targetTypeCode) {
-        return TargetType.fromCode(targetTypeCode);
-    }
 }

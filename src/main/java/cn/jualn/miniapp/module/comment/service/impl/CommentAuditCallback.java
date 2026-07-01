@@ -2,6 +2,7 @@ package cn.jualn.miniapp.module.comment.service.impl;
 
 import cn.jualn.miniapp.common.annotation.AuditTarget;
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
+import cn.jualn.miniapp.common.enums.AuditScene;
 import cn.jualn.miniapp.common.enums.NotifyType;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
@@ -39,7 +40,7 @@ import java.time.LocalDateTime;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@AuditTarget(TargetType.COMMENT)
+@AuditTarget(AuditScene.COMMENT)
 public class CommentAuditCallback implements AuditResultCallback {
 
     private final CommentMapper commentMapper;
@@ -58,7 +59,7 @@ public class CommentAuditCallback implements AuditResultCallback {
         long total = contentAuditLogMapper.selectCount(
                 new LambdaQueryWrapper<ContentAuditLog>()
                         .eq(ContentAuditLog::getTargetId, commentId)
-                        .eq(ContentAuditLog::getTargetType, TargetType.COMMENT.getCode())
+                        .eq(ContentAuditLog::getTargetType, AuditScene.COMMENT.getCode())
         );
 
         if (total <= 0) {
@@ -68,7 +69,7 @@ public class CommentAuditCallback implements AuditResultCallback {
         long rejected = contentAuditLogMapper.selectCount(
                 new LambdaQueryWrapper<ContentAuditLog>()
                         .eq(ContentAuditLog::getTargetId, commentId)
-                        .eq(ContentAuditLog::getTargetType, TargetType.COMMENT.getCode())
+                        .eq(ContentAuditLog::getTargetType, AuditScene.COMMENT.getCode())
                         .eq(ContentAuditLog::getFinalResult, AuditStatus.REJECT.getCode())
         );
 
@@ -79,7 +80,7 @@ public class CommentAuditCallback implements AuditResultCallback {
         long passed = contentAuditLogMapper.selectCount(
                 new LambdaQueryWrapper<ContentAuditLog>()
                         .eq(ContentAuditLog::getTargetId, commentId)
-                        .eq(ContentAuditLog::getTargetType, TargetType.COMMENT.getCode())
+                        .eq(ContentAuditLog::getTargetType, AuditScene.COMMENT.getCode())
                         .eq(ContentAuditLog::getFinalResult, AuditStatus.PASS.getCode())
         );
 
@@ -274,7 +275,7 @@ public class CommentAuditCallback implements AuditResultCallback {
 
         return switch (type) {
             case POST -> {
-                Post post = postMapper.selectById(
+                Post post = postMapper.selectOne(
                         new LambdaQueryWrapper<Post>()
                                 .select(Post::getUserId, Post::getTitle)
                                 .eq(Post::getId, targetId));
@@ -284,7 +285,7 @@ public class CommentAuditCallback implements AuditResultCallback {
                         .build();
             }
             case ACTIVITY -> {
-                Activity activity = activityMapper.selectById(
+                Activity activity = activityMapper.selectOne(
                         new LambdaQueryWrapper<Activity>()
                         .select(Activity::getUserId, Activity::getTitle)
                         .eq(Activity::getId, targetId)
@@ -295,7 +296,7 @@ public class CommentAuditCallback implements AuditResultCallback {
                         .build();
             }
             case EXAM -> {
-                ExamInfo exam = examInfoMapper.selectById(
+                ExamInfo exam = examInfoMapper.selectOne(
                         new LambdaQueryWrapper<ExamInfo>()
                         .select(ExamInfo::getUserId, ExamInfo::getTitle)
                         .eq(ExamInfo::getId, targetId)

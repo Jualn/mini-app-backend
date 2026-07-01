@@ -49,4 +49,26 @@
         LIMIT #{limit}
     </select>
 
+    <select id="selectViewCountById" resultType="java.lang.Long">
+        SELECT COALESCE(view_count, 0)
+        FROM exam_info
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectViewCountBatch" resultType="cn.jualn.miniapp.module.interact.dto.inner.InteractCountDTO">
+        SELECT
+        id AS targetId,
+        COALESCE(view_count, 0) AS count
+        FROM exam_info
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <update id="incrementViewCount">
+        UPDATE exam_info
+        SET view_count = COALESCE(view_count, 0) + #{delta}
+        WHERE id = #{id}
+    </update>
 </mapper>

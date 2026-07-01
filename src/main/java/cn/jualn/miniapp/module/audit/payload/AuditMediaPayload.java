@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.audit.payload;
 
+import cn.jualn.miniapp.common.enums.AuditScene;
 import cn.jualn.miniapp.common.enums.MediaType;
-import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.infrastructure.queue.annotation.QueueTopic;
 import cn.jualn.miniapp.infrastructure.queue.contract.MessagePayload;
 import lombok.AllArgsConstructor;
@@ -23,7 +23,7 @@ public class AuditMediaPayload implements MessagePayload {
     /**
      * 目标类型：1-帖子 2-活动 3-考试信息 4-评论。
      */
-    private TargetType targetType;
+    private AuditScene auditScene;
 
     /**
      * 目标内容 ID。

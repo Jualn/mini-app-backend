@@ -6,19 +6,16 @@ import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.infrastructure.queue.contract.QueueProducer;
 import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
 import cn.jualn.miniapp.module.activity.mapper.ActivityMapper;
-import cn.jualn.miniapp.module.comment.mapper.CommentMapper;
+import cn.jualn.miniapp.module.exam.mapper.ExamInfoMapper;
 import cn.jualn.miniapp.module.interact.bo.UserLikeBO;
-import cn.jualn.miniapp.module.interact.dto.inner.LikeCountDTO;
+import cn.jualn.miniapp.module.interact.dto.inner.InteractCountDTO;
 import cn.jualn.miniapp.module.interact.dto.inner.UserLikeQuery;
 import cn.jualn.miniapp.module.interact.entity.LikeRecord;
 import cn.jualn.miniapp.module.interact.entity.ShareRecord;
-import cn.jualn.miniapp.module.interact.entity.ViewLog;
 import cn.jualn.miniapp.module.interact.mapper.LikeRecordMapper;
 import cn.jualn.miniapp.module.interact.mapper.ShareRecordMapper;
-import cn.jualn.miniapp.module.interact.mapper.ViewLogMapper;
 import cn.jualn.miniapp.module.interact.service.InteractService;
 import cn.jualn.miniapp.module.post.mapper.PostMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -81,13 +78,11 @@ public class InteractServiceImpl implements InteractService {
     // ── 依赖 ──────────────────────────────────────────────────────────────────
     private final LikeRecordMapper likeRecordMapper;
     private final ShareRecordMapper shareRecordMapper;
-    private final ViewLogMapper viewLogMapper;
     private final RedisService redisService;
     private final TargetValidator targetValidator;
-    private final QueueProducer queueProducer;
     private final PostMapper postMapper;
     private final ActivityMapper activityMapper;
-    private final CommentMapper commentMapper;
+    private final ExamInfoMapper examInfoMapper;
 
     // =========================================================================
     // 点赞
@@ -421,76 +416,66 @@ public class InteractServiceImpl implements InteractService {
     // =========================================================================
 
     /**
-     * 记录浏览行为并增加浏览计数。
+     * 记录浏览行为。
      *
-     * <p>允许未登录用户调用（userId 可为 null），匿名浏览也计入浏览量。
-     *
-     * <p>写操作：
+     * <p>轻量版设计：
      * <ul>
-     *   <li>view_log：异步写（事务提交后扔队列），UV 统计辅助，不阻塞主流程</li>
-     *   <li>Redis viewCount：事务提交后 incr，无 TTL，定时刷回 DB 冗余字段</li>
+     *   <li>不写 view_log</li>
+     *   <li>不做用户/设备/IP 去重</li>
+     *   <li>Redis 只保存未同步增量 view_delta</li>
+     *   <li>定时任务批量把 delta 加到内容表 view_count</li>
      * </ul>
      *
-     * @param targetType 目标类型（不支持 COMMENT）
+     * @param targetType 目标类型（POST / ACTIVITY / EXAM，不支持 COMMENT）
      * @param targetId   目标 ID
      */
     @Override
     public void view(TargetType targetType, Long targetId) {
-        Long userId = UserContext.getUserId(); // 允许 null（匿名）
         assertContentOnly(targetType);
         targetValidator.assertExists(targetType, targetId);
 
-        String countKey = RedisKeyConstant.viewCount(targetType.getKey(), targetId);
+        String deltaKey = RedisKeyConstant.viewDelta(targetType.getKey(), targetId);
 
-        // Redis incr（无事务，直接写；浏览允许轻微不一致，不需要 afterCommit）
-        redisService.incrementAndRefresh(countKey, RedisKeyConstant.VIEW_COUNT_TTL);
-        redisService.sAdd(RedisKeyConstant.VIEW_DIRTY_SET, countKey);
-
-        // view_log 异步写（UV 统计用，失败不影响浏览量计数）
-        // 此处用线程池或队列异步，示例用 afterCommit 兜底
-        afterCommit(() -> {
-            try {
-                viewLogMapper.insert(ViewLog.builder()
-                        .userId(userId)
-                        .targetType(targetType.getCode())
-                        .targetId(targetId)
-                        .build());
-            } catch (Exception e) {
-                log.warn("[Interact.view] view_log 写入失败（不影响计数），targetId={}", targetId, e);
-            }
-        });
+        redisService.incrementAndRefresh(deltaKey, RedisKeyConstant.VIEW_DELTA_TTL);
+        redisService.sAdd(RedisKeyConstant.VIEW_DIRTY_SET, deltaKey);
     }
 
     /**
      * 查询目标浏览总数。
      *
-     * <p>读路径：Redis 计数器 → 缓存 Miss 时查 DB 冗余字段并写入 Redis。
+     * <p>读路径：
+     * <pre>
+     *   内容表 view_count + Redis view_delta
+     * </pre>
      *
-     * @param targetType 目标类型（不支持 COMMENT）
+     * <p>DB 是长期基准，Redis 只保存尚未刷库的短期增量。
+     *
+     * @param targetType 目标类型（POST / ACTIVITY / EXAM，不支持 COMMENT）
      * @param targetId   目标 ID
-     * @return 浏览量，无记录时返回 0
+     * @return 浏览量
      */
     @Override
     public long getViewCount(TargetType targetType, Long targetId) {
         assertContentOnly(targetType);
         targetValidator.assertExists(targetType, targetId);
 
-        String countKey = RedisKeyConstant.viewCount(targetType.getKey(), targetId);
+        long dbCount = loadViewCountFromContentTable(targetType, targetId);
 
-        Long cached = redisService.getLong(countKey);
-        if (cached != null) return cached;
+        String deltaKey = RedisKeyConstant.viewDelta(targetType.getKey(), targetId);
+        Long delta = redisService.getLong(deltaKey);
 
-        // 缓存 Miss：从 DB 冗余字段读（view_count），写入 Redis，无 TTL（永久计数器）
-        long dbCount = loadViewCountFromDB(targetType.getCode(), targetId);
-        redisService.set(countKey, dbCount, RedisKeyConstant.VIEW_COUNT_TTL);
-        return dbCount;
+        return dbCount + (delta == null ? 0L : Math.max(0L, delta));
     }
 
     /**
      * 批量查询目标浏览总数。
      *
-     * <p>读路径：MGET 一次取全部缓存 → 未命中部分一次 IN 查 DB → 批量回写 Redis。
-     * <p>与单条不同，批量场景请求本身已聚合，击穿风险极低，无需逐 key 加锁。
+     * <p>读路径：
+     * <pre>
+     *   批量读取内容表 view_count
+     *   +
+     *   批量读取 Redis view_delta
+     * </pre>
      *
      * @param targetType 目标类型
      * @param targetIds  目标 ID 集合
@@ -498,40 +483,40 @@ public class InteractServiceImpl implements InteractService {
      */
     @Override
     public Map<Long, Integer> batchGetViewCount(TargetType targetType, Collection<Long> targetIds) {
-        List<Long> distinctIds = targetIds.stream().distinct().toList();
+        List<Long> distinctIds = targetIds == null
+                ? List.of()
+                : targetIds.stream().filter(Objects::nonNull).distinct().toList();
+
+        if (distinctIds.isEmpty()) {
+            return Map.of();
+        }
+
+        assertContentOnly(targetType);
         targetValidator.assertAllExist(targetType, distinctIds);
 
-        List<String> keys = distinctIds.stream()
-                .map(id -> RedisKeyConstant.viewCount(targetType.getKey(), id))
+        // 1. DB 基准值：内容表 view_count
+        Map<Long, Integer> dbCounts = batchLoadViewCountFromContentTable(targetType, distinctIds);
+
+        // 2. Redis 未同步增量：view_delta
+        List<String> deltaKeys = distinctIds.stream()
+                .map(id -> RedisKeyConstant.viewDelta(targetType.getKey(), id))
                 .toList();
 
-        Map<String, Integer> cachedValues = redisService.multiGet(keys, Integer.class);
+        Map<String, Long> deltaValues = redisService.multiGetLong(deltaKeys);
 
+        // 3. 合并 DB + Redis delta
         Map<Long, Integer> result = new HashMap<>(distinctIds.size());
-        List<Long> cacheMissIds = new ArrayList<>();
         for (int i = 0; i < distinctIds.size(); i++) {
             Long targetId = distinctIds.get(i);
-            Integer cached = cachedValues.get(keys.get(i));
-            if (cached != null) {
-                result.put(targetId, cached);
-            } else {
-                cacheMissIds.add(targetId);
-            }
+
+            long dbCount = dbCounts.getOrDefault(targetId, 0);
+            Long delta = deltaValues.get(deltaKeys.get(i));
+            long total = dbCount + (delta == null ? 0L : Math.max(0L, delta));
+
+            result.put(targetId, safeLongToInt(total));
         }
 
-        if (cacheMissIds.isEmpty()) return result;
-
-        Map<Long, Integer> dbCounts = batchCountLikeFromDB(targetType.getCode(), cacheMissIds);
-
-        Map<String, Object> toCache = new HashMap<>(cacheMissIds.size());
-        for (Long targetId : cacheMissIds) {
-            int count = dbCounts.getOrDefault(targetId, 0);
-            result.put(targetId, count);
-            toCache.put(RedisKeyConstant.viewCount(targetType.getKey(), targetId), count);
-        }
-        redisService.multiSet(toCache, RedisKeyConstant.VIEW_COUNT_TTL);
         return result;
-
     }
     // =========================================================================
     // 缓存同步
@@ -601,21 +586,26 @@ public class InteractServiceImpl implements InteractService {
     }
 
     private Map<Long, Integer> batchCountLikeFromDB(Integer targetTypeCode, List<Long> targetIds) {
-        List<LikeCountDTO> rows = likeRecordMapper.selectLikeCountBatch(targetTypeCode, targetIds);
+        List<InteractCountDTO> rows = likeRecordMapper.selectLikeCountBatch(targetTypeCode, targetIds);
         return rows.stream()
-                .collect(Collectors.toMap(LikeCountDTO::getTargetId, LikeCountDTO::getCount));
+                .collect(Collectors.toMap(InteractCountDTO::getTargetId, InteractCountDTO::getCount));
     }
 
     /**
-     * 从 DB 加载浏览量。
-     * 优先读内容表的 view_count 冗余字段（由定时任务刷入），
-     * 冗余字段为 0 时兜底 count view_log（首次访问场景）。
+     * 从内容表读取浏览量基准值。
+     *
+     * <p>注意：不再 count view_log。
+     * view_log 当前不参与浏览量统计。</p>
      */
-    private long loadViewCountFromDB(Integer targetTypeCode, Long targetId) {
-        Long count = viewLogMapper.selectCount(new LambdaQueryWrapper<ViewLog>()
-                .eq(ViewLog::getTargetType, targetTypeCode)
-                .eq(ViewLog::getTargetId, targetId));
-        return count == null ? 0L : count;
+    private long loadViewCountFromContentTable(TargetType targetType, Long targetId) {
+        Long count = switch (targetType) {
+            case POST -> postMapper.selectViewCountById(targetId);
+            case ACTIVITY -> activityMapper.selectViewCountById(targetId);
+            case EXAM -> examInfoMapper.selectViewCountById(targetId);
+            default -> 0L;
+        };
+
+        return count == null ? 0L : Math.max(0L, count);
     }
 
     // =========================================================================
@@ -691,5 +681,37 @@ public class InteractServiceImpl implements InteractService {
                 .lt(query.getLastId() != null, LikeRecord::getId, query.getLastId())
                 .orderByDesc(LikeRecord::getId)
                 .last("LIMIT " + pageSize);
+    }
+
+    private int safeLongToInt(long value) {
+        if (value <= 0L) {
+            return 0;
+        }
+        return value > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) value;
+    }
+
+    private Map<Long, Integer> batchLoadViewCountFromContentTable(TargetType targetType, List<Long> targetIds) {
+        if (targetIds == null || targetIds.isEmpty()) {
+            return Map.of();
+        }
+
+        List<InteractCountDTO> rows = switch (targetType) {
+            case POST -> postMapper.selectViewCountBatch(targetIds);
+            case ACTIVITY -> activityMapper.selectViewCountBatch(targetIds);
+            case EXAM -> examInfoMapper.selectViewCountBatch(targetIds);
+            default -> List.of();
+        };
+
+        if (rows == null || rows.isEmpty()) {
+            return Map.of();
+        }
+
+        return rows.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toMap(
+                        InteractCountDTO::getTargetId,
+                        row -> row.getCount() == null ? 0 : Math.max(0, row.getCount()),
+                        (a, b) -> a
+                ));
     }
 }

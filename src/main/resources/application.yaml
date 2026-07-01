@@ -91,7 +91,7 @@ wx:
         template-id: R7Eowu1hJGBxAAK3el4WK9iU6QYv9PuHp5vVQ9d_bi4
         enabled: true
         subscribe-visible: true
-        page-path: /pages/index/index
+        page-path: /pages/message/message
 
         fields:
           thing5:

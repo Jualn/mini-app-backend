@@ -186,23 +186,7 @@ public class RedisService {
      */
     public Long getLong(String key) {
         Object value = getRaw(key);
-        if (value instanceof Long l) {
-            return l;
-        }
-        if (value instanceof Integer i) {
-            return i.longValue();
-        }
-        if (value instanceof String s) {
-            try {
-                return Long.parseLong(s);
-            } catch (NumberFormatException ignore) {
-                // fall through
-            }
-        }
-        if (value != null) {
-            log.warn("[Redis] getLong 类型不匹配，key={}, actualType={}", key, value.getClass().getName());
-        }
-        return null;
+        return toLong(key, value);
     }
 
     /**
@@ -241,6 +225,34 @@ public class RedisService {
         } catch (Exception e) {
             log.error("[Redis] multiGet 失败，keys={}", keys, e);
             return Map.of(); // 全量降级，调用方走 DB
+        }
+    }
+
+    /**
+     * 批量读取 Long 计数器。
+     *
+     * <p>Redis 计数器在 Java 侧可能被反序列化为 Integer / Long / String，
+     * 本方法统一转换为 Long，避免 multiGet(Long.class) 因类型严格匹配产生误报。</p>
+     *
+     * @param keys Redis key 列表
+     * @return key → Long；key 不存在、类型不合法或 Redis 异常时 value 为 null
+     */
+    public Map<String, Long> multiGetLong(List<String> keys) {
+        if (keys == null || keys.isEmpty()) return Map.of();
+
+        try {
+            List<Object> values = redisTemplate.opsForValue().multiGet(keys);
+            Map<String, Long> result = new LinkedHashMap<>(keys.size());
+            if (values == null) return result;
+
+            for (int i = 0; i < keys.size(); i++) {
+                result.put(keys.get(i), toLong(keys.get(i), values.get(i)));
+            }
+
+            return result;
+        } catch (Exception e) {
+            log.error("[Redis] multiGetLong 失败，keys={}", keys, e);
+            return Map.of();
         }
     }
 
@@ -354,6 +366,22 @@ public class RedisService {
     }
 
     /**
+     * 计数器按指定步长增减。
+     *
+     * <p>delta 为负数时等效于 decrement。</p>
+     *
+     * @return 操作后的值；Redis 异常返回 null
+     */
+    public Long increment(String key, long delta) {
+        try {
+            return redisTemplate.opsForValue().increment(key, delta);
+        } catch (Exception e) {
+            log.error("[Redis] increment 失败，key={}, delta={}", key, delta, e);
+            return null;
+        }
+    }
+
+    /**
      * 计数器 +1，同时重置 TTL。
      *
      * <p>适用于 likeCount / viewCount 等需要"活跃则续期"语义的计数器：
@@ -382,6 +410,40 @@ public class RedisService {
             return !results.isEmpty() ? (Long) results.get(0) : null;
         } catch (Exception e) {
             log.error("[Redis] incrementAndRefresh 失败，key={}", key, e);
+            return null;
+        }
+    }
+
+    /**
+     * 计数器按指定步长增减，同时刷新 TTL。
+     *
+     * <p>用于 view_delta 同步失败回补：如果已经 GETDEL 取出 delta，
+     * 但 DB 更新失败，需要把 delta 加回 Redis，并刷新 TTL。</p>
+     *
+     * @param key   计数器 key
+     * @param delta 增量，可正可负
+     * @param ttl   过期时间
+     * @return 操作后的值；Redis 异常返回 null
+     */
+    public Long incrementByAndRefresh(String key, long delta, Duration ttl) {
+        if (!StringUtils.hasText(key) || ttl == null || ttl.isZero() || ttl.isNegative()) {
+            log.warn("[Redis] incrementByAndRefresh 参数非法，key={}, delta={}", key, delta);
+            return null;
+        }
+
+        try {
+            List<Object> results = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+                byte[] rawKey = redisTemplate.getStringSerializer().serialize(key);
+                if (rawKey != null) {
+                    connection.stringCommands().incrBy(rawKey, delta);
+                    connection.keyCommands().expire(rawKey, ttl.getSeconds());
+                }
+                return null;
+            });
+
+            return !results.isEmpty() ? (Long) results.get(0) : null;
+        } catch (Exception e) {
+            log.error("[Redis] incrementByAndRefresh 失败，key={}, delta={}", key, delta, e);
             return null;
         }
     }
@@ -426,17 +488,24 @@ public class RedisService {
     }
 
     /**
-     * 计数器按指定步长增减。
+     * 原子获取并删除 Long 计数器。
      *
-     * <p>delta 为负数时等效于 decrement。</p>
+     * <p>用于 view_delta 刷库：取出未同步增量后立即删除 Redis key。
+     * 若 DB 更新失败，调用方需要用 incrementByAndRefresh 把 delta 加回去。</p>
      *
-     * @return 操作后的值；Redis 异常返回 null
+     * @param key Redis key
+     * @return 删除前的 Long 值；key 不存在或异常返回 null
      */
-    public Long increment(String key, long delta) {
+    public Long getAndDeleteLong(String key) {
+        if (!StringUtils.hasText(key)) {
+            return null;
+        }
+
         try {
-            return redisTemplate.opsForValue().increment(key, delta);
+            Object value = redisTemplate.opsForValue().getAndDelete(key);
+            return toLong(key, value);
         } catch (Exception e) {
-            log.error("[Redis] increment 失败，key={}, delta={}", key, delta, e);
+            log.error("[Redis] getAndDeleteLong 失败，key={}", key, e);
             return null;
         }
     }
@@ -810,6 +879,29 @@ public class RedisService {
         }
     }
 
+    /**
+     * 从集合中移除一个或多个成员（SREM）。
+     *
+     * <p>用于定时任务处理完成后，从 VIEW_DIRTY_SET 中移除已同步的 delta key。</p>
+     *
+     * @param key     集合 key
+     * @param members 要移除的成员
+     * @return 实际移除数量；异常返回 0
+     */
+    public long sRemove(String key, Object... members) {
+        if (!StringUtils.hasText(key) || members == null || members.length == 0) {
+            return 0L;
+        }
+
+        try {
+            Long removed = redisTemplate.opsForSet().remove(key, members);
+            return removed != null ? removed : 0L;
+        } catch (Exception e) {
+            log.error("[Redis] sRemove 失败，key={}", key, e);
+            return 0L;
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 内部方法
     // ─────────────────────────────────────────────────────────────────────────
@@ -826,5 +918,25 @@ public class RedisService {
             log.error("[Redis] get 失败，key={}", key, e);
             return null;
         }
+    }
+
+    private Long toLong(String key, Object value) {
+        if (value instanceof Long l) {
+            return l;
+        }
+        if (value instanceof Integer i) {
+            return i.longValue();
+        }
+        if (value instanceof String s) {
+            try {
+                return Long.parseLong(s);
+            } catch (NumberFormatException ignore) {
+                // fall through
+            }
+        }
+        if (value != null) {
+            log.warn("[Redis] toLong 类型不匹配，key={}, actualType={}", key, value.getClass().getName());
+        }
+        return null;
     }
 }

@@ -2,6 +2,7 @@ package cn.jualn.miniapp.module.post.service.impl;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.constant.UserContext;
+import cn.jualn.miniapp.common.enums.AuditScene;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.enums.UserRole;
 import cn.jualn.miniapp.common.exception.BusinessException;
@@ -117,7 +118,7 @@ public class PostServiceImpl implements PostService {
 
         AuditReserveResultBO reserveResult = auditService.reserveAuditLogs(
                 AuditReserveBO.builder()
-                        .targetType(TargetType.POST)
+                        .auditScene(AuditScene.POST)
                         .targetId(post.getId())
                         .textContent(post.getContent())
                         .mediaItems(buildAuditReserveMediaItems(command.getAttachmentItems()))
@@ -430,7 +431,7 @@ public class PostServiceImpl implements PostService {
 
             if (!items.isEmpty()) {
                 queueProducer.send(AuditMediaBatchPayload.builder()
-                        .targetType(TargetType.POST)
+                        .auditScene(AuditScene.POST)
                         .targetId(postId)
                         .scene(3)
                         .items(items)
@@ -443,7 +444,7 @@ public class PostServiceImpl implements PostService {
                     AuditTextPayload.builder()
                             .auditLogId(reserveResult.getTextAuditLogId())
                             .targetId(postId)
-                            .targetType(TargetType.POST)
+                            .auditScene(AuditScene.POST)
                             .content(content)
                             .scene(3)
                             .build()

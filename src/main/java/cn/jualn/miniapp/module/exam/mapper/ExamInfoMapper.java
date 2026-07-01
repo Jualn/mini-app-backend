@@ -2,11 +2,13 @@ package cn.jualn.miniapp.module.exam.mapper;
 
 import cn.jualn.miniapp.module.exam.bo.ExamSimpleBO;
 import cn.jualn.miniapp.module.exam.entity.ExamInfo;
+import cn.jualn.miniapp.module.interact.dto.inner.InteractCountDTO;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Update;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -93,17 +95,12 @@ public interface ExamInfoMapper extends BaseMapper<ExamInfo> {
 	@Update("UPDATE exam_info SET comment_count = IF(IFNULL(comment_count, 0) > 0, comment_count - 1, 0) WHERE id = #{examId}")
 	void decreaseCommentCount(@Param("examId") Long examId);
 
-	/**
-	 * 增加考试浏览数。
-	 *
-	 * @param examId 考试ID
-	 */
-	@Update("UPDATE exam_info SET view_count = IFNULL(view_count, 0) + 1 WHERE id = #{examId}")
-	void increaseViewCount(@Param("examId") Long examId);
-
 	@Update("UPDATE exam_info SET like_count = #{count} WHERE id = #{examId} AND deleted_at IS NULL")
 	void setLikeCount(@Param("examId") Long examId, @Param("count") Long count);
 
-	@Update("UPDATE exam_info SET view_count = #{count} WHERE id = #{examId} AND deleted_at IS NULL")
-	void setViewCount(@Param("examId") Long examId, @Param("count") Long count);
+	Long selectViewCountById(@Param("id") Long id);
+
+	List<InteractCountDTO> selectViewCountBatch(@Param("ids") Collection<Long> ids);
+
+	int incrementViewCount(@Param("id") Long id, @Param("delta") Long delta);
 }

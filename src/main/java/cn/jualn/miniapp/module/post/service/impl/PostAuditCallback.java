@@ -2,6 +2,7 @@ package cn.jualn.miniapp.module.post.service.impl;
 
 import cn.jualn.miniapp.common.annotation.AuditTarget;
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
+import cn.jualn.miniapp.common.enums.AuditScene;
 import cn.jualn.miniapp.common.enums.NotifyType;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
@@ -26,7 +27,7 @@ import java.time.LocalDateTime;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@AuditTarget(TargetType.POST)
+@AuditTarget(AuditScene.POST)
 public class PostAuditCallback implements AuditResultCallback {
 
     private final PostMapper postMapper;
@@ -39,7 +40,7 @@ public class PostAuditCallback implements AuditResultCallback {
         long total = contentAuditLogMapper.selectCount(
                 new LambdaQueryWrapper<ContentAuditLog>()
                         .eq(ContentAuditLog::getTargetId, postId)
-                        .eq(ContentAuditLog::getTargetType, TargetType.POST.getCode())
+                        .eq(ContentAuditLog::getTargetType, AuditScene.POST.getCode())
         );
 
         if (total <= 0) {
@@ -49,7 +50,7 @@ public class PostAuditCallback implements AuditResultCallback {
         long rejected = contentAuditLogMapper.selectCount(
                 new LambdaQueryWrapper<ContentAuditLog>()
                         .eq(ContentAuditLog::getTargetId, postId)
-                        .eq(ContentAuditLog::getTargetType, TargetType.POST.getCode())
+                        .eq(ContentAuditLog::getTargetType, AuditScene.POST.getCode())
                         .eq(ContentAuditLog::getFinalResult, AuditStatus.REJECT.getCode())
         );
 
@@ -60,7 +61,7 @@ public class PostAuditCallback implements AuditResultCallback {
         long passed = contentAuditLogMapper.selectCount(
                 new LambdaQueryWrapper<ContentAuditLog>()
                         .eq(ContentAuditLog::getTargetId, postId)
-                        .eq(ContentAuditLog::getTargetType, TargetType.POST.getCode())
+                        .eq(ContentAuditLog::getTargetType, AuditScene.POST.getCode())
                         .eq(ContentAuditLog::getFinalResult, AuditStatus.PASS.getCode())
         );
 

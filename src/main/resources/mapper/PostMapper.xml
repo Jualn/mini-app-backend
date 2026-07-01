@@ -3,7 +3,7 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="cn.jualn.miniapp.module.post.mapper.PostMapper">
-    <select id="selectPostListBatchByIds" resultType="Post">
+    <select id="selectPostListBatchByIds" resultType="cn.jualn.miniapp.module.post.bo.PostListBO">
         SELECT id, title, content, like_count, comment_count, view_count, published_at
         FROM post
         WHERE status = 2 AND audit_status = 1 AND deleted_at IS NULL AND id IN
@@ -12,4 +12,27 @@
         </foreach>
         ORDER BY id, published_at DESC
     </select>
+
+    <select id="selectViewCountById" resultType="java.lang.Long">
+        SELECT COALESCE(view_count, 0)
+        FROM post
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectViewCountBatch" resultType="cn.jualn.miniapp.module.interact.dto.inner.InteractCountDTO">
+        SELECT
+        id AS targetId,
+        COALESCE(view_count, 0) AS count
+        FROM post
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <update id="incrementViewCount">
+        UPDATE post
+        SET view_count = COALESCE(view_count, 0) + #{delta}
+        WHERE id = #{id}
+    </update>
 </mapper>

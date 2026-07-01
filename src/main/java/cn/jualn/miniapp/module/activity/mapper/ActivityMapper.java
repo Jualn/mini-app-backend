@@ -1,11 +1,13 @@
 package cn.jualn.miniapp.module.activity.mapper;
 
 import cn.jualn.miniapp.module.activity.entity.Activity;
+import cn.jualn.miniapp.module.interact.dto.inner.InteractCountDTO;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Update;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -98,19 +100,12 @@ public interface ActivityMapper extends BaseMapper<Activity> {
     @Update("UPDATE activity SET comment_count = IF(IFNULL(comment_count, 0) > 0, comment_count - 1, 0) WHERE id = #{activityId}")
     void decreaseCommentCount(@Param("activityId") Long activityId);
 
-    /**
-     * 增加活动浏览数。
-     *
-     * <p>原子操作，使用SQL直接操作，避免读后写问题。</p>
-     *
-     * @param activityId 活动ID
-     */
-    @Update("UPDATE activity SET view_count = IFNULL(view_count, 0) + 1 WHERE id = #{activityId}")
-    void increaseViewCount(@Param("activityId") Long activityId);
-
     @Update("UPDATE activity SET like_count = #{count} WHERE id = #{activityId} AND deleted_at IS NULL")
     void setLikeCount(@Param("activityId") Long activityId, @Param("count") Long count);
 
-    @Update("UPDATE activity SET view_count = #{count} WHERE id = #{activityId} AND deleted_at IS NULL")
-    void setViewCount(@Param("activityId") Long activityId, @Param("count") Long count);
+    Long selectViewCountById(@Param("id") Long id);
+
+    List<InteractCountDTO> selectViewCountBatch(@Param("ids") Collection<Long> ids);
+
+    int incrementViewCount(@Param("id") Long id, @Param("delta") Long delta);
 }

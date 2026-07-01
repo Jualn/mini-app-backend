@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.audit.bo;
 
+import cn.jualn.miniapp.common.enums.AuditScene;
 import cn.jualn.miniapp.common.enums.MediaType;
-import cn.jualn.miniapp.common.enums.TargetType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,7 +15,7 @@ import java.util.List;
 @AllArgsConstructor
 public class AuditReserveBO {
 
-    private TargetType targetType;
+    private AuditScene auditScene;
 
     private Long targetId;
 

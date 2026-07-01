@@ -43,7 +43,8 @@ import java.util.*;
 public class MediaServiceImpl implements MediaService {
 
     private static final Set<TargetType> MEDIA_SUPPORTED_TYPES =
-            Set.of(TargetType.POST, TargetType.ACTIVITY, TargetType.EXAM);
+            Set.of(TargetType.POST, TargetType.ACTIVITY, TargetType.EXAM
+                    , TargetType.COMMENT, TargetType.USER);
 
     private final MediaConverter mediaConverter;
     private final MediaAttachmentMapper mediaAttachmentMapper;
@@ -325,6 +326,7 @@ public class MediaServiceImpl implements MediaService {
             case ACTIVITY -> "activity";
             case EXAM -> "exam";
             case COMMENT -> "comment";
+            case USER -> "user";
             default -> throw new BusinessException(ResultCode.BAD_REQUEST, "targetType 不支持");
         };
         String nonce = UUID.randomUUID().toString().replace("-", "");

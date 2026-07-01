@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.interact.mapper;
 
-import cn.jualn.miniapp.module.interact.dto.inner.LikeCountDTO;
+import cn.jualn.miniapp.module.interact.dto.inner.InteractCountDTO;
 import cn.jualn.miniapp.module.interact.entity.LikeRecord;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Param;
@@ -15,7 +15,7 @@ public interface LikeRecordMapper extends BaseMapper<LikeRecord> {
             @Param("targetIds") List<Long> targetIds
     );
 
-    List<LikeCountDTO> selectLikeCountBatch(
+    List<InteractCountDTO> selectLikeCountBatch(
             @Param("targetType") Integer targetType,
             @Param("targetIds")  List<Long> targetIds
     );
