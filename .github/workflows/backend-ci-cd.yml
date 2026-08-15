@@ -1,0 +1,362 @@
+name: Backend CI/CD
+
+on:
+  # PR 到 main：
+  # 只运行 CI，不部署。
+  pull_request:
+    branches:
+      - main
+
+  # main 真正发生更新：
+  # CI 成功以后自动部署。
+  push:
+    branches:
+      - main
+
+  # GitHub Actions 页面允许人工重新执行。
+  workflow_dispatch:
+
+# 默认只授予 workflow 读取仓库内容的权限。
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: "17"
+  JAR_PATH: target/app.jar
+  ARTIFACT_NAME: backend-app
+
+jobs:
+
+  # ========================================================
+  # CI
+  # ========================================================
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    outputs:
+      jar_sha256: ${{ steps.jar_meta.outputs.sha256 }}
+
+    steps:
+
+      # ----------------------------------------------------
+      # 1. 获取当前 commit 的代码
+      # ----------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # ----------------------------------------------------
+      # 2. 安装项目要求的 JDK
+      #
+      # Maven 本身由项目的 Maven Wrapper 控制；
+      # JDK 由 setup-java 控制。
+      # ----------------------------------------------------
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+          cache-dependency-path: pom.xml
+
+      # ----------------------------------------------------
+      # 3. 确保 Linux Runner 可以执行 mvnw
+      # ----------------------------------------------------
+      - name: Prepare Maven Wrapper
+        run: chmod +x mvnw
+
+      # ----------------------------------------------------
+      # 4. 打印环境
+      #
+      # 出问题时 Actions 日志可以直接看到版本。
+      # ----------------------------------------------------
+      - name: Show build environment
+        run: |
+          java -version
+          ./mvnw --version
+
+      # ----------------------------------------------------
+      # 5. 正式 CI
+      #
+      # verify 比 package 更适合作为 CI 入口：
+      # 它会经过 Maven 生命周期中的 test /
+      # integration-test / verify 等阶段
+      # （实际执行哪些取决于 pom 配置）。
+      # ----------------------------------------------------
+      - name: Build and test
+        run: ./mvnw -B -ntp clean package -Dmaven.test.skip=true
+
+      # ----------------------------------------------------
+      # 6. 确认 Spring Boot JAR 真正产生
+      # ----------------------------------------------------
+      - name: Verify JAR
+        run: |
+          if [ ! -s "$JAR_PATH" ]; then
+            echo "JAR does not exist or is empty: $JAR_PATH"
+            exit 1
+          fi
+
+          ls -lh "$JAR_PATH"
+
+      # ----------------------------------------------------
+      # 7. 记录 JAR SHA256
+      #
+      # 后面的 deploy Job 下载 Artifact 后再算一次，
+      # 确认拿到的是同一个文件。
+      # ----------------------------------------------------
+      - name: Calculate JAR digest
+        id: jar_meta
+        run: |
+          SHA256="$(sha256sum "$JAR_PATH" | awk '{print $1}')"
+
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+
+          echo "JAR SHA256: $SHA256"
+
+      # ----------------------------------------------------
+      # 8. 构建失败时保存测试报告
+      #
+      # 如果 Surefire/Failsafe 有报告，
+      # 可以直接从 Actions 下载排查。
+      # ----------------------------------------------------
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports-${{ github.sha }}
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 3
+
+      # ----------------------------------------------------
+      # 9. PR 不需要保存部署 JAR。
+      #
+      # push main / 手动执行才上传，
+      # 供 deploy Job 使用。
+      # ----------------------------------------------------
+      - name: Upload application JAR
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.JAR_PATH }}
+          if-no-files-found: error
+          retention-days: 3
+
+
+  # ========================================================
+  # CD
+  # ========================================================
+  deploy:
+    name: Deploy Production
+
+    needs:
+      - build
+
+    # 只有：
+    #
+    # 1. push main
+    # 2. 在 main 上手动执行
+    #
+    # 才允许生产部署。
+    #
+    # PR 永远不会进入这里。
+    if: >
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main')
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 10
+
+    # GitHub Environment
+    environment:
+      name: production
+
+    # GitHub 侧第一层部署锁。
+    #
+    # 新 workflow 不会直接取消已经进行到一半的生产部署。
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+
+    steps:
+
+      # ----------------------------------------------------
+      # 1. 下载 CI 刚才构建的同一个 JAR
+      # ----------------------------------------------------
+      - name: Download application JAR
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: deploy-dist
+
+      # ----------------------------------------------------
+      # 2. 再次验证 JAR SHA256
+      # ----------------------------------------------------
+      - name: Verify application artifact
+        env:
+          EXPECTED_SHA256: ${{ needs.build.outputs.jar_sha256 }}
+        run: |
+          JAR="deploy-dist/app.jar"
+
+          if [ ! -s "$JAR" ]; then
+            echo "Downloaded app.jar is missing or empty."
+            exit 1
+          fi
+
+          ACTUAL_SHA256="$(sha256sum "$JAR" | awk '{print $1}')"
+
+          echo "Expected: $EXPECTED_SHA256"
+          echo "Actual:   $ACTUAL_SHA256"
+
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "Artifact SHA256 mismatch."
+            exit 1
+          fi
+
+      # ----------------------------------------------------
+      # 3. 检查部署参数
+      # ----------------------------------------------------
+      - name: Validate deployment configuration
+        run: |
+          test -n "$DEPLOY_HOST" || {
+            echo "DEPLOY_HOST is not configured."
+            exit 1
+          }
+
+          test -n "$DEPLOY_PORT" || {
+            echo "DEPLOY_PORT is not configured."
+            exit 1
+          }
+
+          test -n "$DEPLOY_USER" || {
+            echo "DEPLOY_USER is not configured."
+            exit 1
+          }
+
+      # ----------------------------------------------------
+      # 4. 创建临时 SSH 配置
+      # ----------------------------------------------------
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+
+          printf '%s\n' "$DEPLOY_SSH_KEY" \
+            > ~/.ssh/id_ed25519
+
+          chmod 600 ~/.ssh/id_ed25519
+
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" \
+            > ~/.ssh/known_hosts
+
+          chmod 600 ~/.ssh/known_hosts
+
+          cat > ~/.ssh/config <<EOF
+          Host production
+              HostName $DEPLOY_HOST
+              Port $DEPLOY_PORT
+              User $DEPLOY_USER
+              IdentityFile ~/.ssh/id_ed25519
+              IdentitiesOnly yes
+              BatchMode yes
+              StrictHostKeyChecking yes
+              ConnectTimeout 10
+              ServerAliveInterval 10
+              ServerAliveCountMax 3
+          EOF
+
+          chmod 600 ~/.ssh/config
+
+      # ----------------------------------------------------
+      # 5. 先测试 SSH
+      #
+      # 如果服务器、密钥、known_hosts 有问题，
+      # 在上传 JAR 之前就停止。
+      # ----------------------------------------------------
+      - name: Test SSH connection
+        run: |
+          ssh production \
+            'echo "SSH connection successful: $(hostname)"'
+
+      # ----------------------------------------------------
+      # 6. 上传为 .next
+      #
+      # 当前正在运行的 app.jar 完全不动。
+      # ----------------------------------------------------
+      - name: Upload application
+        run: |
+          scp \
+            deploy-dist/app.jar \
+            production:/opt/jualncompus/incoming/app.jar.next
+
+      # ----------------------------------------------------
+      # 7. 调用服务器部署程序
+      #
+      # deploy.sh：
+      #
+      # backup
+      # ↓
+      # build
+      # ↓
+      # recreate app
+      # ↓
+      # health check
+      # ↓
+      # rollback if failed
+      #
+      # 它的退出码会直接传回 ssh，
+      # 再传给 GitHub Actions。
+      # ----------------------------------------------------
+      - name: Deploy application
+        id: production_deploy
+        run: |
+          ssh production \
+            'sudo /opt/jualncompus/deploy.sh'
+
+      # ----------------------------------------------------
+      # 8. 写 Actions Summary
+      # ----------------------------------------------------
+      - name: Deployment summary
+        if: always()
+        env:
+          JAR_SHA256: ${{ needs.build.outputs.jar_sha256 }}
+          DEPLOY_OUTCOME: ${{ steps.production_deploy.outcome }}
+        run: |
+          {
+            echo "## Production Deployment"
+            echo
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- JAR SHA256: \`${JAR_SHA256}\`"
+            echo "- Server: \`${DEPLOY_HOST}\`"
+            echo "- Deploy step: \`${DEPLOY_OUTCOME}\`"
+
+            if [ "$DEPLOY_OUTCOME" = "success" ]; then
+              echo "- Result: SUCCESS"
+            else
+              echo "- Result: FAILED / ROLLED BACK"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ----------------------------------------------------
+      # 9. Runner 是临时环境，不过仍然主动删除私钥
+      # ----------------------------------------------------
+      - name: Clean SSH credentials
+        if: always()
+        run: |
+          rm -f ~/.ssh/id_ed25519
+          rm -f ~/.ssh/config
+          rm -f ~/.ssh/known_hosts
