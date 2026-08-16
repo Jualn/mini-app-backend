@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.third.wx.client;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
-import cn.jualn.miniapp.common.exception.BusinessException;
+import cn.jualn.miniapp.common.exception.ExternalServiceException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.third.wx.config.WxProperties;
@@ -420,12 +420,13 @@ public class WxClient {
      */
     private <T extends WxApiResult> T assertWxSuccess(T response, String errorPrefix) {
         if (response == null) {
-            throw new BusinessException(ResultCode.WX_API_ERROR, errorPrefix + "，微信返回为空");
+            throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat",
+                    errorPrefix + "，微信返回为空");
         }
         if (!response.isSuccess()) {
             String detail = errorPrefix + "，errcode=" + response.getErrcode() + ", errmsg=" + response.getErrmsg();
             log.error(detail);
-            throw new BusinessException(ResultCode.WX_API_ERROR, detail);
+            throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat", detail);
         }
         return response;
     }

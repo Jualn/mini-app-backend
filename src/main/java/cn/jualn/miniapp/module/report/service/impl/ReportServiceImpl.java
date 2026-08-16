@@ -60,7 +60,7 @@ public class ReportServiceImpl implements ReportService {
         try {
             reportMapper.insert(report);
         } catch (DuplicateKeyException e) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "请勿重复举报同一内容");
+            throw new BusinessException(ResultCode.REPORT_DUPLICATE);
         }
 
         log.info("[ReportService.createReport][完成] userId={}, reportId={}", userId, report.getId());
@@ -86,7 +86,7 @@ public class ReportServiceImpl implements ReportService {
         requireOperatorOrAdmin();
 
         if (reportId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "reportId 不能为空");
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "reportId 不能为空");
         }
 
         Report report = reportMapper.selectById(
@@ -96,10 +96,10 @@ public class ReportServiceImpl implements ReportService {
         );
 
         if (report == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "举报记录不存在");
+            throw new BusinessException(ResultCode.REPORT_NOT_FOUND);
         }
         if (report.getStatus() != ReportStatus.PENDING.getCode()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "举报已处理");
+            throw new BusinessException(ResultCode.REPORT_ALREADY_HANDLED);
         }
 
         report.setId(reportId);
@@ -170,7 +170,7 @@ public class ReportServiceImpl implements ReportService {
 
     private void assertTargetType(TargetType targetType) {
         if (!ALLOWED_TARGET_TYPES.contains(targetType)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "不支持的举报对象类型");
+            throw new BusinessException(ResultCode.REPORT_TARGET_UNSUPPORTED);
         }
     }
 }

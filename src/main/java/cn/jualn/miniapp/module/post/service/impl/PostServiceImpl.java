@@ -88,7 +88,7 @@ public class PostServiceImpl implements PostService {
     @Transactional(rollbackFor = Exception.class)
     public PostListBO createPost(PostCreateBO command) {
         if (command == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "请求参数不能为空");
+            throw new BusinessException(ResultCode.POST_PARAM_INVALID, "请求参数不能为空");
         }
 
         Long userId = requireUserId();
@@ -257,7 +257,7 @@ public class PostServiceImpl implements PostService {
     @Override
     public PostDetailVO getPostDetail(Long postId) {
         if (postId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "postId 不能为空");
+            throw new BusinessException(ResultCode.POST_PARAM_INVALID, "postId 不能为空");
         }
 
         Post post = requireExistingPost(postId);
@@ -299,7 +299,7 @@ public class PostServiceImpl implements PostService {
         Long operatorId = requireUserId();
         Long postAuthorId = postMapper.selectUserIdById(postId);
         if (postAuthorId == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "帖子不存在");
+            throw new BusinessException(ResultCode.POST_NOT_FOUND, "帖子不存在");
         }
         assertCanManagePost(operatorId, postAuthorId);
 
@@ -509,7 +509,7 @@ public class PostServiceImpl implements PostService {
 
     private Post requireExistingPost(Long postId) {
         if (postId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "postId 不能为空");
+            throw new BusinessException(ResultCode.POST_PARAM_INVALID, "postId 不能为空");
         }
 
         LambdaQueryWrapper<Post> wrapper = new LambdaQueryWrapper<Post>()
@@ -524,7 +524,7 @@ public class PostServiceImpl implements PostService {
         Post post = postMapper.selectOne(wrapper);
 
         if (post == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "帖子不存在");
+            throw new BusinessException(ResultCode.POST_NOT_FOUND, "帖子不存在");
         }
 
         return post;

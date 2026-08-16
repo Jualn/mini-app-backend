@@ -2,6 +2,7 @@ package cn.jualn.miniapp.infrastructure.queue.redis;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.constant.UserContext;
+import cn.jualn.miniapp.common.exception.SystemException;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.infrastructure.queue.annotation.QueueTopic;
 import cn.jualn.miniapp.infrastructure.queue.contract.MessagePayload;
@@ -39,7 +40,7 @@ public class RedisQueueProducer implements QueueProducer {
         try {
             json = objectMapper.writeValueAsString(msg);
         } catch (JsonProcessingException e) {
-            throw new RuntimeException("序列化 message 失败", e);
+            throw new SystemException("序列化队列消息失败", e);
         }
 
         doSend(json);
@@ -53,10 +54,13 @@ public class RedisQueueProducer implements QueueProducer {
             log.debug("[Producer] 入队 key={}, value={}", key, json);
             Long size = redisService.enqueue(key, json);
             if (size == null) {
-                throw new RuntimeException("RedisQueue 入队失败");
+                throw new SystemException("RedisQueue 入队失败");
             }
         } catch (Exception e) {
-            throw new RuntimeException("RedisQueue 入队失败", e);
+            if (e instanceof SystemException systemException) {
+                throw systemException;
+            }
+            throw new SystemException("RedisQueue 入队失败", e);
         }
     }
 

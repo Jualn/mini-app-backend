@@ -55,7 +55,7 @@ public class WxMpNoticeSendService {
     ) {
         WxMpNoticeTemplateProperties.Template template = templateRegistry.getRequired(type);
         if (!Boolean.TRUE.equals(template.getEnabled())) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "服务号通知模板未启用：" + type.getKey());
+            throw new BusinessException(ResultCode.WX_NOTICE_TEMPLATE_UNAVAILABLE, "服务号通知模板未启用：" + type.getKey());
         }
 
         UserProfile userProfile = userProfileMapper.selectOne(
@@ -65,7 +65,7 @@ public class WxMpNoticeSendService {
         );
 
         if (userProfile == null || !StringUtils.hasText(userProfile.getMpOpenid())) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "用户未绑定服务号 openid");
+            throw new BusinessException(ResultCode.WX_OPENID_NOT_BOUND, "用户未绑定服务号 openid");
         }
 
         Map<String, MpSubscribeMessageRequest.DataItem> data =

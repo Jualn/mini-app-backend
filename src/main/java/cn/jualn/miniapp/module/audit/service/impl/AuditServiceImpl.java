@@ -68,13 +68,13 @@ public class AuditServiceImpl implements AuditService {
         assertAuditScene(bo.getAuditScene());
 
         if (bo.getAuditLogId() == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "auditLogId 不能为空");
+            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "auditLogId 不能为空");
         }
         if (bo.getTargetId() == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "targetId 不能为空");
+            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "targetId 不能为空");
         }
         if (!StringUtils.hasText(bo.getContent())) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "content 不能为空");
+            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "content 不能为空");
         }
 
         WxMsgSecCheckRequest wxRequest = WxMsgSecCheckRequest.builder()
@@ -166,13 +166,13 @@ public class AuditServiceImpl implements AuditService {
         assertAuditScene(bo.getAuditScene());
 
         if (bo.getAuditLogId() == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "auditLogId 不能为空");
+            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "auditLogId 不能为空");
         }
         if (bo.getTargetId() == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "targetId 不能为空");
+            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "targetId 不能为空");
         }
         if (!StringUtils.hasText(bo.getMediaUrl())) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "mediaUrl 不能为空");
+            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "mediaUrl 不能为空");
         }
 
         WxMediaCheckAsyncRequest wxRequest = WxMediaCheckAsyncRequest.builder()
@@ -283,13 +283,13 @@ public class AuditServiceImpl implements AuditService {
     @Transactional(rollbackFor = Exception.class)
     public AuditReserveResultBO reserveAuditLogs(AuditReserveBO bo) {
         if (bo == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "审核预占参数不能为空");
+            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "审核预占参数不能为空");
         }
 
         assertAuditScene(bo.getAuditScene());
 
         if (bo.getTargetId() == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "targetId 不能为空");
+            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "targetId 不能为空");
         }
 
         Long textAuditLogId = null;
@@ -344,7 +344,7 @@ public class AuditServiceImpl implements AuditService {
      */
     private void assertAuditScene(AuditScene auditScene) {
         if (!AUDIT_ALLOWED_SCENES.contains(auditScene)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "不支持的 auditScene: " + auditScene);
+            throw new BusinessException(ResultCode.AUDIT_SCENE_UNSUPPORTED, "不支持的 auditScene: " + auditScene);
         }
     }
 

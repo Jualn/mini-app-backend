@@ -626,7 +626,7 @@ public class InteractServiceImpl implements InteractService {
      */
     private void assertLikeAllowed(TargetType targetType) {
         if (!LIKE_ALLOWED_TYPES.contains(targetType)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "该目标类型不支持点赞");
+            throw new BusinessException(ResultCode.INVALID_TARGET_TYPE, "该目标类型不支持点赞");
         }
     }
 
@@ -635,7 +635,7 @@ public class InteractServiceImpl implements InteractService {
      */
     private void assertContentOnly(TargetType targetType) {
         if (!CONTENT_ONLY_TYPES.contains(targetType)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "该目标类型不支持此操作");
+            throw new BusinessException(ResultCode.INVALID_TARGET_TYPE, "该目标类型不支持此操作");
         }
     }
 

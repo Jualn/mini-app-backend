@@ -319,7 +319,7 @@ public class NotifyServiceImpl implements NotifyService {
     private boolean isReadAndOwnedNotification(Long notificationId, Long userId) {
         Integer isRead = notificationMapper.selectIsReadByIdAndUserId(notificationId, userId);
         if (isRead == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "通知不存在");
+            throw new BusinessException(ResultCode.NOTIFICATION_NOT_FOUND, "通知不存在");
         }
         return isRead == 1;
     }

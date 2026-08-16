@@ -2,6 +2,7 @@ package cn.jualn.miniapp.infrastructure.queue.redis;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.constant.UserContext;
+import cn.jualn.miniapp.common.exception.SystemException;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.infrastructure.queue.annotation.QueueTopic;
 import cn.jualn.miniapp.infrastructure.queue.contract.DelayQueueProducer;
@@ -56,7 +57,7 @@ public class RedisDelayQueueProducer implements DelayQueueProducer {
         try {
             json = objectMapper.writeValueAsString(msg);
         } catch (JsonProcessingException e) {
-            throw new RuntimeException("延迟消息序列化失败", e);
+            throw new SystemException("延迟队列消息序列化失败", e);
         }
 
         // ZSET：member=memberKey，score=触发时间戳

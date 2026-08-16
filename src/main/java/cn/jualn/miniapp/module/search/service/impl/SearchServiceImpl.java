@@ -72,7 +72,7 @@ public class SearchServiceImpl implements SearchService {
         SearchPageBO actualQuery = query == null ? new SearchPageBO() : query;
         String keyword = normalizeKeyword(actualQuery.getKeyword());
         if (!StringUtils.hasText(keyword)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "keyword 不能为空");
+            throw new BusinessException(ResultCode.SEARCH_PARAM_INVALID, "keyword 不能为空");
         }
         assertTargetType(actualQuery.getTargetType());
         int pageSize = normalizePageSize(actualQuery.getPageSize());
@@ -99,7 +99,7 @@ public class SearchServiceImpl implements SearchService {
     public List<SearchTabCountBO> countSearchTabs(String keyword) {
         String normalizedKeyword = normalizeKeyword(keyword);
         if (!StringUtils.hasText(normalizedKeyword)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "keyword 不能为空");
+            throw new BusinessException(ResultCode.SEARCH_PARAM_INVALID, "keyword 不能为空");
         }
 
         String cacheKey = RedisKeyConstant.searchCount(md5(normalizedKeyword));
@@ -158,7 +158,7 @@ public class SearchServiceImpl implements SearchService {
 
     private void assertTargetType(TargetType targetType) {
         if (!ALLOWED_TARGET_TYPES.contains(targetType)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "仅支持帖子和活动搜索");
+            throw new BusinessException(ResultCode.SEARCH_PARAM_INVALID, "仅支持帖子和活动搜索");
 
         }
     }
@@ -172,7 +172,7 @@ public class SearchServiceImpl implements SearchService {
 
     private void validateCursor(LocalDateTime lastPublishedAt, Long lastId) {
         if ((lastPublishedAt == null) != (lastId == null)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "lastPublishedAt 和 lastId 需同时提供");
+            throw new BusinessException(ResultCode.SEARCH_PARAM_INVALID, "lastPublishedAt 和 lastId 需同时提供");
         }
     }
 

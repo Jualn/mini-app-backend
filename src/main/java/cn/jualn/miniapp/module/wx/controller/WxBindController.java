@@ -1,14 +1,18 @@
 package cn.jualn.miniapp.module.wx.controller;
 
+import cn.jualn.miniapp.common.constant.UserContext;
+import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.Result;
+import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.third.wx.service.WxBindService;
-import jakarta.validation.constraints.NotNull;
+import cn.jualn.miniapp.third.wx.service.WxMpOauthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Map;
 
 /**
  * 小程序与服务号绑定接口。
@@ -20,17 +24,29 @@ import org.springframework.web.bind.annotation.RestController;
 public class WxBindController {
 
     private final WxBindService wxBindService;
+    private final WxMpOauthService wxMpOauthService;
 
-    /**
-     * 生成绑定二维码。
-     * 后续可以改造成从登录态读取 userId，这里先保留显式参数便于联调。
-     *
-     * @param userId 小程序用户 ID
-     * @return 绑定二维码结果
-     */
     @GetMapping("/qrcode")
-    public Result<WxBindService.BindQrInfo> createBindQr(@RequestParam @NotNull Long userId) {
-        return Result.ok(wxBindService.createBindQr(userId));
+    public Result<WxBindService.BindQrInfo> createBindQr() {
+        return Result.ok(wxBindService.createBindQr(requireCurrentUserId()));
+    }
+
+    @GetMapping("/oauth-url")
+    public Result<Map<String, String>> createBindOauthUrl() {
+        String url = wxMpOauthService.buildBindOauthUrl(requireCurrentUserId());
+        return Result.ok(Map.of("url", url));
+    }
+
+    @GetMapping("/status")
+    public Result<Map<String, Object>> bindStatus() {
+        return Result.ok(wxMpOauthService.getBindStatus(requireCurrentUserId()));
+    }
+
+    private Long requireCurrentUserId() {
+        Long userId = UserContext.getUserId();
+        if (userId == null) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED);
+        }
+        return userId;
     }
 }
-

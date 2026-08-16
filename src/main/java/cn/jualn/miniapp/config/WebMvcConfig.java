@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.jspecify.annotations.NonNull;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
@@ -29,6 +30,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     private final ContextInterceptor contextInterceptor;
 
+    @Value("${app.cors.allowed-origin-patterns:*}")
+    private String[] corsAllowedOriginPatterns;
+
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(
@@ -36,14 +40,15 @@ public class WebMvcConfig implements WebMvcConfigurer {
                     private final SaInterceptor delegate =
                             new SaInterceptor(handle -> {
                         // 需要登录的接口
-                        SaRouter.match("/v1/**")
+                        SaRouter.match("/v1/**", "/timeline/**")
                                 // 白名单：不需要登录
                                 .notMatch("/v1/auth")
                                 .notMatch("/v1/auth/login")
                                 .notMatch("/v1/users/public/**")
                                 .notMatch("/v1/interact/like/count")
                                 .notMatch("/v1/audit/callback/**") // 微信回调
-                                .notMatch("/v1/wx/**")
+                                .notMatch("/v1/wx/mp/callback")
+                                .notMatch("/v1/wx/ma/callback")
 
                                 // 其余全部校验登录
                                 .check(r -> StpUtil.checkLogin());
@@ -69,10 +74,19 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/api/**")
-                .allowedOriginPatterns("*")   // 生产环境改为具体域名
+        registry.addMapping("/v1/**")
+                .allowedOriginPatterns(corsAllowedOriginPatterns)
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
+                .exposedHeaders("X-Trace-Id")
+                .allowCredentials(true)
+                .maxAge(3600);                // 预检请求缓存1小时
+
+        registry.addMapping("/third/**")
+                .allowedOriginPatterns(corsAllowedOriginPatterns)
+                .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+                .allowedHeaders("*")
+                .exposedHeaders("X-Trace-Id")
                 .allowCredentials(true)
                 .maxAge(3600);                // 预检请求缓存1小时
     }

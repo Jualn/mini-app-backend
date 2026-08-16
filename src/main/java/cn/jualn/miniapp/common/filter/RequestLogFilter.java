@@ -20,6 +20,8 @@ import java.util.UUID;
 @Order(1)
 public class RequestLogFilter extends OncePerRequestFilter {
 
+    private static final String TRACE_ID_HEADER = "X-Trace-Id";
+
     private static final List<String> IGNORE_PREFIXES = List.of(
             // 过滤api文档的访问请求，没必要进业务请求日志
             "/v3/api-docs",
@@ -36,8 +38,12 @@ public class RequestLogFilter extends OncePerRequestFilter {
             "/wordpress",
             "/phpmyadmin",
             "/adminer",
+            "/phpinfo",
+            "/server-status",
             "/.env",
             "/.git",
+            "/.aws",
+            "/.svn",
             "/vendor",
             "/boaform",
             "/cgi-bin"
@@ -73,12 +79,13 @@ public class RequestLogFilter extends OncePerRequestFilter {
         long start = System.currentTimeMillis();
 
         try {
-            // 1. 获取 traceId （可考虑从请求头透传）
+            // 1. 获取 traceId
             String traceId = MDC.get("traceId");
             if (traceId == null) {
-                traceId = UUID.randomUUID().toString().replace("-", "");
+                traceId = resolveTraceId(request);
                 MDC.put("traceId", traceId);
             }
+            response.setHeader(TRACE_ID_HEADER, traceId);
 
             // 2. 打印请求入口日志
             log.info(">>>[Request] [{}] {} {} from={}",
@@ -129,5 +136,25 @@ public class RequestLogFilter extends OncePerRequestFilter {
         }
 
         return request.getRemoteAddr();
+    }
+
+    private String resolveTraceId(HttpServletRequest request) {
+        String traceId = request.getHeader(TRACE_ID_HEADER);
+        if (isValidTraceId(traceId)) {
+            return traceId;
+        }
+
+        String requestId = request.getHeader("X-Request-Id");
+        if (isValidTraceId(requestId)) {
+            return requestId;
+        }
+
+        return UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private boolean isValidTraceId(String traceId) {
+        return traceId != null
+                && traceId.length() <= 64
+                && traceId.matches("[A-Za-z0-9_-]+");
     }
 }

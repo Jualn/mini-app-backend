@@ -84,7 +84,7 @@ public class CommentServiceImpl implements CommentService {
     @Transactional(rollbackFor = Exception.class)
     public Long createComment(CommentCreateBO command) {
         if (command == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "请求参数不能为空");
+            throw new BusinessException(ResultCode.COMMENT_PARAM_INVALID, "请求参数不能为空");
         }
 
         Long userId = requireUserId();
@@ -391,25 +391,25 @@ public class CommentServiceImpl implements CommentService {
 
     private Long requireTargetId(Long targetId) {
         if (targetId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "targetId 不能为空");
+            throw new BusinessException(ResultCode.COMMENT_PARAM_INVALID, "targetId 不能为空");
         }
         return targetId;
     }
 
     private void assertTargetType(TargetType targetType) {
         if (!ALLOWED_TARGET_TYPES.contains(targetType)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "targetType 无效");
+            throw new BusinessException(ResultCode.INVALID_TARGET_TYPE, "targetType 无效");
         }
     }
 
     // TODO: 查询字段过多，后续考虑减少
     private Comment requireComment(Long commentId) {
         if (commentId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "commentId 不能为空");
+            throw new BusinessException(ResultCode.COMMENT_PARAM_INVALID, "commentId 不能为空");
         }
         Comment comment = commentMapper.selectById(commentId);
         if (comment == null || comment.getDeletedAt() != null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "评论不存在");
+            throw new BusinessException(ResultCode.COMMENT_NOT_FOUND, "评论不存在");
         }
         return comment;
     }
@@ -417,17 +417,17 @@ public class CommentServiceImpl implements CommentService {
     private Comment requireParentComment(Long parentId, TargetType targetType, Long targetId) {
         Comment parent = requireComment(parentId);
         if (parent.getParentId() != null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "仅支持二级回复");
+            throw new BusinessException(ResultCode.COMMENT_REPLY_INVALID, "仅支持二级回复");
         }
         if (!Objects.equals(parent.getTargetType(), targetType.getCode())
                 || !Objects.equals(parent.getTargetId(), targetId)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "父评论不属于该目标");
+            throw new BusinessException(ResultCode.COMMENT_REPLY_INVALID, "父评论不属于该目标");
         }
         // TODO 当前仅允许回复审核通过的父评论。
         //      如果后续产品要求可回复短时间 PENDING 父评论，
         //      需要同时处理父评论被拒绝后子回复的隐藏和计数回滚问题。
         if (!Objects.equals(parent.getStatus(), CommentStatus.NORMAL.getCode())) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "父评论不可回复");
+            throw new BusinessException(ResultCode.COMMENT_REPLY_INVALID, "父评论不可回复");
         }
         return parent;
     }

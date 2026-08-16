@@ -1,3 +1,16 @@
+app:
+  cors:
+    allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS}
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+knife4j:
+  enable: false
+
 wx:
   ma:
     app-id: ${WX_MA_APP_ID}

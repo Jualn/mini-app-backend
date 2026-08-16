@@ -4,6 +4,7 @@ import cn.jualn.miniapp.common.constant.UserContext;
 import cn.jualn.miniapp.common.enums.MediaType;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
+import cn.jualn.miniapp.common.exception.SystemException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentSimpleBO;
@@ -73,7 +74,7 @@ public class MediaServiceImpl implements MediaService {
 
         if (CollectionUtils.isEmpty(attachments)) {
             // sortOrder 为空时按入参顺序自动补位，保证展示稳定。
-            throw new BusinessException(ResultCode.BAD_REQUEST);
+            throw new BusinessException(ResultCode.MEDIA_ATTACHMENT_EMPTY);
         }
         requireTargetId(targetId);
         assertTargetTypeAllowed(targetType);
@@ -90,7 +91,7 @@ public class MediaServiceImpl implements MediaService {
         if (mediaAttachments.isEmpty()) {
             log.error("[MediaService.replaceAttachments][附件转换失败] userId={}, targetType={}, targetId={}",
                     userId, targetType, targetId);
-            throw new BusinessException(ResultCode.SERVER_ERROR);
+            throw new SystemException("附件转换失败");
         }
 
         mediaAttachmentMapper.insertBatch(mediaAttachments);
@@ -211,12 +212,12 @@ public class MediaServiceImpl implements MediaService {
     public void removeAttachment(Long attachmentId) {
         Long userId = requireUserId();
         if (attachmentId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "attachmentId 不能为空");
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "attachmentId 不能为空");
         }
 
         int deletedRows = mediaAttachmentMapper.deleteById(attachmentId);
         if (deletedRows == 0) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "附件不存在");
+            throw new BusinessException(ResultCode.MEDIA_ATTACHMENT_NOT_FOUND);
         }
         log.info("[MediaService.removeAttachment][完成] userId={}, attachmentId={}", userId, attachmentId);
     }
@@ -280,7 +281,7 @@ public class MediaServiceImpl implements MediaService {
      */
     private void assertTargetTypeAllowed(TargetType targetType) {
         if (!MEDIA_SUPPORTED_TYPES.contains(targetType)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "targetType 不支持");
+            throw new BusinessException(ResultCode.MEDIA_TARGET_TYPE_UNSUPPORTED);
         }
     }
 
@@ -292,7 +293,7 @@ public class MediaServiceImpl implements MediaService {
      */
     private void requireTargetId(Long targetId) {
         if (targetId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "targetId 不能为空");
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "targetId 不能为空");
         }
     }
 
@@ -327,7 +328,7 @@ public class MediaServiceImpl implements MediaService {
             case EXAM -> "exam";
             case COMMENT -> "comment";
             case USER -> "user";
-            default -> throw new BusinessException(ResultCode.BAD_REQUEST, "targetType 不支持");
+            default -> throw new BusinessException(ResultCode.MEDIA_TARGET_TYPE_UNSUPPORTED);
         };
         String nonce = UUID.randomUUID().toString().replace("-", "");
         return category + "/" + userId + "/" + System.currentTimeMillis() + "_" + nonce + "_" + safeName;
@@ -342,13 +343,13 @@ public class MediaServiceImpl implements MediaService {
      */
     private String sanitizeFileName(String fileName) {
         if (fileName == null || fileName.isBlank()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "fileName 不能为空");
+            throw new BusinessException(ResultCode.MEDIA_FILE_NAME_INVALID, "fileName 不能为空");
         }
         String normalized = fileName.trim().replace("\\", "/");
         int slashIndex = normalized.lastIndexOf('/');
         String onlyName = slashIndex >= 0 ? normalized.substring(slashIndex + 1) : normalized;
         if (onlyName.isBlank()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "fileName 不合法");
+            throw new BusinessException(ResultCode.MEDIA_FILE_NAME_INVALID);
         }
 
         StringBuilder cleaned = new StringBuilder();
@@ -359,7 +360,7 @@ public class MediaServiceImpl implements MediaService {
         }
         String result = cleaned.toString();
         if (result.isBlank()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "fileName 不合法");
+            throw new BusinessException(ResultCode.MEDIA_FILE_NAME_INVALID);
         }
         return result.toLowerCase(Locale.ROOT);
     }

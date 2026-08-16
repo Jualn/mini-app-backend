@@ -223,7 +223,7 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
 
     private void requireActivityExists(Long activityId) {
         if (activityId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "activityId 不能为空");
+            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "activityId 不能为空");
         }
         String cacheKey = RedisKeyConstant.targetExists(TargetType.ACTIVITY.getKey(), activityId);
         String cached = redisService.getString(cacheKey);
@@ -231,7 +231,7 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
             return;
         }
         if (redisService.isNullPlaceholder(cached)) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "活动不存在");
+            throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND, "活动不存在");
         }
 
         boolean exists = activityMapper.exists(
@@ -245,7 +245,7 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
             redisService.setNullPlaceholder(cacheKey, RedisKeyConstant.TARGET_EXIST_TTL);
         }
         if (!exists) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "活动不存在");
+            throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND, "活动不存在");
         }
     }
 

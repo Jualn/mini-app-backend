@@ -61,12 +61,12 @@ public class NotifyPlanNoticeDataFactory {
 
     private NoticeData buildActivityRemindNoticeData(NotifyPlan plan) {
         if (plan.getSourceId() == null) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "活动提醒缺少 sourceId");
+            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "活动提醒缺少 sourceId");
         }
 
         Activity activity = activityMapper.selectById(plan.getSourceId());
         if (activity == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "活动不存在");
+            throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND, "活动不存在");
         }
 
         return new ActivityRemindNoticeData(

@@ -18,6 +18,7 @@ import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
 
+import java.net.URI;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
@@ -77,7 +78,8 @@ public class WebClientConfig {
     private ExchangeFilterFunction logFilter() {
         return (request, next) -> {
             long startTime = System.currentTimeMillis();
-            log.debug("[WebClient] 请求: {} {}", request.method(), request.url());
+            String safeUrl = sanitizeUrl(request.url());
+            log.debug("[WebClient] 请求: {} {}", request.method(), safeUrl);
 
             return next.exchange(request)
                     .doOnNext(response -> log.debug("[WebClient] 响应: {}", response.statusCode()))
@@ -85,9 +87,25 @@ public class WebClientConfig {
                     .doFinally(signalType -> {
                         long duration = System.currentTimeMillis() - startTime;
                         log.info("[WebClient] 请求结束 [{} {}], 耗时: {} ms, 信号类型: {}",
-                                request.method(), request.url(), duration, signalType);
+                                request.method(), safeUrl, duration, signalType);
                     });
         };
+    }
+
+    private String sanitizeUrl(URI uri) {
+        if (uri == null) {
+            return "";
+        }
+
+        StringBuilder builder = new StringBuilder();
+        if (uri.getScheme() != null) {
+            builder.append(uri.getScheme()).append("://");
+        }
+        if (uri.getAuthority() != null) {
+            builder.append(uri.getAuthority());
+        }
+        builder.append(uri.getPath() == null ? "" : uri.getPath());
+        return builder.toString();
     }
 
 }

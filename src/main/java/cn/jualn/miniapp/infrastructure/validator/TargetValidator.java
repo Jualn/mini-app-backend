@@ -89,7 +89,7 @@ public class TargetValidator {
      */
     public void assertExists(TargetType targetType, Long targetId) {
         if (!resolveExists(targetType, targetId)) {
-            throw new BusinessException(ResultCode.NOT_FOUND,
+            throw new BusinessException(ResultCode.TARGET_NOT_FOUND,
                     targetType.getDesc() + "不存在");
         }
     }
@@ -102,7 +102,7 @@ public class TargetValidator {
 
         List<Long> notFoundIds = resolveNotExistIds(targetType, targetIds);
         if (!notFoundIds.isEmpty()) {
-            throw new BusinessException(ResultCode.NOT_FOUND,
+            throw new BusinessException(ResultCode.TARGET_NOT_FOUND,
                     targetType.getDesc() + "不存在，id=" + notFoundIds);
         }
     }
@@ -241,7 +241,7 @@ public class TargetValidator {
                     .eq(ExamInfo::getId, targetId));
             case NOTIFICATION -> notificationMapper.exists(new LambdaQueryWrapper<Notification>()
                     .eq(Notification::getId, targetId));
-            default -> throw new BusinessException(ResultCode.NOT_FOUND,
+            default -> throw new BusinessException(ResultCode.INVALID_TARGET_TYPE,
                     "不支持的 targetType: " + targetType.getDesc());
         };
     }
@@ -271,7 +271,7 @@ public class TargetValidator {
                             .select(Notification::getId).in(Notification::getId, ids))
                     .stream().map(Notification::getId).collect(Collectors.toSet());
 
-            default -> throw new BusinessException(ResultCode.NOT_FOUND,
+            default -> throw new BusinessException(ResultCode.INVALID_TARGET_TYPE,
                     "不支持的 targetType: " + targetType.getDesc());
         };
     }

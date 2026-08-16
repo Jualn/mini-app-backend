@@ -54,7 +54,7 @@ public class WxMpNoticeFieldRenderer {
             if (!StringUtils.hasText(value)) {
                 if (Boolean.TRUE.equals(mapping.getRequired())) {
                     throw new BusinessException(
-                            ResultCode.PARAM_ERROR,
+                            ResultCode.WX_NOTICE_PAYLOAD_INVALID,
                             "服务号通知字段缺失：" + template.getType() + "." + wxField + " -> " + mapping.getSource()
                     );
                 }
@@ -94,7 +94,7 @@ public class WxMpNoticeFieldRenderer {
 
             if (raw == null || !StringUtils.hasText(raw.toString())) {
                 throw new BusinessException(
-                        ResultCode.PARAM_ERROR,
+                        ResultCode.WX_NOTICE_PAYLOAD_INVALID,
                         "服务号通知 pagePath 参数缺失：" + key
                 );
             }

@@ -6,6 +6,9 @@ ssl/
 .env.prod
 .env
 
+# agent配置文件
+.agents
+
 target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
