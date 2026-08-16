@@ -40,6 +40,16 @@ deep-seek:
 sa-token:
   jwt-secret-key: ${SA_TOKEN_JWT_SECRET_KEY}
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include:
+          - health
+  endpoint:
+    health:
+      show-details: never
+
 spring:
   datasource:
     username: ${MYSQL_USER}
