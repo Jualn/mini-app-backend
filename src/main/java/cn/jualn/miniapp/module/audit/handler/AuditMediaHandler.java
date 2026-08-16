@@ -51,11 +51,11 @@ public class AuditMediaHandler implements QueueHandler<AuditMediaPayload> {
             auditService.doMediaCheck(auditConverter.toMediaCheckBO(payload));
         } catch (BusinessException e) {
             // 参数或业务状态异常通常不可重试，记录后结束本次消费
-            log.warn("[AuditMediaHandler][业务异常] targetType={}, targetId={}, traceId={}, message={}",
-                    payload.getTargetType(), payload.getTargetId(), message.getTraceId(), e.getMessage());
+            log.warn("[AuditMediaHandler][业务异常] auditScene={}, targetId={}, traceId={}, message={}",
+                    payload.getAuditScene(), payload.getTargetId(), message.getTraceId(), e.getMessage());
         } catch (Exception e) {
-            log.error("[AuditMediaHandler][系统异常] targetType={}, targetId={}, traceId={}",
-                    payload.getTargetType(), payload.getTargetId(), message.getTraceId(), e);
+            log.error("[AuditMediaHandler][系统异常] auditScene={}, targetId={}, traceId={}",
+                    payload.getAuditScene(), payload.getTargetId(), message.getTraceId(), e);
             throw new RuntimeException("多媒体审核队列处理失败", e);
         }
     }

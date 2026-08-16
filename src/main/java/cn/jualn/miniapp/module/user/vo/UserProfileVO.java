@@ -35,10 +35,6 @@ public class UserProfileVO {
 
     private Boolean muted;
 
-    private String banReason;
-
-    private LocalDateTime banExpireAt;
-
     private List<String> capabilities;
 
     private LocalDateTime createdAt;

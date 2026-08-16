@@ -47,18 +47,18 @@ public class TimelineController {
         return Result.ok(null);
     }
 
-    /**
-     * 获取活动/考试的所有时间线节点
-     *
-     * @param targetType 1-活动 2-考试信息
+    /*
+      获取活动/考试的所有时间线节点
+
+      @param targetType 1-活动 2-考试信息
      * @param targetId   活动/考试ID
      */
-    @GetMapping("/target/{targetType}/{targetId}")
-    public Result<List<TimelineVO>> listTimelinesByTarget(
-            @PathVariable TargetType targetType,
-            @PathVariable Long targetId) {
-        List<TimelineItemDTO> result = timelineService.listTimelinesByTarget(targetType, targetId);
-
-        return Result.ok(timelineConverter.toVOList(result));
-    }
+//    @GetMapping("/target/{targetType}/{targetId}")
+//    public Result<List<TimelineVO>> listTimelinesByTarget(
+//            @PathVariable TargetType targetType,
+//            @PathVariable Long targetId) {
+//        List<TimelineItemDTO> result = timelineService.listTimelinesByTarget(targetType, targetId);
+//
+//        return Result.ok(timelineConverter.toVOList(result));
+//    }
 }

@@ -37,8 +37,8 @@ public class AuditMediaBatchHandler implements QueueHandler<AuditMediaBatchPaylo
             return;
         }
         if (CollectionUtils.isEmpty(payload.getItems())) {
-            log.debug("[AuditMediaBatchHandler][忽略] items 为空, targetType={}, targetId={}, traceId={}",
-                    payload.getTargetType(), payload.getTargetId(), message.getTraceId());
+            log.debug("[AuditMediaBatchHandler][忽略] items 为空, auditScene={}, targetId={}, traceId={}",
+                    payload.getAuditScene(), payload.getTargetId(), message.getTraceId());
             return;
         }
 
@@ -53,20 +53,21 @@ public class AuditMediaBatchHandler implements QueueHandler<AuditMediaBatchPaylo
             }
             try {
                 AuditMediaPayload single = AuditMediaPayload.builder()
-                        .targetType(payload.getTargetType())
+                        .auditScene(payload.getAuditScene())
                         .targetId(payload.getTargetId())
                         .scene(payload.getScene())
+                        .auditLogId(item.getAuditLogId())
                         .mediaType(item.getMediaType())
                         .mediaUrl(item.getMediaUrl())
                         .openid(openid)
                         .build();
                 auditService.doMediaCheck(auditConverter.toMediaCheckBO(single));
             } catch (BusinessException e) {
-                log.warn("[AuditMediaBatchHandler][业务异常] targetType={}, targetId={}, traceId={}, message={}",
-                        payload.getTargetType(), payload.getTargetId(), message.getTraceId(), e.getMessage());
+                log.warn("[AuditMediaBatchHandler][业务异常] auditScene={}, targetId={}, traceId={}, message={}",
+                        payload.getAuditScene(), payload.getTargetId(), message.getTraceId(), e.getMessage());
             } catch (Exception e) {
-                log.error("[AuditMediaBatchHandler][系统异常] targetType={}, targetId={}, traceId={}",
-                        payload.getTargetType(), payload.getTargetId(), message.getTraceId(), e);
+                log.error("[AuditMediaBatchHandler][系统异常] auditScene={}, targetId={}, traceId={}",
+                        payload.getAuditScene(), payload.getTargetId(), message.getTraceId(), e);
                 throw new RuntimeException("多媒体审核批量队列处理失败", e);
             }
         }

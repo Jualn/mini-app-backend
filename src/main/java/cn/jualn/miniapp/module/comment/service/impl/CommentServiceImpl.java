@@ -1,7 +1,8 @@
 package cn.jualn.miniapp.module.comment.service.impl;
 
 import cn.jualn.miniapp.common.constant.UserContext;
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.common.enums.AuditScene;
+import cn.jualn.miniapp.common.enums.MediaType;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.enums.UserRole;
 import cn.jualn.miniapp.common.exception.BusinessException;
@@ -9,10 +10,13 @@ import cn.jualn.miniapp.common.result.PageResult;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.queue.contract.QueueProducer;
 import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
-import cn.jualn.miniapp.module.activity.entity.Activity;
-import cn.jualn.miniapp.module.activity.mapper.ActivityMapper;
 import cn.jualn.miniapp.module.activity.service.ActivityService;
+import cn.jualn.miniapp.module.audit.bo.AuditReserveBO;
+import cn.jualn.miniapp.module.audit.bo.AuditReserveResultBO;
+import cn.jualn.miniapp.module.audit.enums.AuditStatus;
+import cn.jualn.miniapp.module.audit.payload.AuditMediaBatchPayload;
 import cn.jualn.miniapp.module.audit.payload.AuditTextPayload;
+import cn.jualn.miniapp.module.audit.service.AuditService;
 import cn.jualn.miniapp.module.comment.bo.CommentCreateBO;
 import cn.jualn.miniapp.module.comment.bo.CommentPageBO;
 import cn.jualn.miniapp.module.comment.converter.CommentConverter;
@@ -22,15 +26,8 @@ import cn.jualn.miniapp.module.comment.mapper.CommentMapper;
 import cn.jualn.miniapp.module.comment.service.CommentService;
 import cn.jualn.miniapp.module.comment.vo.CommentVO;
 import cn.jualn.miniapp.module.comment.vo.ReplyVO;
-import cn.jualn.miniapp.module.exam.entity.ExamInfo;
-import cn.jualn.miniapp.module.exam.mapper.ExamInfoMapper;
 import cn.jualn.miniapp.module.exam.service.ExamService;
 import cn.jualn.miniapp.module.interact.service.InteractService;
-import cn.jualn.miniapp.module.notify.payload.NotifyPayload;
-import cn.jualn.miniapp.module.wx.notice.data.CommentNoticeData;
-import cn.jualn.miniapp.module.wx.notice.data.ReplyNoticeData;
-import cn.jualn.miniapp.module.post.entity.Post;
-import cn.jualn.miniapp.module.post.mapper.PostMapper;
 import cn.jualn.miniapp.module.post.service.PostService;
 import cn.jualn.miniapp.module.user.bo.UserAuthBO;
 import cn.jualn.miniapp.module.user.bo.UserSimpleBO;
@@ -43,7 +40,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -60,6 +60,8 @@ public class CommentServiceImpl implements CommentService {
     private static final Integer DEFAULT_PAGE_SIZE = 20;
     private static final Integer MAX_PAGE_SIZE = 50;
     private static final Integer PREVIEW_REPLY_COUNT = 2;
+    // TODO 如果后续帖子审核策略变化，可将“可评论目标”的判断迁移到各目标模块统一处理。
+    // TODO 如果后续评论审核链路复杂，再把审核统计和批量查询迁移到 XML。
 
     private static final Set<TargetType> ALLOWED_TARGET_TYPES =
             Set.of(TargetType.POST, TargetType.ACTIVITY, TargetType.EXAM);
@@ -69,13 +71,11 @@ public class CommentServiceImpl implements CommentService {
     private final PostService postService;
     private final ActivityService activityService;
     private final ExamService examService;
-    private final PostMapper postMapper;
-    private final ActivityMapper activityMapper;
-    private final ExamInfoMapper examInfoMapper;
     private final UserService userService;
     private final TargetValidator targetValidator;
     private final QueueProducer queueProducer;
     private final InteractService interactService;
+    private final AuditService auditService;
 
     /**
      * Create a comment and update related counts.
@@ -84,14 +84,16 @@ public class CommentServiceImpl implements CommentService {
     @Transactional(rollbackFor = Exception.class)
     public Long createComment(CommentCreateBO command) {
         if (command == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "请求参数不能为空");
+            throw new BusinessException(ResultCode.COMMENT_PARAM_INVALID, "请求参数不能为空");
         }
 
         Long userId = requireUserId();
         TargetType targetType = command.getTargetType();
         long start = System.currentTimeMillis();
+
         assertTargetType(command.getTargetType());
         targetValidator.assertExists(targetType, command.getTargetId());
+//        assertTargetCanReceiveComment(targetType, command.getTargetId());
 
         Comment parent = null;
         if (command.getParentId() != null) {
@@ -107,139 +109,35 @@ public class CommentServiceImpl implements CommentService {
                 .content(command.getContent())
                 .imageUrl(command.getImageUrl())
                 .status(CommentStatus.PENDING.getCode())
+                .auditStatus(AuditStatus.PENDING.getCode())
                 .build();
+
         commentMapper.insert(comment);
 
-        if (comment.getParentId() != null) {
-            commentMapper.increaseReplyCount(comment.getParentId());
-        }
-        increaseTargetCommentCount(targetType, comment.getTargetId());
-
-        queueProducer.send(AuditTextPayload.builder()
-                .targetType(TargetType.COMMENT)
-                .targetId(comment.getId())
-                .scene(2)
-                .content(comment.getContent())
-                .build()
+        AuditReserveResultBO reserveResult = auditService.reserveAuditLogs(
+                AuditReserveBO.builder()
+                        .auditScene(AuditScene.COMMENT)
+                        .targetId(comment.getId())
+                        .textContent(comment.getContent())
+                        .mediaItems(buildCommentAuditMediaItems(comment.getImageUrl()))
+                        .build()
         );
 
-        // 发送站内通知 + 微信推送
-        sendCommentNotification(comment, parent, userId);
+        if (!reserveResult.hasAuditTask()) {
+            // 理论上不应该发生，除非允许空内容 + 无图片评论。
+            // 这里直接激活，避免评论永久 PENDING。
+//            activateCommentAfterAuditPass(comment.getId());
+        } else {
+            afterCommit(() -> enqueueCommentAudit(comment.getId(), comment.getContent(), reserveResult));
+        }
+
+        // 注意：评论审核通过后再增加 commentCount / replyCount，并发送评论/回复通知。
+        // 这里不要提前产生对外副作用，避免审核拒绝后计数虚高、通知不可撤回。
 
         log.info("[CommentService.createComment][完成] userId={}, commentId={}, costMs={}",
                 userId, comment.getId(), System.currentTimeMillis() - start);
+
         return comment.getId();
-    }
-
-    private void sendCommentNotification(Comment comment, Comment parent, Long senderId) {
-        try {
-            if (parent != null) {
-                // 回复：通知父评论作者
-                sendReplyNotification(comment, parent, senderId);
-            } else {
-                // 顶级评论：通知内容作者
-                sendTopLevelCommentNotification(comment, senderId);
-            }
-        } catch (Exception e) {
-            log.warn("[CommentService] 通知发送失败，commentId={}", comment.getId(), e);
-        }
-    }
-
-    private void sendReplyNotification(Comment comment, Comment parent, Long senderId) {
-        Long receiverId = parent.getUserId();
-        if (receiverId.equals(senderId)) return;
-
-        TargetType targetType = TargetType.fromCode(comment.getTargetType());
-        String contentTitle = getContentTitle(targetType, comment.getTargetId());
-        String senderName = resolveNickname(senderId);
-
-        NotifyPayload payload = NotifyPayload.builder()
-                .receiverId(receiverId)
-                .senderId(senderId)
-                .type(NotifyType.REPLIED_ME)
-                .title("有人回复了你")
-                .content(truncate(comment.getContent(), 50))
-                .targetType(targetType)
-                .targetId(comment.getTargetId())
-                .wxData(new ReplyNoticeData(
-                        truncate(parent.getContent(), 20),
-                        truncate(comment.getContent(), 20),
-                        senderName, LocalDateTime.now()))
-                .build();
-        queueProducer.send(payload);
-    }
-
-    private void sendTopLevelCommentNotification(Comment comment, Long senderId) {
-        TargetType targetType = TargetType.fromCode(comment.getTargetType());
-        Long receiverId = getContentOwnerId(targetType, comment.getTargetId());
-        if (receiverId == null || receiverId.equals(senderId)) return;
-
-        String contentTitle = getContentTitle(targetType, comment.getTargetId());
-        String senderName = resolveNickname(senderId);
-
-        NotifyPayload payload = NotifyPayload.builder()
-                .receiverId(receiverId)
-                .senderId(senderId)
-                .type(NotifyType.COMMENTED_ME)
-                .title("有人评论了你")
-                .content(truncate(comment.getContent(), 50))
-                .targetType(targetType)
-                .targetId(comment.getTargetId())
-                .wxData(new CommentNoticeData(comment.getTargetId(), comment.getId(),
-                        contentTitle, truncate(comment.getContent(), 20),
-                        senderName, LocalDateTime.now()))
-                .build();
-        queueProducer.send(payload);
-    }
-
-    private String resolveNickname(Long userId) {
-        try {
-            var user = userService.getSimpleInfo(userId);
-            return user != null && user.getNickname() != null ? user.getNickname() : "";
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
-    private Long getContentOwnerId(TargetType type, Long targetId) {
-        return switch (type) {
-            case POST -> {
-                Post post = postMapper.selectById(targetId);
-                yield post != null ? post.getUserId() : null;
-            }
-            case ACTIVITY -> {
-                Activity activity = activityMapper.selectById(targetId);
-                yield activity != null ? activity.getUserId() : null;
-            }
-            case EXAM -> {
-                ExamInfo exam = examInfoMapper.selectById(targetId);
-                yield exam != null ? exam.getUserId() : null;
-            }
-            default -> null;
-        };
-    }
-
-    private String getContentTitle(TargetType type, Long targetId) {
-        return switch (type) {
-            case POST -> {
-                Post post = postMapper.selectById(targetId);
-                yield post != null ? post.getTitle() : "";
-            }
-            case ACTIVITY -> {
-                Activity activity = activityMapper.selectById(targetId);
-                yield activity != null ? activity.getTitle() : "";
-            }
-            case EXAM -> {
-                ExamInfo exam = examInfoMapper.selectById(targetId);
-                yield exam != null ? exam.getTitle() : "";
-            }
-            default -> "";
-        };
-    }
-
-    private String truncate(String s, int maxLen) {
-        if (s == null) return "";
-        return s.length() <= maxLen ? s : s.substring(0, maxLen) + "...";
     }
 
     /**
@@ -365,16 +263,83 @@ public class CommentServiceImpl implements CommentService {
                 .set(Comment::getStatus, deleteStatus)
                 .set(Comment::getDeletedAt, LocalDateTime.now()));
 
-        if (comment.getParentId() != null) {
+        boolean shouldDecreaseCount =
+                Objects.equals(comment.getStatus(), CommentStatus.NORMAL.getCode());
+
+        if (shouldDecreaseCount && comment.getParentId() != null) {
             commentMapper.decreaseReplyCount(comment.getParentId());
         }
 
         TargetType targetType = TargetType.fromCode(comment.getTargetType());
-        if (targetType != null) {
+        if (shouldDecreaseCount && targetType != null) {
             decreaseTargetCommentCount(targetType, comment.getTargetId());
         }
 
         log.info("[CommentService.removeComment][完成] operatorId={}, commentId={}", operatorId, commentId);
+    }
+
+    private void afterCommit(Runnable task) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()
+                && TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    task.run();
+                }
+            });
+        } else {
+            task.run();
+        }
+    }
+
+    private void enqueueCommentAudit(Long commentId, String content, AuditReserveResultBO reserveResult) {
+        if (reserveResult == null || !reserveResult.hasAuditTask()) {
+            return;
+        }
+
+        if (reserveResult.getTextAuditLogId() != null && StringUtils.hasText(content)) {
+            queueProducer.send(AuditTextPayload.builder()
+                    .auditLogId(reserveResult.getTextAuditLogId())
+                    .auditScene(AuditScene.COMMENT)
+                    .targetId(commentId)
+                    .scene(2)
+                    .content(content)
+                    .build()
+            );
+        }
+
+        if (!CollectionUtils.isEmpty(reserveResult.getMediaItems())) {
+            List<AuditMediaBatchPayload.AuditMediaItem> items = reserveResult.getMediaItems().stream()
+                    .filter(Objects::nonNull)
+                    .map(item -> AuditMediaBatchPayload.AuditMediaItem.builder()
+                            .auditLogId(item.getAuditLogId())
+                            .mediaType(item.getMediaType())
+                            .mediaUrl(item.getMediaUrl())
+                            .build())
+                    .toList();
+
+            if (!items.isEmpty()) {
+                queueProducer.send(AuditMediaBatchPayload.builder()
+                        .auditScene(AuditScene.COMMENT)
+                        .targetId(commentId)
+                        .scene(2)
+                        .items(items)
+                        .build());
+            }
+        }
+    }
+
+    private List<AuditReserveBO.MediaItem> buildCommentAuditMediaItems(String imageUrl) {
+        if (!StringUtils.hasText(imageUrl)) {
+            return List.of();
+        }
+
+        return List.of(AuditReserveBO.MediaItem.builder()
+                // 和你 AuditServiceImpl.doMediaCheck 里 mediaType(2) 保持一致。
+                // TODO 如果后续抽枚举，可替换为 MediaType.IMAGE.getCode()。
+                .mediaType(MediaType.IMAGE)
+                .mediaUrl(imageUrl)
+                .build());
     }
 
     /**
@@ -426,25 +391,25 @@ public class CommentServiceImpl implements CommentService {
 
     private Long requireTargetId(Long targetId) {
         if (targetId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "targetId 不能为空");
+            throw new BusinessException(ResultCode.COMMENT_PARAM_INVALID, "targetId 不能为空");
         }
         return targetId;
     }
 
     private void assertTargetType(TargetType targetType) {
         if (!ALLOWED_TARGET_TYPES.contains(targetType)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "targetType 无效");
+            throw new BusinessException(ResultCode.INVALID_TARGET_TYPE, "targetType 无效");
         }
     }
 
     // TODO: 查询字段过多，后续考虑减少
     private Comment requireComment(Long commentId) {
         if (commentId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "commentId 不能为空");
+            throw new BusinessException(ResultCode.COMMENT_PARAM_INVALID, "commentId 不能为空");
         }
         Comment comment = commentMapper.selectById(commentId);
         if (comment == null || comment.getDeletedAt() != null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "评论不存在");
+            throw new BusinessException(ResultCode.COMMENT_NOT_FOUND, "评论不存在");
         }
         return comment;
     }
@@ -452,14 +417,17 @@ public class CommentServiceImpl implements CommentService {
     private Comment requireParentComment(Long parentId, TargetType targetType, Long targetId) {
         Comment parent = requireComment(parentId);
         if (parent.getParentId() != null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "仅支持二级回复");
+            throw new BusinessException(ResultCode.COMMENT_REPLY_INVALID, "仅支持二级回复");
         }
         if (!Objects.equals(parent.getTargetType(), targetType.getCode())
                 || !Objects.equals(parent.getTargetId(), targetId)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "父评论不属于该目标");
+            throw new BusinessException(ResultCode.COMMENT_REPLY_INVALID, "父评论不属于该目标");
         }
+        // TODO 当前仅允许回复审核通过的父评论。
+        //      如果后续产品要求可回复短时间 PENDING 父评论，
+        //      需要同时处理父评论被拒绝后子回复的隐藏和计数回滚问题。
         if (!Objects.equals(parent.getStatus(), CommentStatus.NORMAL.getCode())) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "父评论不可回复");
+            throw new BusinessException(ResultCode.COMMENT_REPLY_INVALID, "父评论不可回复");
         }
         return parent;
     }
@@ -477,14 +445,6 @@ public class CommentServiceImpl implements CommentService {
             return DEFAULT_PAGE_SIZE;
         }
         return Math.min(actual, MAX_PAGE_SIZE);
-    }
-
-    private void increaseTargetCommentCount(TargetType type, Long targetId) {
-        switch (type) {
-            case POST -> postService.increaseCommentCount(targetId);
-            case ACTIVITY -> activityService.increaseCommentCount(targetId);
-            case EXAM -> examService.increaseCommentCount(targetId);
-        }
     }
 
     private void decreaseTargetCommentCount(TargetType type, Long targetId) {

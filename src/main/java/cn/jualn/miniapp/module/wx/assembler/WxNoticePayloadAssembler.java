@@ -52,7 +52,7 @@ public class WxNoticePayloadAssembler {
     private void putNoConflict(Map<String, Object> data, String key, Object value) {
         if (data.containsKey(key) && !Objects.equals(data.get(key), value)) {
             throw new BusinessException(
-                    ResultCode.PARAM_ERROR,
+                    ResultCode.WX_NOTICE_PAYLOAD_INVALID,
                     "微信通知字段重复冲突：" + key
             );
         }

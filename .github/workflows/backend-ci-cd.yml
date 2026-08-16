@@ -301,7 +301,7 @@ jobs:
         run: |
           scp \
             deploy-dist/app.jar \
-            production:/opt/jualncompus/incoming/app.jar.next
+            production:/opt/jualncampus/incoming/app.jar.next
 
       # ----------------------------------------------------
       # 7. 调用服务器部署程序
@@ -325,7 +325,7 @@ jobs:
         id: production_deploy
         run: |
           ssh production \
-            'sudo /opt/jualncompus/deploy.sh'
+            'sudo /opt/jualncampus/deploy.sh'
 
       # ----------------------------------------------------
       # 8. 写 Actions Summary

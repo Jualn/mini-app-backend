@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.audit.bo;
 
+import cn.jualn.miniapp.common.enums.AuditScene;
 import cn.jualn.miniapp.common.enums.MediaType;
-import cn.jualn.miniapp.common.enums.TargetType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -19,9 +19,14 @@ import lombok.NoArgsConstructor;
 public class AuditMediaCheckBO {
 
     /**
-     * 审核目标类型：1-帖子 2-活动 3-考试信息 4-评论。
+     * 空状态的审核日志 ID 用于更新审核日志中的结果
      */
-    private TargetType targetType;
+    private Long auditLogId;
+
+    /**
+     * 审核场景值，区分不同类型
+     */
+    private AuditScene auditScene;
 
     /**
      * 审核目标内容 ID。

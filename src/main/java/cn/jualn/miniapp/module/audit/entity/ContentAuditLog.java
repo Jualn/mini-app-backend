@@ -27,7 +27,7 @@ public class ContentAuditLog {
     private Long id;
 
     /**
-     * 审核目标类型：1-帖子 2-活动 3-考试信息 4-评论。
+     * 审核目标类型：1-帖子 2-活动 3-考试信息 4-评论。TODO: 改成 auditScene枚举, 并对数据库字段进行重命名
      */
     private Integer targetType;
 

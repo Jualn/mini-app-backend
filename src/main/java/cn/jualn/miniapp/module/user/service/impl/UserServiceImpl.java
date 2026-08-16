@@ -11,12 +11,14 @@ import cn.jualn.miniapp.module.user.converter.UserConverter;
 import cn.jualn.miniapp.module.user.dto.inner.UserInfoDTO;
 import cn.jualn.miniapp.module.user.entity.UserAgreement;
 import cn.jualn.miniapp.module.user.entity.UserProfile;
+import cn.jualn.miniapp.module.user.event.UserProfileUpdatedEvent;
 import cn.jualn.miniapp.module.user.mapper.UserAgreementMapper;
 import cn.jualn.miniapp.module.user.mapper.UserProfileMapper;
 import cn.jualn.miniapp.module.user.service.UserService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -35,6 +37,7 @@ public class UserServiceImpl implements UserService {
     private final UserAgreementMapper userAgreementMapper;
     private final RedisService redisService;
     private final UserConverter userConverter;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 根据微信小程序 openid 获取用户基本信息。
@@ -45,7 +48,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserInfoDTO getUserInfo(String openid) {
         if (!StringUtils.hasText(openid)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "openid 不能为空");
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "openid 不能为空");
         }
 
         UserProfile userProfile = userProfileMapper.selectOne(
@@ -82,7 +85,7 @@ public class UserServiceImpl implements UserService {
                 userProfileMapper.selectById(userId));
         if (profileBO == null) {
             log.warn("[UserService.getCurrentProfile][用户不存在] userId={}", userId);
-            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
+            throw new BusinessException(ResultCode.USER_NOT_FOUND);
         }
 
         log.info("[UserService.getCurrentProfile][完成] userId={}, costMs={}", userId, System.currentTimeMillis() - start);
@@ -95,7 +98,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserPublicProfileBO getPublicProfile(Long userId) {
         if (userId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "用户ID不能为空");
+            throw new BusinessException(ResultCode.USER_ID_REQUIRED);
         }
 
         UserPublicProfileBO userProfile = loadCachedValue(
@@ -106,7 +109,7 @@ public class UserServiceImpl implements UserService {
         );
 
         if (userProfile == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
+            throw new BusinessException(ResultCode.USER_NOT_FOUND);
         }
         return userProfile;
     }
@@ -117,7 +120,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserSimpleBO getSimpleInfo(Long userId) {
         if (userId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "用户ID不能为空");
+            throw new BusinessException(ResultCode.USER_ID_REQUIRED);
         }
 
         UserSimpleBO userSimpleBO = loadCachedValue(
@@ -127,7 +130,7 @@ public class UserServiceImpl implements UserService {
                 () -> userProfileMapper.selectUserSimpleBOById(userId)
         );
         if (userSimpleBO == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
+            throw new BusinessException(ResultCode.USER_NOT_FOUND);
         }
         return userSimpleBO;
     }
@@ -195,7 +198,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserAuthBO getUserAuthInfo(Long userId) {
         if (userId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "用户ID不能为空");
+            throw new BusinessException(ResultCode.USER_ID_REQUIRED);
         }
 
         UserAuthBO userAuthBO = loadCachedValue(
@@ -205,7 +208,7 @@ public class UserServiceImpl implements UserService {
                 () -> userProfileMapper.selectUserAuthBOByUserId(userId)
         );
         if (userAuthBO == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
+            throw new BusinessException(ResultCode.USER_NOT_FOUND);
         }
         return userAuthBO;
     }
@@ -217,7 +220,7 @@ public class UserServiceImpl implements UserService {
     public String getMiniOpenid(Long userId) {
         String openid = userProfileMapper.selectMiniOpenid(userId);
         if (openid == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
+            throw new BusinessException(ResultCode.USER_NOT_FOUND);
         }
         return openid;
     }
@@ -228,8 +231,16 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateCurrentProfile(UserProfileUpdateBO bo) {
+        if (bo == null) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "请求参数不能为空");
+        }
+
         Long userId = requireUserId();
         log.info("[UserService.updateCurrentProfile][开始] userId={}", userId);
+
+        if (!hasAnyProfileUpdateField(bo)) {
+            throw new BusinessException(ResultCode.USER_PROFILE_EMPTY);
+        }
 
         UserProfile profile = userConverter.toEntity(bo);
 
@@ -237,11 +248,12 @@ public class UserServiceImpl implements UserService {
         int updated = userProfileMapper.updateById(profile);
         if (updated == 0) {
             log.warn("[UserService.updateCurrentProfile][用户不存在] userId={}", userId);
-            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
+            throw new BusinessException(ResultCode.USER_NOT_FOUND);
         }
 
-        redisService.delete(RedisKeyConstant.userPublicProfile(userId));
-        redisService.delete(RedisKeyConstant.userSimpleProfile(userId));
+        evictUserProfileCache(userId);
+
+        eventPublisher.publishEvent(new UserProfileUpdatedEvent(userId, bo));
 
         log.info("[UserService.updateCurrentProfile][完成] userId={}", userId);
     }
@@ -255,7 +267,7 @@ public class UserServiceImpl implements UserService {
         Long userId = requireUserId();
         log.info("[UserService.agreeCurrentAgreement][开始] userId={}, version={}", userId, version);
         if (!StringUtils.hasText(version)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "协议版本不能为空");
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "协议版本不能为空");
         }
 
         UserAgreement userAgreement = userAgreementMapper.selectById(userId);
@@ -324,4 +336,16 @@ public class UserServiceImpl implements UserService {
         );
     }
 
+    private boolean hasAnyProfileUpdateField(UserProfileUpdateBO bo) {
+        return bo.getNickname() != null
+                || bo.getAvatarUrl() != null
+                || bo.getBackgroundUrl() != null
+                || bo.getBio() != null
+                || bo.getGender() != null;
+    }
+
+    private void evictUserProfileCache(Long userId) {
+        redisService.delete(RedisKeyConstant.userPublicProfile(userId));
+        redisService.delete(RedisKeyConstant.userSimpleProfile(userId));
+    }
 }

@@ -2,8 +2,7 @@ package cn.jualn.miniapp.module.auth.service.impl;
 
 import cn.dev33.satoken.stp.StpUtil;
 import cn.jualn.miniapp.common.enums.UserRole;
-import cn.jualn.miniapp.common.exception.BusinessException;
-import cn.jualn.miniapp.common.result.ResultCode;
+import cn.jualn.miniapp.common.exception.SystemException;
 import cn.jualn.miniapp.module.auth.dto.LoginVO;
 import cn.jualn.miniapp.module.auth.service.AuthService;
 import cn.jualn.miniapp.module.user.dto.inner.UserInfoDTO;
@@ -51,7 +50,7 @@ public class AuthServiceImpl implements AuthService {
         if (userId == null) {
             // insert 后仍拿不到主键，属于不应发生的防御性兜底。
             log.error("[AuthService.login][无用户] userId is null after persistence, openid={}", maskOpenid(openid));
-            throw new BusinessException(ResultCode.SERVER_ERROR);
+            throw new SystemException("登录后用户ID为空");
         }
         // TODO:可能的封禁拦截
 

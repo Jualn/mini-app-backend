@@ -2,6 +2,7 @@ package cn.jualn.miniapp.infrastructure.queue.redis;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.constant.UserContext;
+import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.infrastructure.queue.dispatch.MessageDispatcher;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -186,7 +187,7 @@ public class RedisQueueConsumer implements SmartLifecycle {
     private boolean isNonRetryable(Exception e) {
         String message = e.getMessage();
 
-        if (e instanceof IllegalArgumentException) {
+        if (e instanceof IllegalArgumentException || e instanceof BusinessException) {
             return true;
         }
 

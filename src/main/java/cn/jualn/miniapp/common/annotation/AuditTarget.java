@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.common.annotation;
 
-import cn.jualn.miniapp.common.enums.TargetType;
+import cn.jualn.miniapp.common.enums.AuditScene;
 
 import java.lang.annotation.*;
 
@@ -14,5 +14,5 @@ import java.lang.annotation.*;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface AuditTarget {
-    TargetType value();
+    AuditScene value();
 }

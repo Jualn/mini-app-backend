@@ -57,9 +57,12 @@ public final class RedisKeyConstant {
     public static final String LIKE_COUNT_LOCK_PREFIX = PREFIX + "like:count:lock:";
     public static final Duration LIKE_COUNT_LOCK_TTL = Duration.ofSeconds(3);
 
-    // 同 LIKE_COUNT
-    public static final String VIEW_COUNT_PREFIX = PREFIX + "view:count:";
-    public static final Duration VIEW_COUNT_TTL = Duration.ofHours(2);
+    // ── 浏览增量计数 ──────────────────────────────────────────
+    // Redis 不再保存 view 总数，只保存“尚未同步到 DB 的增量”。
+    // 正常每 5 分钟刷库，TTL 设长一点用于异常兜底，避免同步任务短暂失败导致 key 提前过期。
+    public static final String VIEW_DELTA_PREFIX = PREFIX + "view:delta:";
+    public static final Duration VIEW_DELTA_TTL = Duration.ofDays(2);
+    // 浏览脏数据集合，存储 view_delta key
     public static final String VIEW_DIRTY_SET = PREFIX + "view:dirty:set";
 
     // ── 存在性检查 ────────────────────────────────────────
@@ -175,8 +178,8 @@ public final class RedisKeyConstant {
         return LIKE_COUNT_LOCK_PREFIX + targetType + ":" + targetId;
     }
 
-    public static String viewCount(String targetType, Long targetId) {
-        return VIEW_COUNT_PREFIX + targetType + ":" + targetId;
+    public static String viewDelta(String targetType, Long targetId) {
+        return VIEW_DELTA_PREFIX + targetType + ":" + targetId;
     }
 
     public static String targetExists(String targetType, Long targetId) {

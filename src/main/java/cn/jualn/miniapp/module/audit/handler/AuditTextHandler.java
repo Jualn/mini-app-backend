@@ -49,11 +49,11 @@ public class AuditTextHandler implements QueueHandler<AuditTextPayload> {
             );
         } catch (BusinessException e) {
             // 业务异常通常是参数或状态问题，重试意义不大，记录后结束本次消费
-            log.warn("[AuditTextHandler][业务异常] targetType={}, targetId={}, traceId={}, message={}",
-                    payload.getTargetType(), payload.getTargetId(), message.getTraceId(), e.getMessage());
+            log.warn("[AuditTextHandler][业务异常] auditScene={}, targetId={}, traceId={}, message={}",
+                    payload.getAuditScene(), payload.getTargetId(), message.getTraceId(), e.getMessage());
         } catch (Exception e) {
-            log.error("[AuditTextHandler][系统异常] targetType={}, targetId={}, traceId={}",
-                    payload.getTargetType(), payload.getTargetId(), message.getTraceId(), e);
+            log.error("[AuditTextHandler][系统异常] auditScene={}, targetId={}, traceId={}",
+                    payload.getAuditScene(), payload.getTargetId(), message.getTraceId(), e);
             throw new RuntimeException("文本审核队列处理失败", e);
         }
 

@@ -1,5 +1,7 @@
 package cn.jualn.miniapp.third.cos.service;
 
+import cn.jualn.miniapp.common.exception.ExternalServiceException;
+import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.third.cos.client.CosClient;
 import cn.jualn.miniapp.third.cos.config.CosProperties;
 import cn.jualn.miniapp.third.cos.dto.CosUploadCredentialDTO;
@@ -64,7 +66,8 @@ public class CosService {
 
         } catch (Exception e) {
             // 解析失败直接抛出异常，避免返回不完整的凭证
-            throw new RuntimeException("failed to parse sts response", e);
+            throw new ExternalServiceException(ResultCode.EXTERNAL_SERVICE_ERROR, "cos",
+                    "failed to parse sts response", e);
         }
 
         return builder.build();

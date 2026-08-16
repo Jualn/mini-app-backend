@@ -1,5 +1,7 @@
 package cn.jualn.miniapp.third.cos.client;
 
+import cn.jualn.miniapp.common.exception.ExternalServiceException;
+import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.third.cos.config.CosProperties;
 import com.qcloud.cos.COSClient;
 import com.qcloud.cos.http.HttpMethodName;
@@ -56,8 +58,8 @@ public class CosClient {
             // 调用腾讯云提供的工具方法生成临时密钥
             return CosStsClient.getCredential(config);
         } catch (Exception e) {
-            // 按最小改动原则，将异常包装为运行时异常向上抛出，调用方可根据需要处理
-            throw new RuntimeException("failed to get cos sts credential", e);
+            throw new ExternalServiceException(ResultCode.EXTERNAL_SERVICE_ERROR, "cos",
+                    "failed to get cos sts credential", e);
         }
     }
     // test-only helpers (parsing/canonical request) have been moved to test sources

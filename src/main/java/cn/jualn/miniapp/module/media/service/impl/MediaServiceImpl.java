@@ -4,6 +4,7 @@ import cn.jualn.miniapp.common.constant.UserContext;
 import cn.jualn.miniapp.common.enums.MediaType;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
+import cn.jualn.miniapp.common.exception.SystemException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentSimpleBO;
@@ -43,7 +44,8 @@ import java.util.*;
 public class MediaServiceImpl implements MediaService {
 
     private static final Set<TargetType> MEDIA_SUPPORTED_TYPES =
-            Set.of(TargetType.POST, TargetType.ACTIVITY, TargetType.EXAM);
+            Set.of(TargetType.POST, TargetType.ACTIVITY, TargetType.EXAM
+                    , TargetType.COMMENT, TargetType.USER);
 
     private final MediaConverter mediaConverter;
     private final MediaAttachmentMapper mediaAttachmentMapper;
@@ -72,7 +74,7 @@ public class MediaServiceImpl implements MediaService {
 
         if (CollectionUtils.isEmpty(attachments)) {
             // sortOrder 为空时按入参顺序自动补位，保证展示稳定。
-            throw new BusinessException(ResultCode.BAD_REQUEST);
+            throw new BusinessException(ResultCode.MEDIA_ATTACHMENT_EMPTY);
         }
         requireTargetId(targetId);
         assertTargetTypeAllowed(targetType);
@@ -89,7 +91,7 @@ public class MediaServiceImpl implements MediaService {
         if (mediaAttachments.isEmpty()) {
             log.error("[MediaService.replaceAttachments][附件转换失败] userId={}, targetType={}, targetId={}",
                     userId, targetType, targetId);
-            throw new BusinessException(ResultCode.SERVER_ERROR);
+            throw new SystemException("附件转换失败");
         }
 
         mediaAttachmentMapper.insertBatch(mediaAttachments);
@@ -150,11 +152,12 @@ public class MediaServiceImpl implements MediaService {
 
     /**
      * 查询目标附件列表（简化版）。
+     *
      * @param targetType 目标类型
-     * @param targetId 目标 ID
+     * @param targetId   目标 ID
      * @return 按 sortOrder、id 升序排列的附件简化视图列表
-      * @throws BusinessException 参数非法或目标不存在
-      * @see #listAttachments(TargetType, Long)
+     * @throws BusinessException 参数非法或目标不存在
+     * @see #listAttachments(TargetType, Long)
      */
     @Override
     public List<MediaAttachmentSimpleBO> listSimpleAttachments(TargetType targetType, Long targetId) {
@@ -209,21 +212,36 @@ public class MediaServiceImpl implements MediaService {
     public void removeAttachment(Long attachmentId) {
         Long userId = requireUserId();
         if (attachmentId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "attachmentId 不能为空");
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "attachmentId 不能为空");
         }
 
         int deletedRows = mediaAttachmentMapper.deleteById(attachmentId);
         if (deletedRows == 0) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "附件不存在");
+            throw new BusinessException(ResultCode.MEDIA_ATTACHMENT_NOT_FOUND);
         }
         log.info("[MediaService.removeAttachment][完成] userId={}, attachmentId={}", userId, attachmentId);
     }
 
     /**
      * 生成前端直传 COS 的 STS 上传凭证。
+     * <p>
+     * 当前设计：
+     * 1. 前端选择图片/文件时不调用本接口；
+     * 2. 仅在用户确认发布 post/comment/activity/exam 时调用；
+     * 3. 前端上传 COS 成功后，将访问地址随业务内容一起提交。
+     * <p>
+     * TODO:
+     *  当前暂未引入上传临时表、PENDING/USED 状态流转、定时清理任务。
+     *  如果后续观察到 COS 中出现较多无业务引用的孤儿文件，
+     *  再考虑增加 media_upload_temp 表，记录 objectKey 生命周期，
+     *  并通过定时任务清理超时未绑定业务数据的对象。
+     * <p>
+     * 注意：
+     * 如果前端在“选择图片后立即上传”，用户取消编辑或退出页面时，
+     * COS 可能产生无引用文件。因此前端必须保持“最终提交时才上传”。
      *
      * @param targetType 目标类型
-     * @param fileNames   原始文件名
+     * @param fileNames  原始文件名
      * @return 上传凭证
      * @throws BusinessException 未登录或参数非法
      */
@@ -263,7 +281,7 @@ public class MediaServiceImpl implements MediaService {
      */
     private void assertTargetTypeAllowed(TargetType targetType) {
         if (!MEDIA_SUPPORTED_TYPES.contains(targetType)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "targetType 不支持");
+            throw new BusinessException(ResultCode.MEDIA_TARGET_TYPE_UNSUPPORTED);
         }
     }
 
@@ -275,12 +293,25 @@ public class MediaServiceImpl implements MediaService {
      */
     private void requireTargetId(Long targetId) {
         if (targetId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "targetId 不能为空");
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "targetId 不能为空");
         }
     }
 
     /**
      * 构建 COS 对象路径。
+     * <p>
+     * 构建 COS objectKey。
+     * <p>
+     * 当前直接按业务类型归档：
+     * post/{userId}/{timestamp}_{uuid}_{fileName}
+     * <p>
+     * TODO:
+     *  如果后续增加临时上传保护，可以改为：
+     *  temp/post/{userId}/{timestamp}_{uuid}_{fileName}
+     *  并在业务提交成功后标记为 USED，或迁移为正式对象。
+     * <p>
+     * 现阶段为了减少数据库表、定时任务和额外服务器负担，
+     * 暂不引入上传生命周期管理。
      *
      * <p>路径格式：{category}/{userId}/{timestamp}_{uuid}_{fileName}</p>
      *
@@ -296,7 +327,8 @@ public class MediaServiceImpl implements MediaService {
             case ACTIVITY -> "activity";
             case EXAM -> "exam";
             case COMMENT -> "comment";
-            default -> throw new BusinessException(ResultCode.BAD_REQUEST, "targetType 不支持");
+            case USER -> "user";
+            default -> throw new BusinessException(ResultCode.MEDIA_TARGET_TYPE_UNSUPPORTED);
         };
         String nonce = UUID.randomUUID().toString().replace("-", "");
         return category + "/" + userId + "/" + System.currentTimeMillis() + "_" + nonce + "_" + safeName;
@@ -311,13 +343,13 @@ public class MediaServiceImpl implements MediaService {
      */
     private String sanitizeFileName(String fileName) {
         if (fileName == null || fileName.isBlank()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "fileName 不能为空");
+            throw new BusinessException(ResultCode.MEDIA_FILE_NAME_INVALID, "fileName 不能为空");
         }
         String normalized = fileName.trim().replace("\\", "/");
         int slashIndex = normalized.lastIndexOf('/');
         String onlyName = slashIndex >= 0 ? normalized.substring(slashIndex + 1) : normalized;
         if (onlyName.isBlank()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "fileName 不合法");
+            throw new BusinessException(ResultCode.MEDIA_FILE_NAME_INVALID);
         }
 
         StringBuilder cleaned = new StringBuilder();
@@ -328,7 +360,7 @@ public class MediaServiceImpl implements MediaService {
         }
         String result = cleaned.toString();
         if (result.isBlank()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "fileName 不合法");
+            throw new BusinessException(ResultCode.MEDIA_FILE_NAME_INVALID);
         }
         return result.toLowerCase(Locale.ROOT);
     }

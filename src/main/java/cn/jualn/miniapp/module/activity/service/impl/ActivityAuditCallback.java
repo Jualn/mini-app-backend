@@ -2,6 +2,7 @@ package cn.jualn.miniapp.module.activity.service.impl;
 
 import cn.jualn.miniapp.common.annotation.AuditTarget;
 import cn.jualn.miniapp.common.enums.ActivityStatus;
+import cn.jualn.miniapp.common.enums.AuditScene;
 import cn.jualn.miniapp.common.enums.NotifyType;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.infrastructure.queue.contract.QueueProducer;
@@ -27,7 +28,7 @@ import java.time.LocalDateTime;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@AuditTarget(TargetType.ACTIVITY)
+@AuditTarget(AuditScene.ACTIVITY)
 public class ActivityAuditCallback implements AuditResultCallback {
 
     private final ActivityMapper activityMapper;

@@ -34,12 +34,12 @@ public class WxMpNoticeSubscribeService {
      */
     public void recordResult(WxMpSubscribeResultDTO dto) {
         if (dto == null || !StringUtils.hasText(dto.getState())) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "订阅结果参数不完整");
+            throw new BusinessException(ResultCode.WX_NOTICE_SUBSCRIBE_INVALID, "订阅结果参数不完整");
         }
 
         String userIdRaw = redisService.getString(RedisKeyConstant.wxMpSubscribeState(dto.getState()));
         if (!StringUtils.hasText(userIdRaw)) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "订阅状态已过期，请重新开启");
+            throw new BusinessException(ResultCode.WX_NOTICE_SUBSCRIBE_EXPIRED, "订阅状态已过期，请重新开启");
         }
 
         Long userId = Long.valueOf(userIdRaw);

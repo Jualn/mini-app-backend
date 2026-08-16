@@ -1,6 +1,7 @@
 package cn.jualn.miniapp.third.wx.service;
 
 import cn.jualn.miniapp.common.exception.BusinessException;
+import cn.jualn.miniapp.common.exception.SystemException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.third.wx.client.WxClient;
 import cn.jualn.miniapp.third.wx.config.WxProperties;
@@ -32,7 +33,7 @@ public class WxJsSdkService {
      */
     public WxJsSdkConfigVO createConfig(String url) {
         if (!StringUtils.hasText(url)) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "url 不能为空");
+            throw new BusinessException(ResultCode.WX_JS_SDK_URL_INVALID, "url 不能为空");
         }
 
         String ticket = wxClient.getMpJsApiTicket(false);
@@ -72,7 +73,7 @@ public class WxJsSdkService {
             }
             return builder.toString();
         } catch (Exception e) {
-            throw new BusinessException(ResultCode.SERVER_ERROR, "生成微信 JS-SDK 签名失败");
+            throw new SystemException("生成微信 JS-SDK 签名失败", e);
         }
     }
 }

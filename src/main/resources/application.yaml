@@ -72,7 +72,7 @@ spring:
           max-wait: 1500ms # 从连接池获取可用连接的最大等待时间
   datasource:
     #    关闭 SSL 连接（避免控制台报警告） 连接数据库时初始化字符集 Java 端用 UTF-8 编码即可安全存储 Emoji 等字符。JDBC 驱动会自动做编码转换
-    url: jdbc:mysql://localhost:3306/jualncampus?sslMode=DISABLED&serverTimezone=Asia/Shanghai
+    url: jdbc:mysql://localhost:3306/jualncampus?sslMode=DISABLED&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       minimum-idle: 5       # 最小空闲连接
@@ -91,7 +91,7 @@ wx:
         template-id: R7Eowu1hJGBxAAK3el4WK9iU6QYv9PuHp5vVQ9d_bi4
         enabled: true
         subscribe-visible: true
-        page-path: /pages/index/index
+        page-path: /pages/message/message
 
         fields:
           thing5:

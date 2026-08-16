@@ -169,12 +169,16 @@ public class ActivityServiceImpl implements ActivityService {
 
         Activity activity = activityMapper.selectOne(
                 new LambdaQueryWrapper<Activity>()
-                        .select(Activity::getUserId)
+                        .select(Activity::getId, Activity::getUserId)
                         .eq(Activity::getId, command.getId())
         );
 
+        if (activity == null) {
+            throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND, "活动不存在或无权编辑");
+        }
+
         if (currentUser.getRole() == UserRole.USER && !userId.equals(activity.getUserId())) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "活动不存在或无权编辑");
+            throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND, "活动不存在或无权编辑");
         }
 
         activityConverter.updateEntityFromUpdateBO(activity, command);
@@ -243,11 +247,11 @@ public class ActivityServiceImpl implements ActivityService {
         );
 
         if (activity == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "活动不存在");
+            throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND, "活动不存在");
         }
 
         if (currentUser.getRole() == UserRole.USER && !userId.equals(activity.getUserId())) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "活动不存在或无权删除");
+            throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND, "活动不存在或无权删除");
         }
 
         activity.setId(id);
@@ -445,7 +449,7 @@ public class ActivityServiceImpl implements ActivityService {
         if (activity == null) {
             String cacheKey = RedisKeyConstant.activityDetail(activityId);
             redisService.setNullPlaceholder(cacheKey, RedisKeyConstant.ACTIVITY_DETAIL_TTL);
-            throw new BusinessException(ResultCode.NOT_FOUND, "活动不存在");
+            throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND, "活动不存在");
         }
         return activity;
     }

@@ -1043,7 +1043,7 @@ log.info("post: " + post.toString());    // 字符串拼接，性能差，应用
 log.error(e.getMessage());               // 丢失堆栈信息
 ```
 
-### 9.4 生产配置
+###  生产配置
 
 ```yaml
 logging:
@@ -1665,7 +1665,7 @@ public class RedisQueueConsumer {
 
 ## 第三方集成规范（COS / 微信）
 
-### 14.1 目录结构
+### 目录结构
 
 ```
 third/

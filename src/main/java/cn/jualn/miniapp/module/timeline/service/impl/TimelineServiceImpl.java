@@ -41,7 +41,7 @@ public class TimelineServiceImpl implements TimelineService {
     @Transactional(rollbackFor = Exception.class)
     public void replaceTimelines(TimelineSaveBO saveDTO) {
         if (saveDTO == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "saveDTO 不能为空");
+            throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "saveDTO 不能为空");
         }
         TargetType targetType = saveDTO.getTargetType();
         Long targetId = saveDTO.getTargetId();
@@ -49,10 +49,10 @@ public class TimelineServiceImpl implements TimelineService {
 
         assertTargetType(targetType);
         if (targetId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "targetId 不能为空");
+            throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "targetId 不能为空");
         }
         if (CollectionUtils.isEmpty(requestList)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "时间线列表不能为空");
+            throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线列表不能为空");
         }
         targetValidator.assertExists(targetType, targetId);
 
@@ -65,7 +65,7 @@ public class TimelineServiceImpl implements TimelineService {
         List<Timeline> timelines = timelineConverter.toTimelineList(saveDTO);
         if (CollectionUtils.isEmpty(timelines)) {
             log.error("转换时间线列表失败, timelines is empty, saveDTO: {}", saveDTO);
-            throw new BusinessException(ResultCode.SERVER_ERROR, "转换时间线列表失败");
+            throw new BusinessException(ResultCode.TIMELINE_OPERATION_FAILED, "转换时间线列表失败");
         }
 
         timelineMapper.insert(timelines);
@@ -82,7 +82,7 @@ public class TimelineServiceImpl implements TimelineService {
                 timelineConverter.toEntity(command));
         if (updated <= 0) {
             log.error("更新时间线节点失败, id: {}", command.getId());
-            throw new BusinessException(ResultCode.BAD_REQUEST, "更新时间线节点失败");
+            throw new BusinessException(ResultCode.TIMELINE_OPERATION_FAILED, "更新时间线节点失败");
         }
 
         log.info("更新时间线节点成功, id: {}", command.getId());
@@ -95,7 +95,7 @@ public class TimelineServiceImpl implements TimelineService {
             log.info("删除时间线节点成功, id: {}", id);
         } else {
             log.warn("删除时间线节点失败, id: {}", id);
-            throw new BusinessException(ResultCode.BAD_REQUEST, "删除时间线节点失败");
+            throw new BusinessException(ResultCode.TIMELINE_OPERATION_FAILED, "删除时间线节点失败");
         }
     }
 
@@ -117,7 +117,7 @@ public class TimelineServiceImpl implements TimelineService {
 
     private void assertTargetType(TargetType targetType) {
         if (!SUPPORTED_TARGET_TYPES.contains(targetType)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "不支持的目标类型: " + targetType);
+            throw new BusinessException(ResultCode.TIMELINE_TARGET_UNSUPPORTED, "不支持的目标类型: " + targetType);
         }
     }
 }

@@ -1,6 +1,5 @@
 package cn.jualn.miniapp.third.wx.service;
 
-import cn.dev33.satoken.stp.StpUtil;
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.ResultCode;
@@ -49,13 +48,10 @@ public class WxMpOauthService {
      * <p>
      * 只做绑定，不跳 wx-open-subscribe。
      */
-    public String buildBindOauthUrl(String token) {
-        if (!StringUtils.hasText(token)) {
-            throw new BusinessException(ResultCode.UNAUTHORIZED, "登录 token 不能为空");
+    public String buildBindOauthUrl(Long userId) {
+        if (userId == null) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "用户未登录");
         }
-
-        Long userId = parseUserIdBySaToken(token);
-
         String state = UUID.randomUUID().toString().replace("-", "");
 
         redisService.set(
@@ -86,14 +82,6 @@ public class WxMpOauthService {
     }
 
     /**
-     * 兼容旧方法名。
-     */
-    @Deprecated
-    public String buildOauthUrl(String token) {
-        return buildBindOauthUrl(token);
-    }
-
-    /**
      * 处理微信授权回调。
      * <p>
      * bind 模式：
@@ -107,12 +95,12 @@ public class WxMpOauthService {
      */
     public String handleCallback(String code, String state) {
         if (!StringUtils.hasText(code) || !StringUtils.hasText(state)) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "微信授权回调参数不完整");
+            throw new BusinessException(ResultCode.WX_OAUTH_STATE_INVALID, "微信授权回调参数不完整");
         }
 
         String stateValue = redisService.getString(RedisKeyConstant.wxMpOauthState(state));
         if (!StringUtils.hasText(stateValue)) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "微信授权状态已过期，请重新打开页面");
+            throw new BusinessException(ResultCode.WX_OAUTH_STATE_EXPIRED, "微信授权状态已过期，请重新打开页面");
         }
 
         MpOauthAccessTokenResponse oauth = wxClient.getMpOauthAccessToken(code);
@@ -149,15 +137,16 @@ public class WxMpOauthService {
         }
 
         log.warn("未知微信网页授权状态，state={}, stateValue={}", state, stateValue);
-        throw new BusinessException(ResultCode.PARAM_ERROR, "微信授权状态异常，请重新打开页面");
+        throw new BusinessException(ResultCode.WX_OAUTH_STATE_INVALID, "微信授权状态异常，请重新打开页面");
     }
 
     /**
      * 小程序通知设置页判断是否已绑定。
      */
-    public Map<String, Object> getBindStatus(String token) {
-        Long userId = parseUserIdBySaToken(token);
-
+    public Map<String, Object> getBindStatus(Long userId) {
+        if (userId == null) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "用户未登录");
+        }
         UserProfile userProfile = userProfileMapper.selectById(userId);
         boolean bound = userProfile != null && StringUtils.hasText(userProfile.getMpOpenid());
 
@@ -198,23 +187,6 @@ public class WxMpOauthService {
         }
 
         return url;
-    }
-
-    /**
-     * 用 Sa-Token token 解析当前登录用户 ID。
-     */
-    private Long parseUserIdBySaToken(String token) {
-        try {
-            Object loginId = StpUtil.getLoginIdByToken(token);
-            if (loginId == null) {
-                throw new BusinessException(ResultCode.UNAUTHORIZED, "登录 token 无效");
-            }
-            return Long.valueOf(String.valueOf(loginId));
-        } catch (BusinessException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new BusinessException(ResultCode.UNAUTHORIZED, "登录 token 已失效");
-        }
     }
 
     /**

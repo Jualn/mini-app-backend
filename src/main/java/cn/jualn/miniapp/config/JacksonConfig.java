@@ -27,6 +27,7 @@ import java.time.format.DateTimeFormatter;
  * 2. LocalDateTime 序列化为时间戳而非字符串 → 统一格式 yyyy-MM-dd HH:mm:ss
  * 3. null 字段照常返回（不过滤），保持接口字段稳定
  * 4. 前端传来未知字段不报错（小程序版本兼容）
+ * 5. 枚举只接受字符串枚举名，不接受数字 ordinal，避免前后端枚举错位
  */
 @Configuration
 public class JacksonConfig {
@@ -59,6 +60,8 @@ public class JacksonConfig {
             .featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
             // 前端传来多余字段不报错（兼容小程序多版本并行）
             .featuresToDisable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            // 枚举入参必须使用字符串枚举名，如 POST / ACTIVITY，禁止传 0 / 1 这类 ordinal
+            .featuresToEnable(DeserializationFeature.FAIL_ON_NUMBERS_FOR_ENUMS)
             // null 字段正常返回，不过滤
             .serializationInclusion(JsonInclude.Include.ALWAYS)
             .build();

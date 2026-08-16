@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.audit.payload;
 
+import cn.jualn.miniapp.common.enums.AuditScene;
 import cn.jualn.miniapp.common.enums.MediaType;
-import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.infrastructure.queue.annotation.QueueTopic;
 import cn.jualn.miniapp.infrastructure.queue.contract.MessagePayload;
 import lombok.AllArgsConstructor;
@@ -18,7 +18,7 @@ import java.util.List;
 @QueueTopic("audit.media.batch")
 public class AuditMediaBatchPayload implements MessagePayload {
 
-    private TargetType targetType;
+    private AuditScene auditScene;
 
     private Long targetId;
 
@@ -36,6 +36,7 @@ public class AuditMediaBatchPayload implements MessagePayload {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class AuditMediaItem {
+        private Long auditLogId;
         private String mediaUrl;
         private MediaType mediaType;
     }

@@ -31,7 +31,7 @@ public class WxMpNoticeTemplateRegistry {
                 .filter(item -> Objects.equals(item.getType(), type.getKey()))
                 .findFirst()
                 .orElseThrow(() -> new BusinessException(
-                        ResultCode.PARAM_ERROR,
+                        ResultCode.WX_NOTICE_TEMPLATE_UNAVAILABLE,
                         "未配置服务号通知模板：" + type.getKey()
                 ));
     }

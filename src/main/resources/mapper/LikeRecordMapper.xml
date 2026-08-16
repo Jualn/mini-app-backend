@@ -15,7 +15,7 @@
         </foreach>
     </select>
 
-    <select id="selectLikeCountBatch" resultType="cn.jualn.miniapp.module.interact.dto.inner.LikeCountDTO">
+    <select id="selectLikeCountBatch" resultType="cn.jualn.miniapp.module.interact.dto.inner.InteractCountDTO">
         SELECT
         target_id AS targetId,
         COUNT(*)  AS count
