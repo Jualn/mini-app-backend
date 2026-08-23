@@ -8,6 +8,16 @@ sa-token:
   is-print: false
   cookie-auto-fill-prefix: true # 自动填充 token 前缀, 没开启就添加前缀的话cookie就认证不成功
 
+admin-auth:
+  qr-session-ttl: 2m
+  expired-retention: 1m
+  token-ttl: 8h
+  rate-limit-window: 1m
+  create-limit-per-window: 10
+  confirm-limit-per-window: 10
+  poll-interval-ms: 1500
+  qr-payload-prefix: "jualn-admin-login:"
+
 mybatis-plus:
   global-config:
     banner: false

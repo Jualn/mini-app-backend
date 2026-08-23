@@ -29,6 +29,14 @@ public interface UserService {
 	UserProfileBO getCurrentProfile();
 
 	/**
+	 * 按用户 ID 实时读取资料，不使用认证信息缓存。
+	 *
+	 * @param userId 用户 ID
+	 * @return 用户资料
+	 */
+	UserProfileBO getUserProfile(Long userId);
+
+	/**
 	 * 获取公开展示的用户资料。
 	 *
 	 * @param userId 目标用户 ID

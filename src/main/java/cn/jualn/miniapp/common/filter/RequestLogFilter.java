@@ -21,6 +21,8 @@ import java.util.UUID;
 public class RequestLogFilter extends OncePerRequestFilter {
 
     private static final String TRACE_ID_HEADER = "X-Trace-Id";
+    private static final String ADMIN_QR_SESSION_PATH = "/v1/admin/auth/qr-sessions/";
+    private static final String ADMIN_QR_CONFIRMATION_PATH = "/v1/admin/auth/qr-confirmations/";
 
     private static final List<String> IGNORE_PREFIXES = List.of(
             // 过滤api文档的访问请求，没必要进业务请求日志
@@ -91,7 +93,7 @@ public class RequestLogFilter extends OncePerRequestFilter {
             log.info(">>>[Request] [{}] {} {} from={}",
                     traceId,
                     request.getMethod(),
-                    request.getRequestURI(),
+                    sanitizeUri(request.getRequestURI()),
                     getClientIp(request));
 
             // 3. 放行
@@ -107,14 +109,14 @@ public class RequestLogFilter extends OncePerRequestFilter {
                 log.warn(msg,
                         MDC.get("traceId"),
                         request.getMethod(),
-                        request.getRequestURI(),
+                        sanitizeUri(request.getRequestURI()),
                         status,
                         cost);
             } else {
                 log.info(msg,
                         MDC.get("traceId"),
                         request.getMethod(),
-                        request.getRequestURI(),
+                        sanitizeUri(request.getRequestURI()),
                         status,
                         cost);
             }
@@ -150,6 +152,16 @@ public class RequestLogFilter extends OncePerRequestFilter {
         }
 
         return UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private String sanitizeUri(String uri) {
+        if (uri.startsWith(ADMIN_QR_SESSION_PATH)) {
+            return ADMIN_QR_SESSION_PATH + "{sessionId}";
+        }
+        if (uri.startsWith(ADMIN_QR_CONFIRMATION_PATH)) {
+            return ADMIN_QR_CONFIRMATION_PATH + "{sessionId}";
+        }
+        return uri;
     }
 
     private boolean isValidTraceId(String traceId) {

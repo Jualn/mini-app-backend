@@ -92,6 +92,18 @@ public class UserServiceImpl implements UserService {
         return profileBO;
     }
 
+    @Override
+    public UserProfileBO getUserProfile(Long userId) {
+        if (userId == null) {
+            throw new BusinessException(ResultCode.USER_ID_REQUIRED);
+        }
+        UserProfileBO profileBO = userConverter.toProfileBO(userProfileMapper.selectById(userId));
+        if (profileBO == null) {
+            throw new BusinessException(ResultCode.USER_NOT_FOUND);
+        }
+        return profileBO;
+    }
+
     /**
      * 获取公开展示的用户资料。
      */

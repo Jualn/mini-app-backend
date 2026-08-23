@@ -2,12 +2,14 @@ package cn.jualn.miniapp.common.interceptor;
 
 import cn.dev33.satoken.stp.StpUtil;
 import cn.jualn.miniapp.common.constant.UserContext;
+import cn.jualn.miniapp.common.security.AdminStpUtil;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.springframework.stereotype.Component;
 import org.springframework.lang.NonNull;
+import org.springframework.web.cors.CorsUtils;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.servlet.AsyncHandlerInterceptor;
@@ -28,24 +30,31 @@ public class ContextInterceptor implements AsyncHandlerInterceptor {
     public boolean preHandle(@NonNull HttpServletRequest request,
                              @NonNull HttpServletResponse response,
                              @NonNull Object handler) {
-        // async dispatch 跳过，context 在主线程已经设好了
-        if (DispatcherType.ASYNC.equals(request.getDispatcherType())) {
+        // 预检没有业务身份；ASYNC / ERROR 不应重复读取 Sa-Token 上下文。
+        if (CorsUtils.isPreFlightRequest(request)
+                || DispatcherType.ASYNC.equals(request.getDispatcherType())
+                || DispatcherType.ERROR.equals(request.getDispatcherType())) {
             return true;
         }
 
         if (StpUtil.isLogin()) {
-            Object loginId = StpUtil.getLoginId();
-            if (loginId instanceof Number number) {
-                UserContext.setUserId(number.longValue());
-            } else if (loginId != null) {
-                try {
-                    UserContext.setUserId(Long.parseLong(loginId.toString()));
-                } catch (NumberFormatException ignored) {
-                    // 登录 id 不是数字时，不写入上下文，避免影响正常请求流程
-                }
-            }
+            setUserId(StpUtil.getLoginId());
+        } else if (AdminStpUtil.STP_LOGIC.isLogin()) {
+            setUserId(AdminStpUtil.STP_LOGIC.getLoginId());
         }
         return true;
+    }
+
+    private void setUserId(Object loginId) {
+        if (loginId instanceof Number number) {
+            UserContext.setUserId(number.longValue());
+        } else if (loginId != null) {
+            try {
+                UserContext.setUserId(Long.parseLong(loginId.toString()));
+            } catch (NumberFormatException ignored) {
+                // 登录 id 不是数字时，不写入上下文，避免影响正常请求流程
+            }
+        }
     }
 
     @Override
