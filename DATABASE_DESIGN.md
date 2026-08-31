@@ -1,10 +1,24 @@
 # 企业级微信小程序数据库设计文档
 
+> 本文描述当前仓库目标结构和字段业务语义，不代表生产库已经迁移到该状态。
+> 可执行结构历史以 `src/main/resources/db/migration/` 为准。
+
+## 数据库版本状态
+
+| 范围 | 版本 | 表数量 | 状态 |
+|---|---|---:|---|
+| 生产首次初始化基线 | `V1` | 20 | 已确认，与 `V1__initial_production_schema.sql` 一致 |
+| 当前生产与仓库目标结构 | `V3` | 21 | V2、V3 已于 2026-08-31 迁移成功 |
+| 关注与私信设计 | 未分配版本 | 3 | 未来候选，不属于当前目标结构 |
+
+生产、测试和开发环境是否已经到达某个版本，以各自的
+`flyway_schema_history` 和迁移验收记录为准，不能仅由本文推断。
+
 > **项目概述**：面向企业内部/社区用户的微信小程序，含帖子广场、活动管理、考试信息三大模块，支持评论、点赞、分享、订阅通知等功能。活动与考试均为中转信息平台，不在小程序内直接报名，报名方式为扫码加群等线下形式。
 > **技术栈**：MySQL 8.0+，ECS 2GB内存 / 2vCPU / 3M带宽，文件存储推荐腾讯云COS
 > **预期规模**：百人至千人级别，单人开发维护
-> **文档版本**：v1.3
-> **更新日期**：2026-04-20
+> **文档版本**：v1.5
+> **更新日期**：2026-08-31
 >
 > co3s2cph9r90gr3ofrpxougf3iuon3t0
 
@@ -175,31 +189,31 @@ default-character-set=utf8mb4
   └─────────────┘ └──────────┘
 ```
 
-### 表清单（共19张）
+### 当前目标表清单（共 21 张）
 
 | 序号 | 表名                  | 说明                                  |
 | ---- | --------------------- | ------------------------------------- |
 | 1    | `user_profile`        | 用户基础信息（含头像、背景图、简介）  |
 | 2    | `user_agreement`      | 用户协议签署记录                      |
 | 3    | `media_attachment`    | **通用附件表**（图片/PDF/外链，多态） |
-| 4    | `post`                | 帖子主表                              |
-| 5    | `activity`            | 活动主表                              |
-| 6    | `activity_enrollment` | 活动订阅/报名                         |
-| 7    | `exam_info`           | 考试信息主表                          |
-| 8    | `exam_subscription`   | 考试订阅                              |
-| 9    | `comment`             | 通用评论表（多态）                    |
-| 10   | `like_record`         | 点赞记录                              |
-| 11   | `share_record`        | 分享记录                              |
-| 12   | `view_count_cache`    | 浏览量聚合缓存                        |
-| 13   | `view_log`            | 浏览明细（可定期清理）                |
-| 14   | `notification`        | 通知消息表                            |
-| 15   | `content_audit_log`   | 内容审核日志                          |
-| 16   | `user_setting`        | 用户设置                              |
-| 17   | `timeline`            | 时间线表                              |
-| 18   | `notify_plan`         | 通知计划                              |
-| 19   | `report`              | 举报功能（多态）                      |
-
-> **v1.3 变更说明**：
+| 4    | `media_upload_record` | COS 上传临时记录与对象生命周期        |
+| 5    | `post`                | 帖子主表                              |
+| 6    | `activity`            | 活动主表                              |
+| 7    | `activity_enrollment` | 活动订阅/报名                         |
+| 8    | `exam_info`           | 考试信息主表                          |
+| 9    | `exam_subscription`   | 考试订阅                              |
+| 10   | `comment`             | 通用评论表（多态）                    |
+| 11   | `like_record`         | 点赞记录                              |
+| 12   | `share_record`        | 分享记录                              |
+| 13   | `view_count_cache`    | 浏览量聚合缓存                        |
+| 14   | `view_log`            | 浏览明细（可定期清理）                |
+| 15   | `notification`        | 通知消息表                            |
+| 16   | `content_audit_log`   | 内容审核日志                          |
+| 17   | `user_setting`        | 用户设置                              |
+| 18   | `timeline`            | 时间线表                              |
+| 19   | `notify_plan`         | 通知计划                              |
+| 20   | `report`              | 举报功能（多态）                      |
+| 21   | `search_doc`          | 帖子与活动全文搜索文档                |
 
 ---
 
@@ -215,7 +229,9 @@ CREATE TABLE `user_profile` (
   `unionid`        VARCHAR(64)     DEFAULT NULL COMMENT '微信unionid（开放平台）',
   `nickname`       VARCHAR(64)     DEFAULT NULL COMMENT '用户昵称',
   `avatar_url`     VARCHAR(512)    DEFAULT NULL COMMENT '头像URL（COS）',
+  `avatar_object_key` VARCHAR(512) DEFAULT NULL COMMENT '头像COS对象键',
   `background_url` VARCHAR(512)    DEFAULT NULL COMMENT '个人主页背景图URL（COS）',
+  `background_object_key` VARCHAR(512) DEFAULT NULL COMMENT '背景图COS对象键',
   `bio`            VARCHAR(200)    DEFAULT NULL COMMENT '个人简介',
   `gender`         TINYINT         DEFAULT 0 COMMENT '性别：0-未知 1-男 2-女',
   `phone`          VARCHAR(64)     DEFAULT NULL COMMENT '手机号（AES加密存储）',
@@ -289,6 +305,7 @@ CREATE TABLE `media_attachment` (
   `target_type`   TINYINT         NOT NULL COMMENT '关联内容类型：1-帖子 2-活动 3-考试信息',
   `target_id`     BIGINT UNSIGNED NOT NULL COMMENT '关联内容ID',
   `type`          TINYINT         NOT NULL COMMENT '附件类型：1-公众号/外部链接 2-图片 3-PDF文件 4-Word文件',
+  `object_key`    VARCHAR(512)    DEFAULT NULL COMMENT 'COS对象键；外链类型为空',
   `url`           VARCHAR(512)    NOT NULL COMMENT '资源URL：图片/PDF存COS地址，外链存原始URL',
   `original_name` VARCHAR(255)    DEFAULT NULL COMMENT '原始文件名（PDF上传时记录，如"2025年报名须知.pdf"）',
   `sort_order`    TINYINT         NOT NULL DEFAULT 0 COMMENT '展示顺序，从0开始',
@@ -297,6 +314,36 @@ CREATE TABLE `media_attachment` (
   KEY `idx_target` (`target_type`, `target_id`, `sort_order`)
 ) ENGINE=InnoDB COMMENT='通用附件表（图片/PDF/外链，多态关联）';
 ```
+
+### 上传临时记录表 `media_upload_record`
+
+```sql
+CREATE TABLE `media_upload_record` (
+  `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `object_key`      VARCHAR(512)    NOT NULL COMMENT 'COS对象键',
+  `user_id`         BIGINT UNSIGNED NOT NULL COMMENT '申请上传的小程序用户ID',
+  `target_type`     TINYINT         NOT NULL COMMENT '计划绑定的业务类型',
+  `status`          TINYINT         NOT NULL DEFAULT 0 COMMENT '0-PENDING 1-BOUND 2-CLEANING',
+  `bound_target_id` BIGINT UNSIGNED DEFAULT NULL COMMENT '绑定后的业务目标ID',
+  `cleanup_after`   DATETIME        NOT NULL COMMENT '允许清理的最早时间',
+  `retry_count`     INT UNSIGNED    NOT NULL DEFAULT 0,
+  `last_error`      VARCHAR(512)    DEFAULT NULL,
+  `created_at`      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_media_upload_object_key` (`object_key`),
+  KEY `idx_media_upload_cleanup` (`status`, `cleanup_after`),
+  KEY `idx_media_upload_user_type` (`user_id`, `target_type`)
+) ENGINE=InnoDB COMMENT='COS上传临时记录与绑定状态';
+```
+
+**历史 URL 数据迁移原则：**
+
+- `media_attachment.url`、`comment.image_url`、`user_profile.avatar_url/background_url`
+  中，只有域名与路径前缀均能确认属于当前 COS 存储桶的记录，才允许从 URL 提取并回填对象键。
+- 外部链接、微信头像以及来源不明的历史 URL 保持对象键为 `NULL`，不得进入自动删除流程。
+- 上线顺序为：先增加对象键字段和 `media_upload_record` 表，再部署应用；新写入数据由应用同时保存 URL 与对象键。
+- 历史数据回填应单独执行可核对、可分批的迁移脚本，并在回填前抽样比对 URL 与对象键；不要在应用启动时隐式批量转换。
 
 **type 枚举值详解：**
 
@@ -574,6 +621,7 @@ CREATE TABLE `comment` (
   `reply_to_uid` BIGINT UNSIGNED DEFAULT NULL COMMENT '回复目标用户ID（展示"回复@xxx"用）',
   `content`      TEXT            NOT NULL COMMENT '评论内容，纯文字',
   `image_url`    VARCHAR(512)    DEFAULT NULL COMMENT '评论配图URL（最多1张）',
+  `image_object_key` VARCHAR(512) DEFAULT NULL COMMENT '评论配图COS对象键',
   `status`       TINYINT         NOT NULL DEFAULT 1 COMMENT '状态：0-待审核 1-正常 2-审核拒绝 3-用户删除 4-管理员删除',
   `audit_status` TINYINT         NOT NULL DEFAULT 0 COMMENT '0-待审核 1-通过 2-拒绝',
   `like_count`   INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT '点赞数（冗余）',
@@ -976,11 +1024,13 @@ CREATE TABLE `content_audit_log` (
   `admin_user_id` BIGINT UNSIGNED DEFAULT NULL COMMENT '人工审核员ID',
   `admin_action`  TINYINT         DEFAULT NULL COMMENT '人工操作：1-通过 2-拒绝',
   `admin_remark`  VARCHAR(255)    DEFAULT NULL COMMENT '人工审核备注',
+  `idempotency_key` VARCHAR(64)   DEFAULT NULL COMMENT '管理员写命令幂等键，仅人工审核使用',
   `final_result`  TINYINT         NOT NULL COMMENT '最终结论：1-通过 2-拒绝',
   `created_at`    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_target` (`target_type`, `target_id`),
   KEY `idx_admin_user_id` (`admin_user_id`),
+  UNIQUE KEY `uk_audit_idempotency_key` (`idempotency_key`),
   KEY `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB COMMENT='内容审核日志';
 ```
@@ -1333,6 +1383,9 @@ public void syncToSearchDoc(Activity activity) {
 
 ## 扩展性预留设计
 
+本节只有设计候选，不计入当前 21 张目标表，也不进入 `V1`—`V3`。真正开发
+相关功能时，应重新审查结构并创建新的 Flyway 版本，不能直接复制本节到生产。
+
 ### 关注功能（预留，建表备用）
 
 ```sql
@@ -1433,4 +1486,4 @@ long_query_time         = 1
 
 ---
 
-*文档版本 v1.4 | 如有业务变更请同步维护本文档*
+*文档版本 v1.5 | 如有业务变更请同步维护本文档与 Flyway 迁移*
