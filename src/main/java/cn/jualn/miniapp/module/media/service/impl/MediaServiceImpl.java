@@ -15,6 +15,7 @@ import cn.jualn.miniapp.module.media.bo.MediaAttachmentSaveBO;
 import cn.jualn.miniapp.module.media.entity.MediaAttachment;
 import cn.jualn.miniapp.module.media.mapper.MediaAttachmentMapper;
 import cn.jualn.miniapp.module.media.service.MediaService;
+import cn.jualn.miniapp.module.media.service.MediaUploadRecordService;
 import cn.jualn.miniapp.third.cos.dto.CosUploadCredentialDTO;
 import cn.jualn.miniapp.third.cos.service.CosService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -22,8 +23,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
+import java.time.LocalDateTime;
 import java.util.*;
 
 /**
@@ -51,6 +56,7 @@ public class MediaServiceImpl implements MediaService {
     private final MediaAttachmentMapper mediaAttachmentMapper;
     private final TargetValidator targetValidator;
     private final CosService cosService;
+    private final MediaUploadRecordService uploadRecordService;
 
     /**
      * 覆盖保存目标附件。
@@ -60,31 +66,61 @@ public class MediaServiceImpl implements MediaService {
      * @param saveDTO <p>目标类型：{@link TargetType}</p>
      *                <p>目标 ID</p>
      *                <p>附件列表</p>
-     * @throws BusinessException 未登录、参数非法或目标不存在
+     * @throws BusinessException 参数非法、目标不存在或新增对象不属于当前上传者
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void replaceAttachments(MediaAttachmentSaveBO saveDTO) {
-        Long userId = requireUserId();
+        Long userId = UserContext.getUserId();
         Long targetId = saveDTO.getTargetId();
         TargetType targetType = saveDTO.getTargetType();
-        List<AttachmentItemBO> attachments = saveDTO.getAttachments();
+        List<AttachmentItemBO> attachments = saveDTO.getAttachments() == null
+                ? List.of()
+                : saveDTO.getAttachments();
         long start = System.currentTimeMillis();
         log.info("[MediaService.replaceAttachments][开始] userId={}, targetType={}, targetId={}", userId, targetType, targetId);
 
-        if (CollectionUtils.isEmpty(attachments)) {
-            // sortOrder 为空时按入参顺序自动补位，保证展示稳定。
-            throw new BusinessException(ResultCode.MEDIA_ATTACHMENT_EMPTY);
-        }
         requireTargetId(targetId);
         assertTargetTypeAllowed(targetType);
 
         targetValidator.assertExists(targetType, targetId);
+        List<MediaAttachment> existingAttachments = mediaAttachmentMapper.selectList(
+                new LambdaQueryWrapper<MediaAttachment>()
+                        .select(MediaAttachment::getObjectKey, MediaAttachment::getUrl)
+                        .eq(MediaAttachment::getTargetType, targetType.getCode())
+                        .eq(MediaAttachment::getTargetId, targetId));
+        attachments = normalizeAttachments(targetType, userId, attachments, existingAttachments);
+        saveDTO.setAttachments(attachments);
+        Set<String> retainedObjectKeys = attachments.stream()
+                .map(AttachmentItemBO::getObjectKey)
+                .filter(StringUtils::hasText)
+                .collect(java.util.stream.Collectors.toSet());
+        List<String> removedObjectKeys = existingAttachments.stream()
+                .map(MediaAttachment::getObjectKey)
+                .filter(StringUtils::hasText)
+                .filter(objectKey -> !retainedObjectKeys.contains(objectKey))
+                .distinct()
+                .toList();
+        Set<String> existingObjectKeys = existingAttachments.stream()
+                .map(MediaAttachment::getObjectKey)
+                .filter(StringUtils::hasText)
+                .collect(java.util.stream.Collectors.toSet());
+        List<String> newObjectKeys = retainedObjectKeys.stream()
+                .filter(objectKey -> !existingObjectKeys.contains(objectKey))
+                .toList();
+        uploadRecordService.bindPending(userId, targetType, targetId, newObjectKeys);
 
         // 通过删除然后覆写，就可以不用再写接口更新target的attachments了，统一覆写
         mediaAttachmentMapper.delete(new LambdaQueryWrapper<MediaAttachment>()
                 .eq(MediaAttachment::getTargetType, targetType.getCode())
                 .eq(MediaAttachment::getTargetId, targetId));
+
+        if (attachments.isEmpty()) {
+            deleteObjectsAfterCommit(removedObjectKeys, targetType, targetId);
+            log.info("[MediaService.replaceAttachments][清空完成] userId={}, targetType={}, targetId={}",
+                    userId, targetType, targetId);
+            return;
+        }
 
         // 构建一个列表，用于存储批量插入的数据
         List<MediaAttachment> mediaAttachments = mediaConverter.toMediaAttachmentList(saveDTO);
@@ -95,6 +131,7 @@ public class MediaServiceImpl implements MediaService {
         }
 
         mediaAttachmentMapper.insertBatch(mediaAttachments);
+        deleteObjectsAfterCommit(removedObjectKeys, targetType, targetId);
 
         log.info("[MediaService.replaceAttachments][完成] userId={}, targetType={}, targetId={}, count={}, costMs={}",
                 userId, targetType, targetId, attachments.size(), System.currentTimeMillis() - start);
@@ -116,7 +153,7 @@ public class MediaServiceImpl implements MediaService {
         targetValidator.assertExists(targetType, targetId);
 
         List<MediaAttachment> attachments = mediaAttachmentMapper.selectList(new LambdaQueryWrapper<MediaAttachment>()
-                .eq(MediaAttachment::getTargetType, targetType)
+                .eq(MediaAttachment::getTargetType, targetType.getCode())
                 .eq(MediaAttachment::getTargetId, targetId)
                 .orderByAsc(MediaAttachment::getSortOrder)
                 .orderByAsc(MediaAttachment::getId));
@@ -142,7 +179,7 @@ public class MediaServiceImpl implements MediaService {
 
         List<MediaAttachment> attachments = mediaAttachmentMapper.selectList(new LambdaQueryWrapper<MediaAttachment>()
                 .eq(MediaAttachment::getType, mediaType.getCode())
-                .eq(MediaAttachment::getTargetType, targetType)
+                .eq(MediaAttachment::getTargetType, targetType.getCode())
                 .eq(MediaAttachment::getTargetId, targetId)
                 .orderByAsc(MediaAttachment::getSortOrder)
                 .orderByAsc(MediaAttachment::getId));
@@ -202,43 +239,17 @@ public class MediaServiceImpl implements MediaService {
     }
 
     /**
-     * 删除单条附件。
-     *
-     * @param attachmentId 附件 ID
-     * @throws BusinessException 未登录、参数非法或附件不存在
-     */
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void removeAttachment(Long attachmentId) {
-        Long userId = requireUserId();
-        if (attachmentId == null) {
-            throw new BusinessException(ResultCode.INVALID_OPERATION, "attachmentId 不能为空");
-        }
-
-        int deletedRows = mediaAttachmentMapper.deleteById(attachmentId);
-        if (deletedRows == 0) {
-            throw new BusinessException(ResultCode.MEDIA_ATTACHMENT_NOT_FOUND);
-        }
-        log.info("[MediaService.removeAttachment][完成] userId={}, attachmentId={}", userId, attachmentId);
-    }
-
-    /**
      * 生成前端直传 COS 的 STS 上传凭证。
      * <p>
      * 当前设计：
      * 1. 前端选择图片/文件时不调用本接口；
      * 2. 仅在用户确认发布 post/comment/activity/exam 时调用；
-     * 3. 前端上传 COS 成功后，将访问地址随业务内容一起提交。
+     * 3. 前端上传 COS 成功后，将 objectKey 与展示元数据随业务内容一起提交；
+     * 4. 服务端验证 objectKey 归属，并按服务端配置生成访问地址。
      * <p>
      * TODO:
-     *  当前暂未引入上传临时表、PENDING/USED 状态流转、定时清理任务。
-     *  如果后续观察到 COS 中出现较多无业务引用的孤儿文件，
-     *  再考虑增加 media_upload_temp 表，记录 objectKey 生命周期，
-     *  并通过定时任务清理超时未绑定业务数据的对象。
-     * <p>
-     * 注意：
-     * 如果前端在“选择图片后立即上传”，用户取消编辑或退出页面时，
-     * COS 可能产生无引用文件。因此前端必须保持“最终提交时才上传”。
+     * 生成凭证后登记 PENDING 上传记录；业务保存事务负责将对应 objectKey 绑定到目标数据，
+     * 超时未绑定的对象由定时任务清理。前端仍保持“最终提交时才上传”，减少无效上传。
      *
      * @param targetType 目标类型
      * @param fileNames  原始文件名
@@ -249,6 +260,9 @@ public class MediaServiceImpl implements MediaService {
     public CosUploadCredentialDTO generateUploadCredential(TargetType targetType, List<String> fileNames) {
         Long userId = requireUserId();
         assertTargetTypeAllowed(targetType);
+        if (CollectionUtils.isEmpty(fileNames)) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "fileNames 不能为空");
+        }
 
         List<String> objectKeys = new ArrayList<>(fileNames.size());
         for (String fileName : fileNames) {
@@ -256,7 +270,40 @@ public class MediaServiceImpl implements MediaService {
                     buildObjectKey(targetType, userId, fileName)
             );
         }
-        return cosService.generateUploadCredential(objectKeys);
+        CosUploadCredentialDTO credential = cosService.generateUploadCredential(objectKeys);
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime cleanupAfter = credential.getExpireAt() == null
+                || !credential.getExpireAt().isAfter(now)
+                ? now.plusHours(2)
+                : credential.getExpireAt().plusHours(1);
+        uploadRecordService.recordPending(userId, targetType, objectKeys, cleanupAfter);
+        return credential;
+    }
+
+    @Override
+    public String resolveOwnedUploadUrl(TargetType targetType, String objectKey) {
+        Long userId = requireUserId();
+        assertTargetTypeAllowed(targetType);
+        if (!StringUtils.hasText(objectKey)) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "objectKey 不能为空");
+        }
+        String normalizedKey = objectKey.trim();
+        String expectedPrefix = targetCategory(targetType) + "/" + userId + "/";
+        if (!normalizedKey.startsWith(expectedPrefix) || normalizedKey.contains("..")) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "objectKey 不属于当前用户或业务类型");
+        }
+        return cosService.buildPublicUrl(normalizedKey);
+    }
+
+    @Override
+    public void bindPendingUploads(TargetType targetType, Long targetId, Collection<String> objectKeys) {
+        if (CollectionUtils.isEmpty(objectKeys)) {
+            return;
+        }
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new SystemException("上传记录必须在业务事务内绑定");
+        }
+        uploadRecordService.bindPending(requireUserId(), targetType, targetId, objectKeys);
     }
 
     /**
@@ -322,7 +369,13 @@ public class MediaServiceImpl implements MediaService {
      */
     private String buildObjectKey(TargetType type, Long userId, String fileName) {
         String safeName = sanitizeFileName(fileName);
-        String category = switch (type) {
+        String category = targetCategory(type);
+        String nonce = UUID.randomUUID().toString().replace("-", "");
+        return category + "/" + userId + "/" + System.currentTimeMillis() + "_" + nonce + "_" + safeName;
+    }
+
+    private String targetCategory(TargetType type) {
+        return switch (type) {
             case POST -> "post";
             case ACTIVITY -> "activity";
             case EXAM -> "exam";
@@ -330,8 +383,113 @@ public class MediaServiceImpl implements MediaService {
             case USER -> "user";
             default -> throw new BusinessException(ResultCode.MEDIA_TARGET_TYPE_UNSUPPORTED);
         };
-        String nonce = UUID.randomUUID().toString().replace("-", "");
-        return category + "/" + userId + "/" + System.currentTimeMillis() + "_" + nonce + "_" + safeName;
+    }
+
+    /**
+     * 将前端附件描述收敛为服务端可信数据：COS URL 由 objectKey 生成，外链只允许 HTTPS。
+     * 历史附件可能尚未回填 objectKey，仅临时允许已配置 COS/CDN 域名的 URL。
+     */
+    private List<AttachmentItemBO> normalizeAttachments(
+            TargetType targetType,
+            Long userId,
+            List<AttachmentItemBO> attachments,
+            List<MediaAttachment> existingAttachments) {
+        String expectedPrefix = userId == null ? null : targetCategory(targetType) + "/" + userId + "/";
+        List<AttachmentItemBO> normalized = new ArrayList<>(attachments.size());
+        for (AttachmentItemBO item : attachments) {
+            if (item == null || item.getType() == null) {
+                throw new BusinessException(ResultCode.INVALID_OPERATION, "附件类型不能为空");
+            }
+            if (item.getType() == MediaType.URL) {
+                if (!StringUtils.hasText(item.getUrl()) || !item.getUrl().startsWith("https://")) {
+                    throw new BusinessException(ResultCode.INVALID_OPERATION, "附件外链必须使用 HTTPS");
+                }
+                normalized.add(AttachmentItemBO.builder()
+                        .type(MediaType.URL)
+                        .url(item.getUrl().trim())
+                        .originalName(item.getOriginalName())
+                        .sortOrder(item.getSortOrder())
+                        .build());
+                continue;
+            }
+
+            String objectKey = StringUtils.hasText(item.getObjectKey()) ? item.getObjectKey().trim() : null;
+            if (objectKey == null) {
+                objectKey = existingAttachments.stream()
+                        .filter(existing -> StringUtils.hasText(existing.getObjectKey()))
+                        .filter(existing -> Objects.equals(existing.getUrl(), item.getUrl()))
+                        .map(MediaAttachment::getObjectKey)
+                        .findFirst()
+                        .orElse(null);
+            }
+            if (objectKey == null) {
+                boolean existingLegacyUrl = existingAttachments.stream()
+                        .filter(existing -> !StringUtils.hasText(existing.getObjectKey()))
+                        .anyMatch(existing -> Objects.equals(existing.getUrl(), item.getUrl()));
+                // MIGRATION: 仅允许继续保留目标上已存在的历史 URL，禁止新请求借 URL 绕过 objectKey 校验。
+                if (!existingLegacyUrl || !cosService.isManagedPublicUrl(item.getUrl())) {
+                    throw new BusinessException(ResultCode.INVALID_OPERATION, "COS 附件缺少合法 objectKey");
+                }
+                log.warn("[MediaService.normalizeAttachments][兼容历史URL] targetType={}, userId={}",
+                        targetType, userId);
+                normalized.add(item);
+                continue;
+            }
+            String validatedObjectKey = objectKey;
+            boolean alreadyAttachedToTarget = existingAttachments.stream()
+                    .anyMatch(existing -> Objects.equals(existing.getObjectKey(), validatedObjectKey));
+            boolean ownedNewUpload = expectedPrefix != null && validatedObjectKey.startsWith(expectedPrefix);
+            if ((!alreadyAttachedToTarget && !ownedNewUpload) || validatedObjectKey.contains("..")) {
+                throw new BusinessException(ResultCode.INVALID_OPERATION, "objectKey 不属于当前用户或业务类型");
+            }
+
+            normalized.add(AttachmentItemBO.builder()
+                    .type(item.getType())
+                    .objectKey(validatedObjectKey)
+                    .url(cosService.buildPublicUrl(validatedObjectKey))
+                    .originalName(item.getOriginalName())
+                    .sortOrder(item.getSortOrder())
+                    .build());
+        }
+        return normalized;
+    }
+
+    /**
+     * 数据库提交成功后再删除已解除引用的 COS 对象。删除失败只记录，避免出现数据库已提交但接口报失败。
+     */
+    @Override
+    public void deleteObjectsAfterCommit(Collection<String> objectKeys, TargetType targetType, Long targetId) {
+        if (CollectionUtils.isEmpty(objectKeys)) {
+            return;
+        }
+        List<String> keysToDelete = objectKeys.stream()
+                .filter(StringUtils::hasText)
+                .distinct()
+                .toList();
+        Runnable deletion = () -> keysToDelete.forEach(objectKey -> {
+            try {
+                cosService.deleteObject(objectKey);
+                uploadRecordService.removeRecord(objectKey);
+                log.info("[MediaService.deleteObject][完成] targetType={}, targetId={}, objectKey={}",
+                        targetType, targetId, objectKey);
+            } catch (RuntimeException ex) {
+                uploadRecordService.scheduleDeletionRetry(objectKey, ex);
+                log.error("[MediaService.deleteObject][失败] targetType={}, targetId={}, objectKey={}",
+                        targetType, targetId, objectKey, ex);
+            }
+        });
+
+        if (TransactionSynchronizationManager.isSynchronizationActive()
+                && TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    deletion.run();
+                }
+            });
+        } else {
+            deletion.run();
+        }
     }
 
     /**

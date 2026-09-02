@@ -4,6 +4,7 @@ import cn.dev33.satoken.interceptor.SaInterceptor;
 import cn.dev33.satoken.router.SaRouter;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.jualn.miniapp.common.interceptor.ContextInterceptor;
+import cn.jualn.miniapp.module.admin.auth.service.AdminTokenService;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -11,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.jspecify.annotations.NonNull;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.cors.CorsUtils;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -29,6 +31,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebMvcConfig implements WebMvcConfigurer {
 
     private final ContextInterceptor contextInterceptor;
+    private final AdminTokenService adminTokenService;
 
     @Value("${app.cors.allowed-origin-patterns:*}")
     private String[] corsAllowedOriginPatterns;
@@ -39,8 +42,20 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 new HandlerInterceptor() {
                     private final SaInterceptor delegate =
                             new SaInterceptor(handle -> {
-                        // 需要登录的接口
+                        // 小程序扫码确认必须使用现有小程序登录态。
+                        SaRouter.match("/v1/admin/auth/qr-confirmations/**")
+                                .check(r -> StpUtil.checkLogin());
+
+                        // 其余管理端接口使用独立 admin loginType。
+                        SaRouter.match("/v1/admin/**")
+                                .notMatch("/v1/admin/auth/qr-sessions")
+                                .notMatch("/v1/admin/auth/qr-sessions/*")
+                                .notMatch("/v1/admin/auth/qr-confirmations/**")
+                                .check(r -> adminTokenService.requireValidLogin());
+
+                        // 小程序需要登录的接口。
                         SaRouter.match("/v1/**", "/timeline/**")
+                                .notMatch("/v1/admin/**")
                                 // 白名单：不需要登录
                                 .notMatch("/v1/auth")
                                 .notMatch("/v1/auth/login")
@@ -59,8 +74,11 @@ public class WebMvcConfig implements WebMvcConfigurer {
                                              @NonNull HttpServletResponse res,
                                              @NonNull Object handler)
                             throws Exception {
-                        // async dispatch 是 Spring 内部行为，已经鉴权过了，直接放行
-                        if (DispatcherType.ASYNC.equals(req.getDispatcherType())) {
+                        // CORS 预检不携带业务 Token；ASYNC / ERROR 是容器内部二次分发。
+                        // 真实业务请求仍会在 REQUEST 分发中执行完整鉴权。
+                        if (CorsUtils.isPreFlightRequest(req)
+                                || DispatcherType.ASYNC.equals(req.getDispatcherType())
+                                || DispatcherType.ERROR.equals(req.getDispatcherType())) {
                             return true;
                         }
                         return delegate.preHandle(req, res, handler);

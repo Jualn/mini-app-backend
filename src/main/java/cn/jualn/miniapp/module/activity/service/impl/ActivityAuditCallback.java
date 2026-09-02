@@ -5,7 +5,6 @@ import cn.jualn.miniapp.common.enums.ActivityStatus;
 import cn.jualn.miniapp.common.enums.AuditScene;
 import cn.jualn.miniapp.common.enums.NotifyType;
 import cn.jualn.miniapp.common.enums.TargetType;
-import cn.jualn.miniapp.infrastructure.queue.contract.QueueProducer;
 import cn.jualn.miniapp.module.activity.entity.Activity;
 import cn.jualn.miniapp.module.activity.mapper.ActivityMapper;
 import cn.jualn.miniapp.module.audit.entity.ContentAuditLog;
@@ -14,9 +13,7 @@ import cn.jualn.miniapp.module.audit.mapper.ContentAuditLogMapper;
 import cn.jualn.miniapp.module.audit.service.AuditResultCallback;
 import cn.jualn.miniapp.module.notify.entity.NotifyPlan;
 import cn.jualn.miniapp.module.notify.mapper.NotifyPlanMapper;
-import cn.jualn.miniapp.module.notify.payload.NotifyPayload;
 import cn.jualn.miniapp.module.notify.service.NotifyService;
-import cn.jualn.miniapp.module.wx.notice.data.AuditResultNoticeData;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
@@ -34,7 +31,6 @@ public class ActivityAuditCallback implements AuditResultCallback {
     private final ActivityMapper activityMapper;
     private final ContentAuditLogMapper contentAuditLogMapper;
     private final NotifyPlanMapper notifyPlanMapper;
-    private final QueueProducer queueProducer;
     private final NotifyService notifyService;
 
     @Override
@@ -42,13 +38,13 @@ public class ActivityAuditCallback implements AuditResultCallback {
         long total = contentAuditLogMapper.selectCount(
                 new LambdaQueryWrapper<ContentAuditLog>()
                         .eq(ContentAuditLog::getTargetId, activityId)
-                        .eq(ContentAuditLog::getTargetType, TargetType.ACTIVITY)
+                        .eq(ContentAuditLog::getTargetType, TargetType.ACTIVITY.getCode())
         );
 
         long passed = contentAuditLogMapper.selectCount(
                 new LambdaQueryWrapper<ContentAuditLog>()
                         .eq(ContentAuditLog::getTargetId, activityId)
-                        .eq(ContentAuditLog::getTargetType, TargetType.ACTIVITY)
+                        .eq(ContentAuditLog::getTargetType, TargetType.ACTIVITY.getCode())
                         .eq(ContentAuditLog::getFinalResult, 1)
         );
 
@@ -102,45 +98,18 @@ public class ActivityAuditCallback implements AuditResultCallback {
 
     @Override
     public void onReject(Long activityId, String reason) {
-        activityMapper.update(
+        int rows = activityMapper.update(
                 new LambdaUpdateWrapper<Activity>()
-                        .set(Activity::getStatus, ActivityStatus.REJECTED.getCode())
-                        .set(Activity::getAuditStatus, AuditStatus.REJECT.getCode())
-                        .set(Activity::getRejectReason, reason)
+                        .set(Activity::getStatus, ActivityStatus.PENDING.getCode())
+                        .set(Activity::getAuditStatus, AuditStatus.PENDING.getCode())
+                        .set(Activity::getRejectReason, null)
                         .eq(Activity::getId, activityId)
+                        .ne(Activity::getStatus, ActivityStatus.DELETED.getCode())
         );
 
-        sendAuditRejectNotification(activityId, reason);
-    }
-
-    private void sendAuditRejectNotification(Long activityId, String reason) {
-        try {
-            Activity activity = activityMapper.selectById(activityId);
-            if (activity == null) return;
-
-            NotifyPayload payload = NotifyPayload.builder()
-                    .receiverId(activity.getUserId())
-                    .senderId(null)
-                    .type(NotifyType.AUDIT_RESULT)
-                    .title("你的活动未通过审核")
-                    .content(reason != null ? reason : "内容不符合社区规范")
-                    .targetType(TargetType.ACTIVITY)
-                    .targetId(activityId)
-                    .wxData(new AuditResultNoticeData(
-                            truncate(activity.getTitle(), 20),
-                            "未通过",
-                            reason != null ? reason : "内容不符合社区规范",
-                            LocalDateTime.now()))
-                    .build();
-            queueProducer.send(payload);
-        } catch (Exception e) {
-            log.warn("[ActivityAudit] 审核通知发送失败，activityId={}", activityId, e);
+        if (rows > 0) {
+            log.info("[ActivityAudit] 机器风险内容已转人工复核，activityId={}, reason={}", activityId, reason);
         }
-    }
-
-    private String truncate(String s, int maxLen) {
-        if (s == null) return "";
-        return s.length() <= maxLen ? s : s.substring(0, maxLen) + "...";
     }
 }
 

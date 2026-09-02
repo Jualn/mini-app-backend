@@ -15,7 +15,11 @@ public class UserProfileUpdateBO {
 
     private String avatarUrl;
 
+    private String avatarObjectKey;
+
     private String backgroundUrl;
+
+    private String backgroundObjectKey;
 
     private String bio;
 

@@ -17,4 +17,41 @@
         WHERE rn &lt;= #{limit}
         ORDER BY parent_id, id DESC
     </select>
+
+    <select id="selectAdminStateById"
+            resultType="cn.jualn.miniapp.module.comment.mapper.AdminCommentStateRow">
+        SELECT id, target_type, target_id, parent_id, status, audit_status, deleted_at
+        FROM comment
+        WHERE id = #{commentId}
+    </select>
+
+    <update id="restoreAdminComment">
+        UPDATE comment
+        SET status = 1,
+            deleted_at = NULL
+        WHERE id = #{commentId}
+          AND status = 4
+          AND audit_status = 1
+          AND deleted_at IS NOT NULL
+    </update>
+
+    <update id="approveAdminReview">
+        UPDATE comment
+        SET status = 1,
+            audit_status = 1,
+            deleted_at = NULL
+        WHERE id = #{commentId}
+          AND status IN (0, 2)
+          AND audit_status IN (0, 2)
+    </update>
+
+    <update id="rejectAdminReview">
+        UPDATE comment
+        SET status = 2,
+            audit_status = 2,
+            deleted_at = COALESCE(deleted_at, NOW())
+        WHERE id = #{commentId}
+          AND status IN (0, 2)
+          AND audit_status IN (0, 2)
+    </update>
 </mapper>

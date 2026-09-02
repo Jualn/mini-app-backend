@@ -32,6 +32,8 @@ public class Comment {
 
     private String imageUrl;
 
+    private String imageObjectKey;
+
     private Integer status;
 
     private Integer auditStatus;

@@ -111,4 +111,8 @@ public interface ActivityEnrollmentService {
      */
     Set<Long> listEnrolledActivityIds(List<Long> activityIds);
 
+    long countActiveSubscribers(Long activityId);
+
+    long countNotifyEnabledSubscribers(Long activityId);
+
 }

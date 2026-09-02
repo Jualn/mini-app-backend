@@ -45,14 +45,13 @@ public class TimelineServiceImpl implements TimelineService {
         }
         TargetType targetType = saveDTO.getTargetType();
         Long targetId = saveDTO.getTargetId();
-        List<TimelineItemBO> requestList = saveDTO.getTimelines();
+        List<TimelineItemBO> requestList = saveDTO.getTimelines() == null
+                ? List.of()
+                : saveDTO.getTimelines();
 
         assertTargetType(targetType);
         if (targetId == null) {
             throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "targetId 不能为空");
-        }
-        if (CollectionUtils.isEmpty(requestList)) {
-            throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线列表不能为空");
         }
         targetValidator.assertExists(targetType, targetId);
 
@@ -60,6 +59,11 @@ public class TimelineServiceImpl implements TimelineService {
                 .eq(Timeline::getTargetType, targetType.getCode())
                 .eq(Timeline::getTargetId, targetId);
         timelineMapper.delete(wrapper);
+
+        if (requestList.isEmpty()) {
+            log.info("清空时间线节点成功, targetType: {}, targetId: {}", targetType, targetId);
+            return;
+        }
 
 
         List<Timeline> timelines = timelineConverter.toTimelineList(saveDTO);

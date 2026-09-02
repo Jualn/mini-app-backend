@@ -68,9 +68,8 @@ public class UserController {
      * @return 更新结果
      */
     @PutMapping("/me")
-    public Result<String> updateCurrentProfile(@Valid @RequestBody UserProfileUpdateRequest req) {
-        userService.updateCurrentProfile(userConverter.toUpdateBO(req));
-        return Result.ok(null);
+    public Result<UserProfileVO> updateCurrentProfile(@Valid @RequestBody UserProfileUpdateRequest req) {
+        return Result.ok(userConverter.toVO(userService.updateCurrentProfile(userConverter.toUpdateBO(req))));
     }
 
     /**

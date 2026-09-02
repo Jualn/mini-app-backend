@@ -24,6 +24,12 @@ public interface PostMapper extends BaseMapper<Post> {
 
     int incrementViewCount(@Param("id") Long id, @Param("delta") Long delta);
 
+    AdminPostStateRow selectAdminStateById(@Param("postId") Long postId);
+
+    int approveAdminReview(@Param("postId") Long postId);
+
+    int rejectAdminReview(@Param("postId") Long postId, @Param("reason") String reason);
+
     @Update("UPDATE post SET comment_count = comment_count + 1 WHERE id = #{postId} AND deleted_at IS NULL")
     void incrementCommentCount(Long postId);
 

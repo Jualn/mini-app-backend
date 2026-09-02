@@ -36,4 +36,8 @@ public class CommentCreateRequest {
     /** Optional image URL. */
     @Size(max = 512, message = "图片URL长度不能超过512")
     private String imageUrl;
+
+    /** Optional COS object key. The server derives imageUrl from this field. */
+    @Size(max = 512, message = "图片objectKey长度不能超过512")
+    private String imageObjectKey;
 }

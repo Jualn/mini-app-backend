@@ -19,27 +19,41 @@ import cn.jualn.miniapp.module.notify.payload.NotifyPayload;
 import cn.jualn.miniapp.module.setting.bo.UserSettingBO;
 import cn.jualn.miniapp.module.setting.service.SettingService;
 import cn.jualn.miniapp.module.user.service.UserService;
-import cn.jualn.miniapp.module.wx.notice.builder.WxNoticeBuilderFactory;
+import cn.jualn.miniapp.module.wx.assembler.WxNoticePayloadAssembler;
 import cn.jualn.miniapp.module.wx.notice.data.CommentNoticeData;
+import cn.jualn.miniapp.module.wx.support.NotifyPlanNoticeDataFactory;
 import cn.jualn.miniapp.third.wx.client.WxClient;
+import cn.jualn.miniapp.third.wx.config.WxProperties;
 import cn.jualn.miniapp.third.wx.service.WxMpNoticeSendService;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class NotifyServiceImplTest {
+
+    @BeforeAll
+    static void initMybatisPlusLambdaCache() {
+        MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
+        TableInfoHelper.initTableInfo(assistant, Notification.class);
+    }
 
     @Mock
     private NotificationMapper notificationMapper;
@@ -66,9 +80,13 @@ class NotifyServiceImplTest {
     @Mock
     private WxClient wxClient;
     @Mock
-    private WxNoticeBuilderFactory wxNoticeBuilderFactory;
+    private WxProperties wxProperties;
     @Mock
     private WxMpNoticeSendService wxMpNoticeSendService;
+    @Mock
+    private WxNoticePayloadAssembler wxNoticePayloadAssembler;
+    @Mock
+    private NotifyPlanNoticeDataFactory notifyPlanNoticeDataFactory;
 
     @AfterEach
     void tearDown() {
@@ -78,7 +96,7 @@ class NotifyServiceImplTest {
     private NotifyServiceImpl createService() {
         return new NotifyServiceImpl(notificationMapper, notifyPlanMapper, enrollmentService, examSubService, userService,
                 settingService, redisService, targetValidator, notifyConverter, queueProducer, delayQueueProducer,
-                wxClient, new WxMiniProperties("app", "secret"), wxNoticeBuilderFactory, wxMpNoticeSendService);
+                wxClient, wxProperties, wxMpNoticeSendService, wxNoticePayloadAssembler, notifyPlanNoticeDataFactory);
     }
 
     @Test
@@ -129,6 +147,16 @@ class NotifyServiceImplTest {
         service.enqueueNotifyPlan(2L);
 
         verify(delayQueueProducer).send(any(), any(), any());
+    }
+
+    @Test
+    void notifyActivitySubscribers_shouldEnqueueEachActiveSubscriber() {
+        NotifyServiceImpl service = createService();
+        when(enrollmentService.listEnrolledUserIds(8L, 0L, 100)).thenReturn(List.of(3L, 4L));
+
+        service.notifyActivitySubscribers(8L, "活动已取消", "活动变更说明");
+
+        verify(queueProducer, times(2)).send(any(NotifyPayload.class));
     }
 
     @Test

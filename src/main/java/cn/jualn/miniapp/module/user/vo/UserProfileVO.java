@@ -13,6 +13,8 @@ import java.util.List;
 @Builder
 public class UserProfileVO {
 
+    private Long id;
+
     private String nickname;
 
     private String avatarUrl;

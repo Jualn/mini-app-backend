@@ -75,6 +75,11 @@ public class ContentAuditLog {
     private String adminRemark;
 
     /**
+     * 管理员写命令幂等键；自动审核记录为空，人工审核记录全局唯一。
+     */
+    private String idempotencyKey;
+
+    /**
      * 最终审核结果：0-待审核 1-通过 2-拒绝。
      * 异步审核时初始为 PENDING，微信回调后更新为最终结果。
      * 管理员审核后直接更新为最终结果。

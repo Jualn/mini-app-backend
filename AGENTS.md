@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## Project development rules
+
+Before changing project code, read `DEVELOPMENT_GUIDE.md` and follow its module ownership, layer boundaries, Service boundaries, persistence choices, and query-field rules. Treat `DEVELOPMENT_GUIDE.md` as the daily development source of truth when it conflicts with older design examples.
+
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.

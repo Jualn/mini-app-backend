@@ -17,8 +17,14 @@ public class UserProfileUpdateRequest {
     @Size(max = 512, message = "头像地址长度不能超过512")
     private String avatarUrl;
 
+    @Size(max = 512, message = "头像objectKey长度不能超过512")
+    private String avatarObjectKey;
+
     @Size(max = 512, message = "背景图地址长度不能超过512")
     private String backgroundUrl;
+
+    @Size(max = 512, message = "背景图objectKey长度不能超过512")
+    private String backgroundObjectKey;
 
     @Size(max = 200, message = "简介长度不能超过200")
     private String bio;

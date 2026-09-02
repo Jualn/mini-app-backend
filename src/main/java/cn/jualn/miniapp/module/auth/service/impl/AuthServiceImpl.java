@@ -52,7 +52,7 @@ public class AuthServiceImpl implements AuthService {
             log.error("[AuthService.login][无用户] userId is null after persistence, openid={}", maskOpenid(openid));
             throw new SystemException("登录后用户ID为空");
         }
-        // TODO:可能的封禁拦截
+        userService.assertLoginAllowed(userId);
 
         StpUtil.login(userId);
         // 将当前用户角色写入会话，供后续鉴权扩展使用。

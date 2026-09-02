@@ -13,6 +13,7 @@ import lombok.NoArgsConstructor;
 public class AttachmentItemBO {
 
     private MediaType type;
+    private String objectKey;
     private String url;
     private String originalName;
     private Integer sortOrder;

@@ -7,7 +7,7 @@ import cn.jualn.miniapp.module.audit.bo.AuditReserveBO;
 import cn.jualn.miniapp.module.audit.bo.AuditReserveResultBO;
 import cn.jualn.miniapp.module.audit.payload.AuditMediaBatchPayload;
 import cn.jualn.miniapp.module.audit.payload.AuditTextPayload;
-import cn.jualn.miniapp.module.audit.service.AuditService;
+import cn.jualn.miniapp.module.audit.service.AuditReservationService;
 import cn.jualn.miniapp.module.user.bo.UserProfileUpdateBO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,7 +31,7 @@ public class UserProfileAuditSubmitter {
     private static final Integer WX_SCENE_PROFILE = 1;
     private static final Integer MEDIA_TYPE_IMAGE_CODE = 2;
 
-    private final AuditService auditService;
+    private final AuditReservationService auditReservationService;
     private final QueueProducer queueProducer;
 
     public void submit(Long userId, UserProfileUpdateBO bo) {
@@ -50,7 +50,7 @@ public class UserProfileAuditSubmitter {
             return;
         }
 
-        AuditReserveResultBO reserveResult = auditService.reserveAuditLogs(
+        AuditReserveResultBO reserveResult = auditReservationService.reserveAuditLogs(
                 AuditReserveBO.builder()
                         .auditScene(auditScene)
                         .targetId(userId)
@@ -79,7 +79,7 @@ public class UserProfileAuditSubmitter {
             return;
         }
 
-        AuditReserveResultBO reserveResult = auditService.reserveAuditLogs(
+        AuditReserveResultBO reserveResult = auditReservationService.reserveAuditLogs(
                 AuditReserveBO.builder()
                         .auditScene(auditScene)
                         .targetId(userId)

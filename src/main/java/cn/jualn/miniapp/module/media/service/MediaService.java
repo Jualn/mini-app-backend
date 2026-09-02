@@ -22,6 +22,7 @@ public interface MediaService {
      * 覆盖保存目标附件。
      *
      * <p>语义为全量覆盖：会先删除目标已有附件，再按传入列表重建。</p>
+     * <p>调用方业务服务必须先完成目标的创建/编辑权限校验。</p>
      *
     * @param saveDTO 附件保存 DTO
      */
@@ -43,13 +44,6 @@ public interface MediaService {
     Map<Long, List<MediaAttachmentSimpleBO>> batchListSimpleAttachments(TargetType targetType, Collection<Long> targetIds);
 
     /**
-     * 删除单条附件。
-     *
-     * @param attachmentId 附件 ID
-     */
-    void removeAttachment(Long attachmentId);
-
-    /**
      * 获取前端直传 COS 的 STS 上传凭证。
      *
      * @param targetType 目标类型：1-帖子 2-活动 3-考试信息
@@ -57,4 +51,13 @@ public interface MediaService {
      * @return 上传凭证信息
      */
     CosUploadCredentialDTO generateUploadCredential(TargetType targetType, List<String> fileNames);
+
+    /** 校验对象属于当前小程序用户及业务类型，并生成服务端可信访问地址。 */
+    String resolveOwnedUploadUrl(TargetType targetType, String objectKey);
+
+    /** 在业务事务内把当前用户的待绑定上传记录绑定到目标。 */
+    void bindPendingUploads(TargetType targetType, Long targetId, Collection<String> objectKeys);
+
+    /** 在当前事务提交后尽力删除已解除引用的 COS 对象。 */
+    void deleteObjectsAfterCommit(Collection<String> objectKeys, TargetType targetType, Long targetId);
 }

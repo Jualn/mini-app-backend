@@ -27,4 +27,12 @@ public interface CommentMapper extends BaseMapper<Comment> {
 
     @Update("UPDATE comment SET like_count = #{count} WHERE id = #{commentId} AND deleted_at IS NULL")
     void setLikeCount(@Param("commentId") Long commentId, @Param("count") Long count);
+
+    AdminCommentStateRow selectAdminStateById(@Param("commentId") Long commentId);
+
+    int restoreAdminComment(@Param("commentId") Long commentId);
+
+    int approveAdminReview(@Param("commentId") Long commentId);
+
+    int rejectAdminReview(@Param("commentId") Long commentId);
 }
