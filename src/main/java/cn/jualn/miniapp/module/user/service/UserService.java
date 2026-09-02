@@ -36,6 +36,10 @@ public interface UserService {
 	 */
 	UserProfileBO getUserProfile(Long userId);
 
+	AdminUserPageBO pageAdminUsers(AdminUserQueryBO query);
+
+	AdminUserDetailBO getAdminUserDetail(Long userId);
+
 	/**
 	 * 获取公开展示的用户资料。
 	 *
@@ -55,6 +59,20 @@ public interface UserService {
 	Map<Long, UserSimpleBO> batchGetSimple(Collection<Long> userIds);
 
 	UserAuthBO getUserAuthInfo(Long userId);
+
+	/** 校验用户是否允许登录。 */
+	void assertLoginAllowed(Long userId);
+
+	/** 校验用户是否允许创建公开内容。 */
+	void assertContentCreationAllowed(Long userId);
+
+	void muteUser(AdminUserRestrictionBO command);
+
+	void banUser(AdminUserRestrictionBO command);
+
+	void restoreUser(AdminUserRestrictionBO command);
+
+	void changeUserRole(AdminUserRoleChangeBO command);
 
 	/**
 	 * 获取用户的微信小程序 openid。
@@ -79,7 +97,7 @@ public interface UserService {
 	 *
 	 * @param bo 待更新的用户资料
 	 */
-	void updateCurrentProfile(UserProfileUpdateBO bo);
+	UserProfileBO updateCurrentProfile(UserProfileUpdateBO bo);
 
     /**
 	 * 当前登录用户同意指定版本的协议。

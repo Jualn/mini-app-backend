@@ -24,6 +24,8 @@ public class MediaAttachment {
 
     private Integer type;
 
+    private String objectKey;
+
     private String url;
 
     private String originalName;

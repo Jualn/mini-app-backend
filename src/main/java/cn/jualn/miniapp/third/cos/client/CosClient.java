@@ -20,7 +20,7 @@ import java.util.TreeMap;
 /**
  * COS SDK 轻量封装。
  *
- * <p>仅封装与本项目相关的最小能力：生成 PUT 预签名 URL 与拼接公网访问地址。</p>
+ * <p>仅封装与本项目相关的最小能力：生成上传凭证、公网访问地址与删除对象。</p>
  */
 @Component
 @RequiredArgsConstructor
@@ -90,5 +90,15 @@ public class CosClient {
             return prefix + objectKey;
         }
         return prefix + "/" + objectKey;
+    }
+
+    /** 删除指定 COS 对象。 */
+    public void deleteObject(String objectKey) {
+        try {
+            cosSdkClient.deleteObject(cosProperties.getBucket(), objectKey);
+        } catch (Exception e) {
+            throw new ExternalServiceException(ResultCode.EXTERNAL_SERVICE_ERROR, "cos",
+                    "failed to delete cos object", e);
+        }
     }
 }

@@ -22,6 +22,8 @@ permissions:
 
 env:
   JAVA_VERSION: "17"
+  FLYWAY_IMAGE: flyway/flyway:13.4.0
+  MIGRATION_PATH: src/main/resources/db/migration
   JAR_PATH: target/app.jar
   ARTIFACT_NAME: backend-app
 
@@ -34,6 +36,20 @@ jobs:
     name: Build & Test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    services:
+      mysql:
+        image: mysql:8.0.40
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_DATABASE: jualncampus
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-root-password"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
 
     outputs:
       jar_sha256: ${{ steps.jar_meta.outputs.sha256 }}
@@ -77,7 +93,42 @@ jobs:
           ./mvnw --version
 
       # ----------------------------------------------------
-      # 5. 正式 CI
+      # 5. 从生产基线重放全部数据库迁移
+      #
+      # 这里只连接 CI 的临时 MySQL，不持有生产数据库凭据。
+      # 使用与生产运维脚本相同的固定 Flyway CLI 版本。
+      # ----------------------------------------------------
+      - name: Verify Flyway migrations
+        run: |
+          docker run --rm \
+            --network host \
+            --volume "${GITHUB_WORKSPACE}/${MIGRATION_PATH}:/flyway/sql:ro" \
+            --env FLYWAY_URL='jdbc:mysql://127.0.0.1:3306/jualncampus?sslMode=DISABLED&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai' \
+            --env FLYWAY_USER=root \
+            --env FLYWAY_PASSWORD=ci-root-password \
+            --env FLYWAY_LOCATIONS=filesystem:/flyway/sql \
+            --env FLYWAY_CLEAN_DISABLED=true \
+            --env FLYWAY_BASELINE_ON_MIGRATE=false \
+            --env FLYWAY_VALIDATE_MIGRATION_NAMING=true \
+            "$FLYWAY_IMAGE" \
+            -connectRetries=60 \
+            migrate
+
+          docker run --rm \
+            --network host \
+            --volume "${GITHUB_WORKSPACE}/${MIGRATION_PATH}:/flyway/sql:ro" \
+            --env FLYWAY_URL='jdbc:mysql://127.0.0.1:3306/jualncampus?sslMode=DISABLED&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai' \
+            --env FLYWAY_USER=root \
+            --env FLYWAY_PASSWORD=ci-root-password \
+            --env FLYWAY_LOCATIONS=filesystem:/flyway/sql \
+            --env FLYWAY_CLEAN_DISABLED=true \
+            --env FLYWAY_BASELINE_ON_MIGRATE=false \
+            --env FLYWAY_VALIDATE_MIGRATION_NAMING=true \
+            "$FLYWAY_IMAGE" \
+            validate
+
+      # ----------------------------------------------------
+      # 6. 正式 CI
       #
       # verify 比 package 更适合作为 CI 入口：
       # 它会经过 Maven 生命周期中的 test /
@@ -88,7 +139,7 @@ jobs:
         run: ./mvnw -B -ntp clean package -Dmaven.test.skip=true
 
       # ----------------------------------------------------
-      # 6. 确认 Spring Boot JAR 真正产生
+      # 7. 确认 Spring Boot JAR 真正产生
       # ----------------------------------------------------
       - name: Verify JAR
         run: |
@@ -100,7 +151,7 @@ jobs:
           ls -lh "$JAR_PATH"
 
       # ----------------------------------------------------
-      # 7. 记录 JAR SHA256
+      # 8. 记录 JAR SHA256
       #
       # 后面的 deploy Job 下载 Artifact 后再算一次，
       # 确认拿到的是同一个文件。
@@ -115,7 +166,33 @@ jobs:
           echo "JAR SHA256: $SHA256"
 
       # ----------------------------------------------------
-      # 8. 构建失败时保存测试报告
+      # 9. 生成不可变生产发布包
+      # ----------------------------------------------------
+      - name: Package production release
+        if: github.event_name != 'pull_request'
+        run: |
+          rm -rf release-content release-dist
+          mkdir -p release-content/db/migration release-dist
+
+          cp "$JAR_PATH" release-content/app.jar
+          cp "$MIGRATION_PATH"/V*__*.sql release-content/db/migration/
+          printf '%s\n' "$GITHUB_SHA" > release-content/RELEASE_COMMIT
+
+          (
+            cd release-content
+            find app.jar RELEASE_COMMIT db/migration -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum > SHA256SUMS
+          )
+
+          tar -czf release-dist/release.tar.gz -C release-content .
+          (
+            cd release-dist
+            sha256sum release.tar.gz > release.tar.gz.sha256
+          )
+
+      # ----------------------------------------------------
+      # 10. 构建失败时保存测试报告
       #
       # 如果 Surefire/Failsafe 有报告，
       # 可以直接从 Actions 下载排查。
@@ -132,17 +209,19 @@ jobs:
           retention-days: 3
 
       # ----------------------------------------------------
-      # 9. PR 不需要保存部署 JAR。
+      # 11. PR 不需要保存生产发布包。
       #
       # push main / 手动执行才上传，
       # 供 deploy Job 使用。
       # ----------------------------------------------------
-      - name: Upload application JAR
+      - name: Upload production release
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: ${{ env.JAR_PATH }}
+          path: |
+            release-dist/release.tar.gz
+            release-dist/release.tar.gz.sha256
           if-no-files-found: error
           retention-days: 3
 
@@ -193,29 +272,32 @@ jobs:
     steps:
 
       # ----------------------------------------------------
-      # 1. 下载 CI 刚才构建的同一个 JAR
+      # 1. 下载 CI 刚才构建的同一个发布包
       # ----------------------------------------------------
-      - name: Download application JAR
+      - name: Download production release
         uses: actions/download-artifact@v8
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: deploy-dist
 
       # ----------------------------------------------------
-      # 2. 再次验证 JAR SHA256
+      # 2. 验证发布包、内部清单与 JAR SHA256
       # ----------------------------------------------------
-      - name: Verify application artifact
+      - name: Verify production release
         env:
           EXPECTED_SHA256: ${{ needs.build.outputs.jar_sha256 }}
         run: |
-          JAR="deploy-dist/app.jar"
+          cd deploy-dist
+          sha256sum -c release.tar.gz.sha256
+          mkdir release-check
+          tar -xzf release.tar.gz -C release-check
+          (
+            cd release-check
+            sha256sum -c SHA256SUMS
+            test "$(cat RELEASE_COMMIT)" = "$GITHUB_SHA"
+          )
 
-          if [ ! -s "$JAR" ]; then
-            echo "Downloaded app.jar is missing or empty."
-            exit 1
-          fi
-
-          ACTUAL_SHA256="$(sha256sum "$JAR" | awk '{print $1}')"
+          ACTUAL_SHA256="$(sha256sum release-check/app.jar | awk '{print $1}')"
 
           echo "Expected: $EXPECTED_SHA256"
           echo "Actual:   $ACTUAL_SHA256"
@@ -293,24 +375,31 @@ jobs:
             'echo "SSH connection successful: $(hostname)"'
 
       # ----------------------------------------------------
-      # 6. 上传为 .next
+      # 6. 上传发布包为 .next
       #
       # 当前正在运行的 app.jar 完全不动。
       # ----------------------------------------------------
-      - name: Upload application
+      - name: Upload production release
         run: |
           scp \
-            deploy-dist/app.jar \
-            production:/opt/jualncampus/incoming/app.jar.next
+            deploy-dist/release.tar.gz \
+            production:/opt/jualncampus/incoming/release.tar.gz.next
+
+          scp \
+            deploy-dist/release.tar.gz.sha256 \
+            production:/opt/jualncampus/incoming/release.tar.gz.sha256.next
+
+          ssh production \
+            'set -eu; cd /opt/jualncampus/incoming; mv -f release.tar.gz.next release.tar.gz; mv -f release.tar.gz.sha256.next release.tar.gz.sha256'
 
       # ----------------------------------------------------
-      # 7. 调用服务器部署程序
+      # 7. 调用服务器统一发布程序
       #
-      # deploy.sh：
+      # release.sh：
       #
-      # backup
+      # verify release + database backup/migrate
       # ↓
-      # build
+      # deploy.sh build/recreate/health check
       # ↓
       # recreate app
       # ↓
@@ -321,11 +410,11 @@ jobs:
       # 它的退出码会直接传回 ssh，
       # 再传给 GitHub Actions。
       # ----------------------------------------------------
-      - name: Deploy application
+      - name: Release application and database
         id: production_deploy
         run: |
           ssh production \
-            'sudo /opt/jualncampus/deploy.sh'
+            'sudo /opt/jualncampus/release.sh'
 
       # ----------------------------------------------------
       # 8. 写 Actions Summary

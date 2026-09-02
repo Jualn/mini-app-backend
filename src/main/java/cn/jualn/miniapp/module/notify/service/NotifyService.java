@@ -44,6 +44,12 @@ public interface NotifyService {
 	 */
 	void enqueueNotifyPlan(Long planId);
 
+	/** 作废指定活动仍处于待发送状态的通知计划。 */
+	void cancelActivityPlans(Long activityId);
+
+	/** 向活动当前有效订阅者投递活动状态变更通知。 */
+	void notifyActivitySubscribers(Long activityId, String title, String content);
+
 	/**
 	 * 执行单个通知计划的 fan-out（分页查询订阅用户，批量发送通知）。
 	 * 由 {@link ContentBroadcastHandler} 调用。

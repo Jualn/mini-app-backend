@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.content.mapper.AdminContentMapper">
+
+    <sql id="postStatus">
+        CASE
+            WHEN p.deleted_at IS NOT NULL OR p.status = 4 THEN 'removed'
+            WHEN p.status = 3 THEN 'rejected'
+            WHEN p.status IN (0, 1) THEN 'pending'
+            ELSE 'published'
+        END
+    </sql>
+
+    <sql id="commentStatus">
+        CASE
+            WHEN c.deleted_at IS NOT NULL OR c.status IN (3, 4) THEN 'removed'
+            WHEN c.status = 2 THEN 'rejected'
+            WHEN c.status = 0 THEN 'pending'
+            ELSE 'published'
+        END
+    </sql>
+
+    <sql id="contentListUnion">
+        SELECT p.id,
+               'post' AS type,
+               COALESCE(p.title, '') AS title,
+               LEFT(p.content, 160) AS content_preview,
+               p.user_id AS author_id,
+               COALESCE(author.nickname, '已注销用户') AS author_name,
+               <include refid="postStatus"/> AS status,
+               CASE p.audit_status WHEN 1 THEN 'approved' WHEN 2 THEN 'rejected' ELSE 'pending' END AS audit_status,
+               p.is_pinned AS pinned,
+               p.is_featured AS featured,
+               COALESCE(reports.report_count, 0) AS report_count,
+               COALESCE(p.view_count, 0) AS view_count,
+               COALESCE(p.like_count, 0) AS like_count,
+               COALESCE(p.comment_count, 0) AS comment_count,
+               COALESCE(p.share_count, 0) AS share_count,
+               p.published_at,
+               p.updated_at,
+               p.deleted_at,
+               p.status AS raw_status
+        FROM post p
+        LEFT JOIN user_profile author ON author.id = p.user_id
+        LEFT JOIN (
+            SELECT target_id, COUNT(*) AS report_count
+            FROM report
+            WHERE target_type = 1 AND status = 0
+            GROUP BY target_id
+        ) reports ON reports.target_id = p.id
+
+        UNION ALL
+
+        SELECT c.id,
+               'comment' AS type,
+               '' AS title,
+               LEFT(c.content, 160) AS content_preview,
+               c.user_id AS author_id,
+               COALESCE(author.nickname, '已注销用户') AS author_name,
+               <include refid="commentStatus"/> AS status,
+               CASE c.audit_status WHEN 1 THEN 'approved' WHEN 2 THEN 'rejected' ELSE 'pending' END AS audit_status,
+               NULL AS pinned,
+               NULL AS featured,
+               COALESCE(reports.report_count, 0) AS report_count,
+               NULL AS view_count,
+               COALESCE(c.like_count, 0) AS like_count,
+               COALESCE(c.reply_count, 0) AS comment_count,
+               NULL AS share_count,
+               c.created_at AS published_at,
+               c.updated_at,
+               c.deleted_at,
+               c.status AS raw_status
+        FROM comment c
+        LEFT JOIN user_profile author ON author.id = c.user_id
+        LEFT JOIN (
+            SELECT target_id, COUNT(*) AS report_count
+            FROM report
+            WHERE target_type = 4 AND status = 0
+            GROUP BY target_id
+        ) reports ON reports.target_id = c.id
+    </sql>
+
+    <select id="selectPage" resultType="cn.jualn.miniapp.module.content.mapper.AdminContentListRow">
+        SELECT content.id,
+               content.type,
+               content.title,
+               content.content_preview,
+               content.author_id,
+               content.author_name,
+               content.status,
+               content.audit_status,
+               content.pinned,
+               content.featured,
+               content.report_count,
+               content.view_count,
+               content.like_count,
+               content.comment_count,
+               content.share_count,
+               content.published_at,
+               content.updated_at,
+               content.deleted_at,
+               content.raw_status
+        FROM (<include refid="contentListUnion"/>) content
+        WHERE 1 = 1
+        <if test="type != null">
+            AND content.type = #{type}
+        </if>
+        <if test="status != null">
+            AND content.status = #{status}
+        </if>
+        <if test="feature == 'pinned'">
+            AND content.pinned = TRUE
+        </if>
+        <if test="feature == 'featured'">
+            AND content.featured = TRUE
+        </if>
+        <if test="feature == 'reported'">
+            AND content.report_count &gt; 0
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (
+                <if test="keywordId != null">
+                    content.id = #{keywordId} OR
+                </if>
+                content.title LIKE CONCAT('%', #{keyword}, '%')
+                OR content.content_preview LIKE CONCAT('%', #{keyword}, '%')
+                OR content.author_name LIKE CONCAT('%', #{keyword}, '%')
+                OR CAST(content.author_id AS CHAR) = #{keyword}
+            )
+        </if>
+        <if test="cursorUpdatedAt != null and cursorId != null and cursorType != null and sort == 'latest'">
+            AND (
+                content.updated_at &lt; #{cursorUpdatedAt}
+                OR (content.updated_at = #{cursorUpdatedAt} AND content.type &gt; #{cursorType})
+                OR (content.updated_at = #{cursorUpdatedAt} AND content.type = #{cursorType}
+                    AND content.id &lt; #{cursorId})
+            )
+        </if>
+        <if test="cursorUpdatedAt != null and cursorMetric != null and cursorId != null and cursorType != null and sort == 'most-viewed'">
+            AND (
+                COALESCE(content.view_count, 0) &lt; #{cursorMetric}
+                OR (COALESCE(content.view_count, 0) = #{cursorMetric}
+                    AND content.updated_at &lt; #{cursorUpdatedAt})
+                OR (COALESCE(content.view_count, 0) = #{cursorMetric}
+                    AND content.updated_at = #{cursorUpdatedAt} AND content.type &gt; #{cursorType})
+                OR (COALESCE(content.view_count, 0) = #{cursorMetric}
+                    AND content.updated_at = #{cursorUpdatedAt} AND content.type = #{cursorType}
+                    AND content.id &lt; #{cursorId})
+            )
+        </if>
+        <if test="cursorUpdatedAt != null and cursorMetric != null and cursorId != null and cursorType != null and sort == 'most-reported'">
+            AND (
+                content.report_count &lt; #{cursorMetric}
+                OR (content.report_count = #{cursorMetric} AND content.updated_at &lt; #{cursorUpdatedAt})
+                OR (content.report_count = #{cursorMetric}
+                    AND content.updated_at = #{cursorUpdatedAt} AND content.type &gt; #{cursorType})
+                OR (content.report_count = #{cursorMetric}
+                    AND content.updated_at = #{cursorUpdatedAt} AND content.type = #{cursorType}
+                    AND content.id &lt; #{cursorId})
+            )
+        </if>
+        <choose>
+            <when test="sort == 'most-viewed'">
+                ORDER BY COALESCE(content.view_count, 0) DESC,
+                         content.updated_at DESC, content.type ASC, content.id DESC
+            </when>
+            <when test="sort == 'most-reported'">
+                ORDER BY content.report_count DESC,
+                         content.updated_at DESC, content.type ASC, content.id DESC
+            </when>
+            <otherwise>
+                ORDER BY content.updated_at DESC, content.type ASC, content.id DESC
+            </otherwise>
+        </choose>
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectSummary" resultType="cn.jualn.miniapp.module.content.mapper.AdminContentSummaryRow">
+        SELECT COALESCE(SUM(content.status = 'published'), 0) AS published,
+               COALESCE(SUM(content.status = 'pending'), 0) AS pending,
+               COALESCE(SUM(content.report_count &gt; 0), 0) AS reported,
+               COALESCE(SUM(content.status = 'removed'
+                    AND content.deleted_at &gt;= CURRENT_DATE), 0) AS removed_today
+        FROM (
+            SELECT <include refid="postStatus"/> AS status,
+                   p.deleted_at,
+                   EXISTS(
+                       SELECT 1 FROM report post_report
+                       WHERE post_report.target_type = 1
+                         AND post_report.target_id = p.id
+                         AND post_report.status = 0
+                   ) AS report_count
+            FROM post p
+
+            UNION ALL
+
+            SELECT <include refid="commentStatus"/> AS status,
+                   c.deleted_at,
+                   EXISTS(
+                       SELECT 1 FROM report comment_report
+                       WHERE comment_report.target_type = 4
+                         AND comment_report.target_id = c.id
+                         AND comment_report.status = 0
+                   ) AS report_count
+            FROM comment c
+        ) content
+    </select>
+
+    <sql id="authorPublishedCount">
+        (SELECT COUNT(*) FROM post published_post
+         WHERE published_post.user_id = author.id
+           AND published_post.status = 2 AND published_post.deleted_at IS NULL)
+        +
+        (SELECT COUNT(*) FROM comment published_comment
+         WHERE published_comment.user_id = author.id
+           AND published_comment.status = 1 AND published_comment.deleted_at IS NULL)
+    </sql>
+
+    <sql id="authorViolationCount">
+        (SELECT COUNT(*) FROM post violation_post
+         WHERE violation_post.user_id = author.id
+           AND violation_post.audit_status = 2)
+        +
+        (SELECT COUNT(*) FROM comment violation_comment
+         WHERE violation_comment.user_id = author.id
+           AND violation_comment.audit_status = 2)
+    </sql>
+
+    <select id="selectPostDetail"
+            resultType="cn.jualn.miniapp.module.content.mapper.AdminContentDetailRow">
+        SELECT p.id,
+               'post' AS type,
+               COALESCE(p.title, '') AS title,
+               LEFT(p.content, 160) AS content_preview,
+               p.content,
+               p.user_id AS author_id,
+               COALESCE(author.nickname, '已注销用户') AS author_name,
+               <include refid="postStatus"/> AS status,
+               CASE p.audit_status WHEN 1 THEN 'approved' WHEN 2 THEN 'rejected' ELSE 'pending' END AS audit_status,
+               p.is_pinned AS pinned,
+               p.is_featured AS featured,
+               (SELECT COUNT(*) FROM report r
+                WHERE r.target_type = 1 AND r.target_id = p.id AND r.status = 0) AS report_count,
+               COALESCE(p.view_count, 0) AS view_count,
+               COALESCE(p.like_count, 0) AS like_count,
+               COALESCE(p.comment_count, 0) AS comment_count,
+               COALESCE(p.share_count, 0) AS share_count,
+               p.published_at,
+               p.updated_at,
+               p.deleted_at,
+               p.status AS raw_status,
+               p.reject_reason,
+               author.status AS author_status,
+               author.created_at AS author_created_at,
+               <include refid="authorPublishedCount"/> AS author_published_count,
+               <include refid="authorViolationCount"/> AS author_violation_count
+        FROM post p
+        LEFT JOIN user_profile author ON author.id = p.user_id
+        WHERE p.id = #{contentId}
+    </select>
+
+    <select id="selectCommentDetail"
+            resultType="cn.jualn.miniapp.module.content.mapper.AdminContentDetailRow">
+        SELECT c.id,
+               'comment' AS type,
+               '' AS title,
+               LEFT(c.content, 160) AS content_preview,
+               c.content,
+               c.user_id AS author_id,
+               COALESCE(author.nickname, '已注销用户') AS author_name,
+               <include refid="commentStatus"/> AS status,
+               CASE c.audit_status WHEN 1 THEN 'approved' WHEN 2 THEN 'rejected' ELSE 'pending' END AS audit_status,
+               NULL AS pinned,
+               NULL AS featured,
+               (SELECT COUNT(*) FROM report r
+                WHERE r.target_type = 4 AND r.target_id = c.id AND r.status = 0) AS report_count,
+               NULL AS view_count,
+               COALESCE(c.like_count, 0) AS like_count,
+               COALESCE(c.reply_count, 0) AS comment_count,
+               NULL AS share_count,
+               c.created_at AS published_at,
+               c.updated_at,
+               c.deleted_at,
+               c.status AS raw_status,
+               NULL AS reject_reason,
+               c.image_url,
+               c.target_type,
+               c.target_id,
+               c.parent_id,
+               author.status AS author_status,
+               author.created_at AS author_created_at,
+               <include refid="authorPublishedCount"/> AS author_published_count,
+               <include refid="authorViolationCount"/> AS author_violation_count
+        FROM comment c
+        LEFT JOIN user_profile author ON author.id = c.user_id
+        WHERE c.id = #{contentId}
+    </select>
+
+</mapper>

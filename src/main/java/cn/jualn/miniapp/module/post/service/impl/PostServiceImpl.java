@@ -15,7 +15,7 @@ import cn.jualn.miniapp.module.audit.bo.AuditReserveResultBO;
 import cn.jualn.miniapp.module.audit.enums.AuditStatus;
 import cn.jualn.miniapp.module.audit.payload.AuditMediaBatchPayload;
 import cn.jualn.miniapp.module.audit.payload.AuditTextPayload;
-import cn.jualn.miniapp.module.audit.service.AuditService;
+import cn.jualn.miniapp.module.audit.service.AuditReservationService;
 import cn.jualn.miniapp.module.interact.bo.UserLikeBO;
 import cn.jualn.miniapp.module.interact.dto.inner.UserLikeQuery;
 import cn.jualn.miniapp.module.interact.service.InteractService;
@@ -24,12 +24,14 @@ import cn.jualn.miniapp.module.media.bo.AttachmentItemBO;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentSimpleBO;
 import cn.jualn.miniapp.module.media.service.MediaService;
 import cn.jualn.miniapp.module.post.bo.PostCreateBO;
+import cn.jualn.miniapp.module.post.bo.AdminPostActionBO;
 import cn.jualn.miniapp.module.post.bo.PostListBO;
 import cn.jualn.miniapp.module.post.converter.PostConverter;
 import cn.jualn.miniapp.module.post.dto.request.PostPageQuery;
 import cn.jualn.miniapp.module.post.entity.Post;
 import cn.jualn.miniapp.common.enums.PostStatus;
 import cn.jualn.miniapp.module.post.mapper.PostMapper;
+import cn.jualn.miniapp.module.post.mapper.AdminPostStateRow;
 import cn.jualn.miniapp.module.post.service.PostService;
 import cn.jualn.miniapp.module.post.bo.PostDetailBO;
 import cn.jualn.miniapp.module.post.vo.PostDetailVO;
@@ -77,7 +79,7 @@ public class PostServiceImpl implements PostService {
     private final RedisService redisService;
     private final QueueProducer queueProducer;
     private final InteractService interactService;
-    private final AuditService auditService;
+    private final AuditReservationService auditReservationService;
 
     /**
      * 创建帖子并按需写入图片附件。
@@ -92,6 +94,7 @@ public class PostServiceImpl implements PostService {
         }
 
         Long userId = requireUserId();
+        userService.assertContentCreationAllowed(userId);
         long start = System.currentTimeMillis();
         log.info("[PostService.createPost][开始] userId={}, title={}", userId, command.getTitle());
 
@@ -116,7 +119,7 @@ public class PostServiceImpl implements PostService {
                     .build());
         }
 
-        AuditReserveResultBO reserveResult = auditService.reserveAuditLogs(
+        AuditReserveResultBO reserveResult = auditReservationService.reserveAuditLogs(
                 AuditReserveBO.builder()
                         .auditScene(AuditScene.POST)
                         .targetId(post.getId())
@@ -312,6 +315,120 @@ public class PostServiceImpl implements PostService {
         redisService.delete(buildPostDetailCacheKey(postId));
 //        afterCommit(() -> searchService.removeByTarget(TargetType.POST, postId));
         log.info("[PostService.removePost][完成] operatorId={}, postId={}", operatorId, postId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void pinPost(AdminPostActionBO command) {
+        updatePostFlag(command, true, true);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void unpinPost(AdminPostActionBO command) {
+        updatePostFlag(command, true, false);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void featurePost(AdminPostActionBO command) {
+        updatePostFlag(command, false, true);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void unfeaturePost(AdminPostActionBO command) {
+        updatePostFlag(command, false, false);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void takeDownPost(AdminPostActionBO command) {
+        validateAdminAction(command, true);
+        int updated = postMapper.update(null,
+                new LambdaUpdateWrapper<Post>()
+                        .set(Post::getStatus, PostStatus.DELETED.getCode())
+                        .set(Post::getIsPinned, false)
+                        .set(Post::getIsFeatured, false)
+                        .set(Post::getDeletedAt, LocalDateTime.now())
+                        .eq(Post::getId, command.getPostId())
+                        .eq(Post::getStatus, PostStatus.PUBLISHED.getCode())
+                        .isNull(Post::getDeletedAt));
+        if (updated == 0) {
+            throwAdminPostConflict(command.getPostId(), "帖子当前状态不允许下架");
+        }
+        afterCommit(() -> redisService.delete(buildPostDetailCacheKey(command.getPostId())));
+        log.info("[PostService.takeDownPost][完成] operatorId={}, postId={}, reason={}",
+                command.getOperatorId(), command.getPostId(), command.getReason());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void approvePostReview(Long postId, Long operatorId, String remark) {
+        validateReviewAction(postId, operatorId, false, remark);
+        if (postMapper.approveAdminReview(postId) != 1) {
+            throwAdminPostConflict(postId, "帖子当前状态不允许通过复核");
+        }
+        afterCommit(() -> redisService.delete(buildPostDetailCacheKey(postId)));
+        log.info("[PostService.approvePostReview][完成] operatorId={}, postId={}, remark={}",
+                operatorId, postId, remark);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void rejectPostReview(Long postId, Long operatorId, String reason) {
+        validateReviewAction(postId, operatorId, true, reason);
+        if (postMapper.rejectAdminReview(postId, reason.trim()) != 1) {
+            throwAdminPostConflict(postId, "帖子当前状态不允许拒绝复核");
+        }
+        afterCommit(() -> redisService.delete(buildPostDetailCacheKey(postId)));
+        log.info("[PostService.rejectPostReview][完成] operatorId={}, postId={}, reason={}",
+                operatorId, postId, reason);
+    }
+
+    private void validateReviewAction(Long postId, Long operatorId, boolean reasonRequired, String reason) {
+        if (postId == null || operatorId == null) {
+            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "人工复核参数不完整");
+        }
+        if (reasonRequired && !StringUtils.hasText(reason)) {
+            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "拒绝原因不能为空");
+        }
+    }
+
+    private void updatePostFlag(AdminPostActionBO command, boolean pinnedFlag, boolean enabled) {
+        validateAdminAction(command, false);
+        LambdaUpdateWrapper<Post> update = new LambdaUpdateWrapper<Post>()
+                .eq(Post::getId, command.getPostId())
+                .eq(Post::getStatus, PostStatus.PUBLISHED.getCode())
+                .isNull(Post::getDeletedAt);
+        if (pinnedFlag) {
+            update.set(Post::getIsPinned, enabled).eq(Post::getIsPinned, !enabled);
+        } else {
+            update.set(Post::getIsFeatured, enabled).eq(Post::getIsFeatured, !enabled);
+        }
+        if (postMapper.update(null, update) == 0) {
+            throwAdminPostConflict(command.getPostId(), "帖子状态或运营标记已变化");
+        }
+        afterCommit(() -> redisService.delete(buildPostDetailCacheKey(command.getPostId())));
+        log.info("[PostService.updatePostFlag][完成] operatorId={}, postId={}, flag={}, enabled={}",
+                command.getOperatorId(), command.getPostId(), pinnedFlag ? "pinned" : "featured", enabled);
+    }
+
+    private void validateAdminAction(AdminPostActionBO command, boolean reasonRequired) {
+        if (command == null || command.getOperatorId() == null || command.getPostId() == null) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "管理操作参数不能为空");
+        }
+        if (reasonRequired && !StringUtils.hasText(command.getReason())) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "操作原因不能为空");
+        }
+    }
+
+    private void throwAdminPostConflict(Long postId, String message) {
+        AdminPostStateRow state = postMapper.selectAdminStateById(postId);
+        if (state == null) {
+            throw new BusinessException(ResultCode.POST_NOT_FOUND);
+        }
+        throw new BusinessException(ResultCode.DATA_CONFLICT, message);
     }
 
     @Override

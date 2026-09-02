@@ -60,6 +60,32 @@ public interface ActivityMapper extends BaseMapper<Activity> {
                                         @Param("lastId") Long lastId,
                                         @Param("limit") Integer limit);
 
+    List<AdminActivityListRow> selectAdminActivityPage(
+            @Param("status") Integer status,
+            @Param("category") Integer category,
+            @Param("audienceMask") Integer audienceMask,
+            @Param("keyword") String keyword,
+            @Param("keywordId") Long keywordId,
+            @Param("sort") String sort,
+            @Param("lastId") Long lastId,
+            @Param("limit") Integer limit);
+
+    AdminActivitySummaryRow selectAdminActivitySummary();
+
+    Activity selectAdminActivityById(@Param("activityId") Long activityId);
+
+    int submitAdminReview(@Param("activityId") Long activityId);
+
+    int updateAdminPinned(@Param("activityId") Long activityId, @Param("pinned") boolean pinned);
+
+    int cancelAdminActivity(@Param("activityId") Long activityId);
+
+    int endAdminActivityEarly(@Param("activityId") Long activityId);
+
+    int approveAdminReview(@Param("activityId") Long activityId);
+
+    int rejectAdminReview(@Param("activityId") Long activityId, @Param("reason") String reason);
+
     /**
      * 增加活动点赞数。
      *

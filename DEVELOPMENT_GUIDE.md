@@ -2,7 +2,7 @@
 
 > 版本：v0.2  
 > 定位：单人开发阶段的第一层地基，先规范普通 CRUD、查询、简单事务和缓存操作。  
-> 优先级：分层、边界和编码规则以本文件为准；表、字段和索引的当前事实以 `DATABASE_DESIGN.md` 为准；`BACKEND_DESIGN.md` 作为整体设计背景。
+> 优先级：分层、边界和编码规则以本文件为准；仓库目标表结构和字段语义以 `DATABASE_DESIGN.md` 为准；可执行数据库版本以 `src/main/resources/db/migration/` 为准；`BACKEND_DESIGN.md` 作为整体设计背景。
 
 ## 1. 使用方式
 
@@ -83,7 +83,7 @@ BO → Converter → VO → Controller → Result<T>
 | `exam` | `exam_info`、`exam_subscription` |
 | `comment` | `comment` |
 | `interact` | `like_record`、`share_record`、浏览相关表 |
-| `media` | `media_attachment` |
+| `media` | `media_attachment`、`media_upload_record` |
 | `timeline` | `timeline` |
 | `audit` | `content_audit_log` |
 | `search` | `search_doc` |
@@ -434,10 +434,18 @@ Callback、Handler 中出现多个业务 Mapper，通常说明业务逻辑放错
 修改表、字段、索引或数据库枚举时，本次需求必须同步检查：
 
 - `DATABASE_DESIGN.md` 中的数据定义。
+- `src/main/resources/db/migration/` 中新增一个不可变、可执行的 Flyway 版本。
 - Entity 字段和枚举映射。
 - Mapper 接口、XML、投影 BO 和受影响的 `SELECT` 字段。
-- 一份可执行、可审查的 DDL；在引入 Flyway 前，不允许只改代码而遗漏数据库变更说明。
 - 唯一键、默认值、非空约束和历史数据是否允许本次写法。
+
+Flyway 规则：
+
+- 已进入永久环境的版本禁止修改，修正时新增更高版本。
+- 生产应用启动时不自动迁移；迁移由运维脚本在备份、人工确认和维护窗口内显式执行。
+- CI 必须能在空 MySQL 8.0.40 上从 `V1` 重放到最新版本并通过 `validate`。
+- 现有生产库只允许在核对结构后显式 baseline，禁止启用 `baselineOnMigrate`。
+- 长时间历史数据回填与结构变更分开设计，不把不可控批处理塞进应用启动或普通 DDL。
 
 ### 13.2 最低验证
 
@@ -472,6 +480,7 @@ CI 自动化后续再统一建设；“CI 尚未完善”不代表本地可以�
 - [ ] Service 没有绕过其他 Service 修改其负责的数据。
 - [ ] 数据库写入与普通缓存操作的先后顺序正确。
 - [ ] 数据库结构变更已同步文档、DDL、Entity 和 SQL。
+- [ ] 新增 Flyway 版本能从生产基线顺序执行，历史版本没有被修改。
 - [ ] 修改涉及的关键业务规则有对应测试。
 
 ## 15. 当前迁移项
@@ -492,7 +501,6 @@ CI 自动化后续再统一建设；“CI 尚未完善”不代表本地可以�
 
 - CI 全量测试和质量闸门。
 - ArchUnit 自动检查模块依赖。
-- Flyway 数据库版本管理。
 - 统一日志字段、敏感信息脱敏和链路追踪规范。
 - 复杂并发控制、分布式锁和热点数据协议。
 - 超大事务识别、拆分与跨步骤一致性策略。

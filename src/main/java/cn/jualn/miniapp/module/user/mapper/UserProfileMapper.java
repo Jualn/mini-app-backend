@@ -1,11 +1,11 @@
 package cn.jualn.miniapp.module.user.mapper;
 
-import cn.jualn.miniapp.module.user.bo.UserAuthBO;
 import cn.jualn.miniapp.module.user.bo.UserPublicProfileBO;
 import cn.jualn.miniapp.module.user.bo.UserSimpleBO;
 import cn.jualn.miniapp.module.user.entity.UserProfile;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 
@@ -33,5 +33,23 @@ public interface UserProfileMapper extends BaseMapper<UserProfile> {
 
     @Select("SELECT id, role, status, ban_reason, ban_expire_at, last_login_at " +
             "FROM user_profile WHERE id = #{userId} AND deleted_at IS NULL")
-    UserAuthBO selectUserAuthBOByUserId(Long userId);
+    UserAuthRow selectUserAuthRowByUserId(Long userId);
+
+    List<AdminUserListRow> selectAdminUserPage(
+            @Param("status") Integer status,
+            @Param("deactivated") Boolean deactivated,
+            @Param("role") Integer role,
+            @Param("keyword") String keyword,
+            @Param("keywordId") Long keywordId,
+            @Param("sort") String sort,
+            @Param("lastId") Long lastId,
+            @Param("limit") Integer limit);
+
+    AdminUserSummaryRow selectAdminUserSummary();
+
+    AdminUserDetailRow selectAdminUserDetail(@Param("userId") Long userId);
+
+    @Select("SELECT id FROM user_profile " +
+            "WHERE role = 3 AND deleted_at IS NULL ORDER BY id FOR UPDATE")
+    List<Long> selectAdminIdsForUpdate();
 }

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.media.mapper.MediaUploadRecordMapper">
+
+    <insert id="insertBatch" parameterType="java.util.List">
+        INSERT INTO media_upload_record
+            (object_key, user_id, target_type, status, cleanup_after, retry_count)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.objectKey}, #{item.userId}, #{item.targetType}, #{item.status},
+             #{item.cleanupAfter}, #{item.retryCount})
+        </foreach>
+    </insert>
+
+    <update id="bindPending">
+        UPDATE media_upload_record
+        SET status = 1,
+            bound_target_id = #{targetId},
+            updated_at = #{now},
+            last_error = NULL
+        WHERE user_id = #{userId}
+          AND target_type = #{targetType}
+          AND status = 0
+          AND cleanup_after &gt; #{now}
+          AND object_key IN
+        <foreach collection="objectKeys" item="objectKey" open="(" separator="," close=")">
+            #{objectKey}
+        </foreach>
+    </update>
+
+</mapper>

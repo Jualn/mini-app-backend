@@ -48,7 +48,7 @@ public class ExamCreateRequest {
 
     /** 附件列表 */
     @Valid
-    @Size(max = 20, message = "最多上传20个附件")
+    @Size(max = 9, message = "最多上传9个附件")
     private List<AttachmentItemRequest> attachmentItems;
 
     /** 时间线列表 */

@@ -1,0 +1,280 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.audit.mapper.ContentAuditLogMapper">
+
+    <sql id="ReviewFrom">
+        FROM (
+            SELECT MIN(r.id) AS task_id,
+                   r.target_type,
+                   r.target_id,
+                   MIN(r.created_at) AS submitted_at
+            FROM content_audit_log r
+            WHERE r.audit_source = 1
+              AND r.wx_result = 1
+              AND r.final_result = 2
+              AND r.target_type IN (1, 2, 4)
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM content_audit_log pending
+                  WHERE pending.target_type = r.target_type
+                    AND pending.target_id = r.target_id
+                    AND pending.audit_source = 1
+                    AND pending.final_result = 0
+              )
+            GROUP BY r.target_type, r.target_id
+        ) review
+        JOIN content_audit_log machine ON machine.id = review.task_id
+        JOIN (
+            SELECT 1 AS target_type,
+                   p.id AS target_id,
+                   COALESCE(NULLIF(p.title, ''), CONCAT('帖子 #', p.id)) AS title,
+                   p.content,
+                   p.user_id AS author_id,
+                   p.status AS target_status,
+                   NULL AS parent_id,
+                   NULL AS image_url,
+                   (SELECT COUNT(*) FROM report r
+                    WHERE r.target_type = 1 AND r.target_id = p.id AND r.status = 0) AS report_count,
+                   (SELECT COUNT(*) FROM media_attachment ma
+                    WHERE ma.target_type = 1 AND ma.target_id = p.id) AS attachment_count
+            FROM post p
+            UNION ALL
+            SELECT 2,
+                   a.id,
+                   COALESCE(NULLIF(a.title, ''), CONCAT('活动 #', a.id)),
+                   a.content,
+                   a.user_id,
+                   a.status,
+                   NULL,
+                   NULL,
+                   0,
+                   (SELECT COUNT(*) FROM media_attachment ma
+                    WHERE ma.target_type = 2 AND ma.target_id = a.id)
+            FROM activity a
+            UNION ALL
+            SELECT 4,
+                   c.id,
+                   CONCAT('评论 #', c.id),
+                   c.content,
+                   c.user_id,
+                   c.status,
+                   c.parent_id,
+                   c.image_url,
+                   (SELECT COUNT(*) FROM report r
+                    WHERE r.target_type = 4 AND r.target_id = c.id AND r.status = 0),
+                   IF(c.image_url IS NULL OR c.image_url = '', 0, 1)
+            FROM comment c
+        ) target ON target.target_type = review.target_type AND target.target_id = review.target_id
+        LEFT JOIN user_profile author ON author.id = target.author_id
+        LEFT JOIN content_audit_log manual_audit ON manual_audit.id = (
+            SELECT MAX(m.id)
+            FROM content_audit_log m
+            WHERE m.target_type = review.target_type
+              AND m.target_id = review.target_id
+              AND m.audit_source = 2
+              AND m.admin_action IN (1, 2)
+        )
+    </sql>
+
+    <sql id="ReviewFilters">
+        WHERE 1 = 1
+        <if test="targetType != null">
+            AND review.target_type = #{targetType}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (
+                <if test="keywordId != null">
+                    target.target_id = #{keywordId} OR
+                </if>
+                target.title LIKE CONCAT('%', #{keyword}, '%')
+                OR target.content LIKE CONCAT('%', #{keyword}, '%')
+                OR author.nickname LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        <choose>
+            <when test="tab == 'pending'">
+                AND manual_audit.id IS NULL
+            </when>
+            <when test="tab == 'completed'">
+                AND manual_audit.id IS NOT NULL
+                AND manual_audit.created_at &gt;= CURRENT_DATE
+                AND manual_audit.created_at &lt; DATE_ADD(CURRENT_DATE, INTERVAL 1 DAY)
+            </when>
+        </choose>
+    </sql>
+
+    <select id="selectAdminReviewPage"
+            resultType="cn.jualn.miniapp.module.audit.mapper.AdminReviewRow">
+        SELECT review.task_id,
+               review.target_type,
+               review.target_id,
+               target.title,
+               target.content,
+               target.author_id,
+               COALESCE(author.nickname, CONCAT('用户 #', target.author_id)) AS author_name,
+               author.avatar_url,
+               author.role AS author_role,
+               author.status AS author_status,
+               author.created_at AS author_created_at,
+               target.image_url,
+               target.target_status,
+               target.parent_id,
+               target.report_count,
+               target.attachment_count,
+               machine.wx_trace_id,
+               machine.wx_detail,
+               review.submitted_at,
+               manual_audit.id AS manual_log_id,
+               manual_audit.final_result AS manual_result,
+               manual_audit.admin_user_id,
+               manual_audit.admin_remark,
+               manual_audit.created_at AS manual_created_at
+        <include refid="ReviewFrom"/>
+        <include refid="ReviewFilters"/>
+        <if test="cursorSubmittedAt != null and cursorTaskId != null">
+            <choose>
+                <when test="sort == 'newest'">
+                    AND (review.submitted_at &lt; #{cursorSubmittedAt}
+                         OR (review.submitted_at = #{cursorSubmittedAt} AND review.task_id &lt; #{cursorTaskId}))
+                </when>
+                <otherwise>
+                    AND (review.submitted_at &gt; #{cursorSubmittedAt}
+                         OR (review.submitted_at = #{cursorSubmittedAt} AND review.task_id &gt; #{cursorTaskId}))
+                </otherwise>
+            </choose>
+        </if>
+        <choose>
+            <when test="sort == 'newest'">
+                ORDER BY review.submitted_at DESC, review.task_id DESC
+            </when>
+            <otherwise>
+                ORDER BY review.submitted_at ASC, review.task_id ASC
+            </otherwise>
+        </choose>
+        LIMIT #{limit}
+    </select>
+
+    <select id="countAdminReviews" resultType="long">
+        SELECT COUNT(*)
+        <include refid="ReviewFrom"/>
+        <include refid="ReviewFilters"/>
+    </select>
+
+    <select id="selectAdminReviewSummary"
+            resultType="cn.jualn.miniapp.module.audit.mapper.AdminReviewSummaryRow">
+        SELECT COALESCE(SUM(manual_audit.id IS NULL), 0) AS pending,
+               COALESCE(SUM(manual_audit.created_at &gt;= CURRENT_DATE
+                            AND manual_audit.created_at &lt; DATE_ADD(CURRENT_DATE, INTERVAL 1 DAY)), 0) AS today_completed,
+               MIN(CASE WHEN manual_audit.id IS NULL THEN review.submitted_at END) AS oldest_pending_at
+        <include refid="ReviewFrom"/>
+    </select>
+
+    <select id="selectAdminReviewDetail"
+            resultType="cn.jualn.miniapp.module.audit.mapper.AdminReviewRow">
+        SELECT review.task_id,
+               review.target_type,
+               review.target_id,
+               target.title,
+               target.content,
+               target.author_id,
+               COALESCE(author.nickname, CONCAT('用户 #', target.author_id)) AS author_name,
+               author.avatar_url,
+               author.role AS author_role,
+               author.status AS author_status,
+               author.created_at AS author_created_at,
+               target.image_url,
+               target.target_status,
+               target.parent_id,
+               target.report_count,
+               target.attachment_count,
+               machine.wx_trace_id,
+               machine.wx_detail,
+               review.submitted_at,
+               manual_audit.id AS manual_log_id,
+               manual_audit.final_result AS manual_result,
+               manual_audit.admin_user_id,
+               manual_audit.admin_remark,
+               manual_audit.created_at AS manual_created_at
+        <include refid="ReviewFrom"/>
+        WHERE review.task_id = #{taskId}
+    </select>
+
+    <select id="selectAdminReviewHistory"
+            resultType="cn.jualn.miniapp.module.audit.entity.ContentAuditLog">
+        SELECT id,
+               target_type,
+               target_id,
+               audit_source,
+               wx_trace_id,
+               wx_result,
+               wx_detail,
+               admin_user_id,
+               admin_action,
+               admin_remark,
+               idempotency_key,
+               final_result,
+               created_at
+        FROM content_audit_log
+        WHERE target_type = #{targetType}
+          AND target_id = #{targetId}
+        ORDER BY created_at DESC, id DESC
+    </select>
+
+    <select id="selectRiskTaskForUpdate"
+            resultType="cn.jualn.miniapp.module.audit.entity.ContentAuditLog">
+        SELECT id, target_type, target_id, audit_source, wx_result, final_result, created_at
+        FROM content_audit_log
+        WHERE id = #{taskId}
+          AND audit_source = 1
+          AND wx_result = 1
+          AND final_result = 2
+        FOR UPDATE
+    </select>
+
+    <select id="selectRepresentativeRiskTaskId" resultType="long">
+        SELECT MIN(id)
+        FROM content_audit_log
+        WHERE target_type = #{targetType}
+          AND target_id = #{targetId}
+          AND audit_source = 1
+          AND wx_result = 1
+          AND final_result = 2
+    </select>
+
+    <select id="countPendingAutomaticAudits" resultType="long">
+        SELECT COUNT(*)
+        FROM content_audit_log
+        WHERE target_type = #{targetType}
+          AND target_id = #{targetId}
+          AND audit_source = 1
+          AND final_result = 0
+    </select>
+
+    <select id="countManualDecisions" resultType="long">
+        SELECT COUNT(*)
+        FROM content_audit_log
+        WHERE target_type = #{targetType}
+          AND target_id = #{targetId}
+          AND audit_source = 2
+          AND admin_action IN (1, 2)
+    </select>
+
+    <select id="selectManualDecisionByIdempotencyKey"
+            resultType="cn.jualn.miniapp.module.audit.entity.ContentAuditLog">
+        SELECT id,
+               target_type,
+               target_id,
+               audit_source,
+               admin_user_id,
+               admin_action,
+               admin_remark,
+               idempotency_key,
+               final_result,
+               created_at
+        FROM content_audit_log
+        WHERE audit_source = 2
+          AND idempotency_key = #{idempotencyKey}
+        LIMIT 1
+    </select>
+</mapper>

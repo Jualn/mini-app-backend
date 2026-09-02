@@ -4,10 +4,10 @@
 <mapper namespace="cn.jualn.miniapp.module.media.mapper.MediaAttachmentMapper">
 
     <insert id="insertBatch" parameterType="java.util.List">
-        INSERT INTO media_attachment (target_type, target_id, type, url, original_name, sort_order)
+        INSERT INTO media_attachment (target_type, target_id, type, object_key, url, original_name, sort_order)
         VALUES
         <foreach collection="list" item="item" separator=",">
-            (#{item.targetType}, #{item.targetId}, #{item.type}, #{item.url}, #{item.originalName}, #{item.sortOrder})
+            (#{item.targetType}, #{item.targetId}, #{item.type}, #{item.objectKey}, #{item.url}, #{item.originalName}, #{item.sortOrder})
         </foreach>
     </insert>
 

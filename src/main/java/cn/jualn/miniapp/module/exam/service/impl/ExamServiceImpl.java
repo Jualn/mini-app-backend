@@ -89,6 +89,7 @@ public class ExamServiceImpl implements ExamService {
     @Transactional(rollbackFor = Exception.class)
     public Long createExam(ExamCreateBO command) {
         Long userId = requireUserId();
+        userService.assertContentCreationAllowed(userId);
 
         ExamInfo examInfo = examConverter.toEntity(command);
         examInfo.setUserId(userId);
@@ -160,6 +161,7 @@ public class ExamServiceImpl implements ExamService {
     @Transactional(rollbackFor = Exception.class)
     public void updateExam(ExamUpdateBO command) {
         Long userId = requireUserId();
+        userService.assertContentCreationAllowed(userId);
         ExamInfo examInfo = requireExam(command.getId());
         assertOwner(userId, "无权编辑此考试信息");
 
@@ -167,7 +169,7 @@ public class ExamServiceImpl implements ExamService {
 
         examInfoMapper.updateById(examInfo);
 
-        if (!CollectionUtils.isEmpty(command.getAttachmentItems())) {
+        if (command.getAttachmentItems() != null) {
             mediaService.replaceAttachments(
                     MediaAttachmentSaveBO.builder()
                             .targetType(TargetType.EXAM)
@@ -177,7 +179,7 @@ public class ExamServiceImpl implements ExamService {
             );
         }
 
-        if (!CollectionUtils.isEmpty(command.getTimelineItems())) {
+        if (command.getTimelineItems() != null) {
             timelineService.replaceTimelines(
                     TimelineSaveBO.builder()
                             .targetType(TargetType.EXAM)

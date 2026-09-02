@@ -15,6 +15,8 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class UserProfileBO {
 
+    private Long id;
+
     private String nickname;
 
     private String avatarUrl;

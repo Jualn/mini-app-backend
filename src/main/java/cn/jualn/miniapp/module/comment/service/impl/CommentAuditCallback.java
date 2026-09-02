@@ -24,7 +24,6 @@ import cn.jualn.miniapp.module.notify.payload.NotifyPayload;
 import cn.jualn.miniapp.module.post.entity.Post;
 import cn.jualn.miniapp.module.post.mapper.PostMapper;
 import cn.jualn.miniapp.module.user.service.UserService;
-import cn.jualn.miniapp.module.wx.notice.data.AuditResultNoticeData;
 import cn.jualn.miniapp.module.wx.notice.data.CommentNoticeData;
 import cn.jualn.miniapp.module.wx.notice.data.ReplyNoticeData;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -95,9 +94,8 @@ public class CommentAuditCallback implements AuditResultCallback {
     public void onReject(Long commentId, String reason) {
         int rows = commentMapper.update(
                 new LambdaUpdateWrapper<Comment>()
-                        .set(Comment::getAuditStatus, AuditStatus.REJECT.getCode())
-                        .set(Comment::getStatus, CommentStatus.REJECTED.getCode())
-                        .set(Comment::getDeletedAt, LocalDateTime.now())
+                        .set(Comment::getAuditStatus, AuditStatus.PENDING.getCode())
+                        .set(Comment::getStatus, CommentStatus.PENDING.getCode())
                         .eq(Comment::getId, commentId)
                         .eq(Comment::getStatus, CommentStatus.PENDING.getCode())
         );
@@ -106,36 +104,7 @@ public class CommentAuditCallback implements AuditResultCallback {
             return;
         }
 
-        sendAuditRejectNotification(commentId, reason);
-    }
-
-    private void sendAuditRejectNotification(Long targetId, String reason) {
-        try {
-            Comment comment = commentMapper.selectById(
-                    new LambdaQueryWrapper<Comment>()
-                            .select(Comment::getUserId, Comment::getContent)
-                            .eq(Comment::getId, targetId)
-            );
-            if (comment == null) return;
-
-            NotifyPayload payload = NotifyPayload.builder()
-                    .receiverId(comment.getUserId())
-                    .senderId(null)
-                    .type(NotifyType.AUDIT_RESULT)
-                    .title("你的评论未通过审核")
-                    .content(reason != null ? reason : "内容不符合社区规范")
-                    .targetType(TargetType.COMMENT)
-                    .targetId(targetId)
-                    .wxData(new AuditResultNoticeData(
-                            truncate(comment.getContent(), 20),
-                            "未通过",
-                            reason != null ? reason : "内容不符合社区规范",
-                            LocalDateTime.now()))
-                    .build();
-            queueProducer.send(payload);
-        } catch (Exception e) {
-            log.warn("[CommentAudit] 审核通知发送失败，commentId={}", targetId, e);
-        }
+        log.info("[CommentAudit] 机器风险内容已转人工复核，commentId={}, reason={}", commentId, reason);
     }
 
     public void activateCommentAfterAuditPass(Long commentId) {

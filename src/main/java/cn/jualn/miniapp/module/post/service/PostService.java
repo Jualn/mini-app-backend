@@ -2,6 +2,7 @@ package cn.jualn.miniapp.module.post.service;
 
 import cn.jualn.miniapp.common.result.PageResult;
 import cn.jualn.miniapp.module.post.bo.PostCreateBO;
+import cn.jualn.miniapp.module.post.bo.AdminPostActionBO;
 import cn.jualn.miniapp.module.post.bo.PostListBO;
 import cn.jualn.miniapp.module.post.dto.request.PostPageQuery;
 import cn.jualn.miniapp.module.post.vo.PostDetailVO;
@@ -61,6 +62,22 @@ public interface PostService {
 	 * @param postId 帖子 ID
 	 */
 	void removePost(Long postId);
+
+	void pinPost(AdminPostActionBO command);
+
+	void unpinPost(AdminPostActionBO command);
+
+	void featurePost(AdminPostActionBO command);
+
+	void unfeaturePost(AdminPostActionBO command);
+
+	void takeDownPost(AdminPostActionBO command);
+
+	/** 人工复核通过并发布机器风险帖子。 */
+	void approvePostReview(Long postId, Long operatorId, String remark);
+
+	/** 人工复核拒绝机器风险帖子。 */
+	void rejectPostReview(Long postId, Long operatorId, String reason);
 
 	/**
 	 * 增加帖子评论数。

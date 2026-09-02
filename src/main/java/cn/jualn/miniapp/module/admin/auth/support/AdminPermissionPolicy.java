@@ -16,21 +16,30 @@ public class AdminPermissionPolicy {
 
     public static final String ALL = "*";
     public static final String CONTENT_READ = "content:read";
+    public static final String CONTENT_MANAGE = "content:manage";
     public static final String REVIEW_READ = "review:read";
     public static final String REVIEW_DECIDE = "review:decide";
     public static final String REPORT_READ = "report:read";
+    public static final String REPORT_HANDLE = "report:handle";
     public static final String ACTIVITY_READ = "activity:read";
     public static final String ACTIVITY_EDIT = "activity:edit";
     public static final String NOTICE_READ = "notice:read";
+    public static final String USER_READ = "user:read";
+    public static final String USER_MANAGE = "user:manage";
+    public static final String USER_ROLE = "user:role";
+    public static final String SYSTEM_READ = "system:read";
 
     private static final List<String> OPERATOR_PERMISSIONS = List.of(
             CONTENT_READ,
+            CONTENT_MANAGE,
             REVIEW_READ,
             REVIEW_DECIDE,
             REPORT_READ,
+            REPORT_HANDLE,
             ACTIVITY_READ,
             ACTIVITY_EDIT,
-            NOTICE_READ
+            NOTICE_READ,
+            USER_READ
     );
 
     public boolean canLogin(UserProfileBO profile) {

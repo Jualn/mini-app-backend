@@ -3,6 +3,17 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.jualn.miniapp.module.user.mapper.UserProfileMapper">
 
+    <sql id="expiredRestriction">
+        profile.deleted_at IS NULL
+        AND profile.status IN (2, 3)
+        AND profile.ban_expire_at IS NOT NULL
+        AND profile.ban_expire_at &lt;= CURRENT_TIMESTAMP
+    </sql>
+
+    <sql id="effectiveStatus">
+        CASE WHEN <include refid="expiredRestriction"/> THEN 1 ELSE profile.status END
+    </sql>
+
     <select id="selectSimpleBatch" resultType="cn.jualn.miniapp.module.user.bo.UserSimpleBO">
         SELECT id, nickname, avatar_url
         FROM user_profile
@@ -10,6 +21,122 @@
         <foreach collection="ids" item="id" open="(" separator="," close=")">
             #{id}
         </foreach>
+    </select>
+
+    <select id="selectAdminUserPage"
+            resultType="cn.jualn.miniapp.module.user.mapper.AdminUserListRow">
+        SELECT profile.id,
+               profile.nickname,
+               profile.avatar_url,
+               profile.role,
+               <include refid="effectiveStatus"/> AS status,
+               CASE WHEN <include refid="expiredRestriction"/>
+                    THEN NULL ELSE profile.ban_reason END AS ban_reason,
+               CASE WHEN <include refid="expiredRestriction"/>
+                    THEN NULL ELSE profile.ban_expire_at END AS ban_expire_at,
+               agreement.version AS agreement_version,
+               profile.last_login_at,
+               profile.created_at,
+               profile.deleted_at
+        FROM user_profile profile
+        LEFT JOIN user_agreement agreement ON agreement.user_id = profile.id
+        WHERE 1 = 1
+        <choose>
+            <when test="deactivated == true">
+                AND profile.deleted_at IS NOT NULL
+            </when>
+            <otherwise>
+                AND profile.deleted_at IS NULL
+                <if test="status != null">
+                    AND (<include refid="effectiveStatus"/>) = #{status}
+                </if>
+            </otherwise>
+        </choose>
+        <if test="role != null">
+            AND profile.role = #{role}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (
+                <if test="keywordId != null">
+                    profile.id = #{keywordId} OR
+                </if>
+                profile.nickname LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        <if test="lastId != null and sort == 'latest-created'">
+            AND (
+                profile.created_at &lt; (SELECT created_at FROM user_profile WHERE id = #{lastId})
+                OR (profile.created_at = (SELECT created_at FROM user_profile WHERE id = #{lastId})
+                    AND profile.id &lt; #{lastId})
+            )
+        </if>
+        <if test="lastId != null and sort == 'latest-login'">
+            AND (
+                (
+                    (SELECT last_login_at FROM user_profile WHERE id = #{lastId}) IS NOT NULL
+                    AND (
+                        profile.last_login_at &lt; (SELECT last_login_at FROM user_profile WHERE id = #{lastId})
+                        OR profile.last_login_at IS NULL
+                        OR (profile.last_login_at = (SELECT last_login_at FROM user_profile WHERE id = #{lastId})
+                            AND profile.id &lt; #{lastId})
+                    )
+                )
+                OR (
+                    (SELECT last_login_at FROM user_profile WHERE id = #{lastId}) IS NULL
+                    AND profile.last_login_at IS NULL
+                    AND profile.id &lt; #{lastId}
+                )
+            )
+        </if>
+        <choose>
+            <when test="sort == 'latest-created'">
+                ORDER BY profile.created_at DESC, profile.id DESC
+            </when>
+            <otherwise>
+                ORDER BY profile.last_login_at IS NULL ASC, profile.last_login_at DESC, profile.id DESC
+            </otherwise>
+        </choose>
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectAdminUserSummary"
+            resultType="cn.jualn.miniapp.module.user.mapper.AdminUserSummaryRow">
+        SELECT COALESCE(SUM(profile.deleted_at IS NULL), 0) AS total,
+               COALESCE(SUM(profile.deleted_at IS NULL
+                    AND (<include refid="effectiveStatus"/>) = 1), 0) AS active,
+               COALESCE(SUM(profile.deleted_at IS NULL
+                    AND (<include refid="effectiveStatus"/>) = 2), 0) AS muted,
+               COALESCE(SUM(profile.deleted_at IS NULL
+                    AND (<include refid="effectiveStatus"/>) = 3), 0) AS banned,
+               COALESCE(SUM(profile.deleted_at IS NULL AND profile.role IN (2, 3)), 0) AS operators,
+               COALESCE(SUM(profile.deleted_at IS NOT NULL), 0) AS deactivated
+        FROM user_profile profile
+    </select>
+
+    <select id="selectAdminUserDetail"
+            resultType="cn.jualn.miniapp.module.user.mapper.AdminUserDetailRow">
+        SELECT profile.id,
+               profile.openid,
+               profile.unionid,
+               profile.nickname,
+               profile.avatar_url,
+               profile.bio,
+               profile.gender,
+               profile.role,
+               <include refid="effectiveStatus"/> AS status,
+               CASE WHEN <include refid="expiredRestriction"/>
+                    THEN NULL ELSE profile.ban_reason END AS ban_reason,
+               CASE WHEN <include refid="expiredRestriction"/>
+                    THEN NULL ELSE profile.ban_expire_at END AS ban_expire_at,
+               agreement.version AS agreement_version,
+               agreement.agreed_at AS agreement_agreed_at,
+               profile.last_login_at,
+               profile.created_at,
+               profile.updated_at,
+               profile.deleted_at
+        FROM user_profile profile
+        LEFT JOIN user_agreement agreement ON agreement.user_id = profile.id
+        WHERE profile.id = #{userId}
     </select>
 
 </mapper>

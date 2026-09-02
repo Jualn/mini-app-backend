@@ -16,18 +16,21 @@ import cn.jualn.miniapp.module.audit.bo.AuditReserveResultBO;
 import cn.jualn.miniapp.module.audit.enums.AuditStatus;
 import cn.jualn.miniapp.module.audit.payload.AuditMediaBatchPayload;
 import cn.jualn.miniapp.module.audit.payload.AuditTextPayload;
-import cn.jualn.miniapp.module.audit.service.AuditService;
+import cn.jualn.miniapp.module.audit.service.AuditReservationService;
 import cn.jualn.miniapp.module.comment.bo.CommentCreateBO;
+import cn.jualn.miniapp.module.comment.bo.AdminCommentActionBO;
 import cn.jualn.miniapp.module.comment.bo.CommentPageBO;
 import cn.jualn.miniapp.module.comment.converter.CommentConverter;
 import cn.jualn.miniapp.module.comment.entity.Comment;
 import cn.jualn.miniapp.module.comment.enums.CommentStatus;
 import cn.jualn.miniapp.module.comment.mapper.CommentMapper;
+import cn.jualn.miniapp.module.comment.mapper.AdminCommentStateRow;
 import cn.jualn.miniapp.module.comment.service.CommentService;
 import cn.jualn.miniapp.module.comment.vo.CommentVO;
 import cn.jualn.miniapp.module.comment.vo.ReplyVO;
 import cn.jualn.miniapp.module.exam.service.ExamService;
 import cn.jualn.miniapp.module.interact.service.InteractService;
+import cn.jualn.miniapp.module.media.service.MediaService;
 import cn.jualn.miniapp.module.post.service.PostService;
 import cn.jualn.miniapp.module.user.bo.UserAuthBO;
 import cn.jualn.miniapp.module.user.bo.UserSimpleBO;
@@ -75,7 +78,8 @@ public class CommentServiceImpl implements CommentService {
     private final TargetValidator targetValidator;
     private final QueueProducer queueProducer;
     private final InteractService interactService;
-    private final AuditService auditService;
+    private final AuditReservationService auditReservationService;
+    private final MediaService mediaService;
 
     /**
      * Create a comment and update related counts.
@@ -88,6 +92,7 @@ public class CommentServiceImpl implements CommentService {
         }
 
         Long userId = requireUserId();
+        userService.assertContentCreationAllowed(userId);
         TargetType targetType = command.getTargetType();
         long start = System.currentTimeMillis();
 
@@ -100,6 +105,13 @@ public class CommentServiceImpl implements CommentService {
             parent = requireParentComment(command.getParentId(), targetType, command.getTargetId());
         }
 
+        String imageUrl = null;
+        if (StringUtils.hasText(command.getImageObjectKey())) {
+            imageUrl = mediaService.resolveOwnedUploadUrl(TargetType.COMMENT, command.getImageObjectKey());
+        } else if (StringUtils.hasText(command.getImageUrl())) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "评论图片缺少合法 objectKey");
+        }
+
         Comment comment = Comment.builder()
                 .targetType(targetType.getCode())
                 .targetId(command.getTargetId())
@@ -107,14 +119,22 @@ public class CommentServiceImpl implements CommentService {
                 .parentId(command.getParentId())
                 .replyToUid(resolveReplyToUid(command.getReplyToUid(), parent))
                 .content(command.getContent())
-                .imageUrl(command.getImageUrl())
+                .imageUrl(imageUrl)
+                .imageObjectKey(StringUtils.hasText(command.getImageObjectKey())
+                        ? command.getImageObjectKey().trim()
+                        : null)
                 .status(CommentStatus.PENDING.getCode())
                 .auditStatus(AuditStatus.PENDING.getCode())
                 .build();
 
         commentMapper.insert(comment);
 
-        AuditReserveResultBO reserveResult = auditService.reserveAuditLogs(
+        if (StringUtils.hasText(comment.getImageObjectKey())) {
+            mediaService.bindPendingUploads(
+                    TargetType.COMMENT, comment.getId(), List.of(comment.getImageObjectKey()));
+        }
+
+        AuditReserveResultBO reserveResult = auditReservationService.reserveAuditLogs(
                 AuditReserveBO.builder()
                         .auditScene(AuditScene.COMMENT)
                         .targetId(comment.getId())
@@ -276,6 +296,115 @@ public class CommentServiceImpl implements CommentService {
         }
 
         log.info("[CommentService.removeComment][完成] operatorId={}, commentId={}", operatorId, commentId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void takeDownComment(AdminCommentActionBO command) {
+        validateAdminAction(command);
+        AdminCommentStateRow state = commentMapper.selectAdminStateById(command.getCommentId());
+        if (state == null) {
+            throw new BusinessException(ResultCode.COMMENT_NOT_FOUND);
+        }
+        int updated = commentMapper.update(null,
+                new LambdaUpdateWrapper<Comment>()
+                        .set(Comment::getStatus, CommentStatus.ADMIN_DELETED.getCode())
+                        .set(Comment::getDeletedAt, LocalDateTime.now())
+                        .eq(Comment::getId, command.getCommentId())
+                        .eq(Comment::getStatus, CommentStatus.NORMAL.getCode())
+                        .isNull(Comment::getDeletedAt));
+        if (updated == 0) {
+            throw new BusinessException(ResultCode.DATA_CONFLICT, "评论当前状态不允许下架");
+        }
+        decreaseCommentCounters(state);
+        log.info("[CommentService.takeDownComment][完成] operatorId={}, commentId={}, reason={}",
+                command.getOperatorId(), command.getCommentId(), command.getReason());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void restoreComment(AdminCommentActionBO command) {
+        validateAdminAction(command);
+        AdminCommentStateRow state = commentMapper.selectAdminStateById(command.getCommentId());
+        if (state == null) {
+            throw new BusinessException(ResultCode.COMMENT_NOT_FOUND);
+        }
+        if (commentMapper.restoreAdminComment(command.getCommentId()) == 0) {
+            throw new BusinessException(ResultCode.DATA_CONFLICT,
+                    "只有审核通过且由管理员下架的评论可以恢复");
+        }
+        increaseCommentCounters(state);
+        log.info("[CommentService.restoreComment][完成] operatorId={}, commentId={}, reason={}",
+                command.getOperatorId(), command.getCommentId(), command.getReason());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void approveCommentReview(Long commentId, Long operatorId, String remark) {
+        validateReviewAction(commentId, operatorId, false, remark);
+        AdminCommentStateRow state = commentMapper.selectAdminStateById(commentId);
+        if (state == null) {
+            throw new BusinessException(ResultCode.COMMENT_NOT_FOUND);
+        }
+        if (commentMapper.approveAdminReview(commentId) != 1) {
+            throw new BusinessException(ResultCode.DATA_CONFLICT, "评论当前状态不允许通过复核");
+        }
+        increaseCommentCounters(state);
+        log.info("[CommentService.approveCommentReview][完成] operatorId={}, commentId={}, remark={}",
+                operatorId, commentId, remark);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void rejectCommentReview(Long commentId, Long operatorId, String reason) {
+        validateReviewAction(commentId, operatorId, true, reason);
+        if (commentMapper.rejectAdminReview(commentId) != 1) {
+            AdminCommentStateRow state = commentMapper.selectAdminStateById(commentId);
+            if (state == null) {
+                throw new BusinessException(ResultCode.COMMENT_NOT_FOUND);
+            }
+            throw new BusinessException(ResultCode.DATA_CONFLICT, "评论当前状态不允许拒绝复核");
+        }
+        log.info("[CommentService.rejectCommentReview][完成] operatorId={}, commentId={}, reason={}",
+                operatorId, commentId, reason);
+    }
+
+    private void validateReviewAction(Long commentId, Long operatorId, boolean reasonRequired, String reason) {
+        if (commentId == null || operatorId == null) {
+            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "人工复核参数不完整");
+        }
+        if (reasonRequired && !StringUtils.hasText(reason)) {
+            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "拒绝原因不能为空");
+        }
+    }
+
+    private void validateAdminAction(AdminCommentActionBO command) {
+        if (command == null || command.getOperatorId() == null || command.getCommentId() == null) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "管理操作参数不能为空");
+        }
+        if (!StringUtils.hasText(command.getReason())) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "操作原因不能为空");
+        }
+    }
+
+    private void decreaseCommentCounters(AdminCommentStateRow state) {
+        if (state.getParentId() != null) {
+            commentMapper.decreaseReplyCount(state.getParentId());
+        }
+        TargetType targetType = TargetType.fromCode(state.getTargetType());
+        if (targetType != null) {
+            decreaseTargetCommentCount(targetType, state.getTargetId());
+        }
+    }
+
+    private void increaseCommentCounters(AdminCommentStateRow state) {
+        if (state.getParentId() != null) {
+            commentMapper.increaseReplyCount(state.getParentId());
+        }
+        TargetType targetType = TargetType.fromCode(state.getTargetType());
+        if (targetType != null) {
+            increaseTargetCommentCount(targetType, state.getTargetId());
+        }
     }
 
     private void afterCommit(Runnable task) {
@@ -452,6 +581,14 @@ public class CommentServiceImpl implements CommentService {
             case POST -> postService.decreaseCommentCount(targetId);
             case ACTIVITY -> activityService.decreaseCommentCount(targetId);
             case EXAM -> examService.decreaseCommentCount(targetId);
+        }
+    }
+
+    private void increaseTargetCommentCount(TargetType type, Long targetId) {
+        switch (type) {
+            case POST -> postService.increaseCommentCount(targetId);
+            case ACTIVITY -> activityService.increaseCommentCount(targetId);
+            case EXAM -> examService.increaseCommentCount(targetId);
         }
     }
 

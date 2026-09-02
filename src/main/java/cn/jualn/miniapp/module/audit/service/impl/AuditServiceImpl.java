@@ -25,7 +25,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
@@ -277,63 +276,6 @@ public class AuditServiceImpl implements AuditService {
 
         log.info("[AuditService.handleWxMediaCallback] 回调处理完成，traceId={}, auditScene={}, targetId={}, result={}",
                 message.getTraceId(), binding.getAuditScene(), binding.getTargetId(), finalResult.getDesc());
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public AuditReserveResultBO reserveAuditLogs(AuditReserveBO bo) {
-        if (bo == null) {
-            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "审核预占参数不能为空");
-        }
-
-        assertAuditScene(bo.getAuditScene());
-
-        if (bo.getTargetId() == null) {
-            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "targetId 不能为空");
-        }
-
-        Long textAuditLogId = null;
-        List<AuditReserveResultBO.MediaItem> mediaResults = new ArrayList<>();
-
-        if (StringUtils.hasText(bo.getTextContent())) {
-            ContentAuditLog textLog = ContentAuditLog.builder()
-                    .targetType(bo.getAuditScene().getCode())
-                    .targetId(bo.getTargetId())
-                    .auditSource(AuditSourceEnum.WX_AUTO.getCode())
-                    .finalResult(AuditStatus.PENDING.getCode())
-                    .build();
-
-            contentAuditLogMapper.insert(textLog);
-            textAuditLogId = textLog.getId();
-        }
-
-        if (!CollectionUtils.isEmpty(bo.getMediaItems())) {
-            for (AuditReserveBO.MediaItem item : bo.getMediaItems()) {
-                if (item == null || !StringUtils.hasText(item.getMediaUrl())) {
-                    continue;
-                }
-
-                ContentAuditLog mediaLog = ContentAuditLog.builder()
-                        .targetType(bo.getAuditScene().getCode())
-                        .targetId(bo.getTargetId())
-                        .auditSource(AuditSourceEnum.WX_AUTO.getCode())
-                        .finalResult(AuditStatus.PENDING.getCode())
-                        .build();
-
-                contentAuditLogMapper.insert(mediaLog);
-
-                mediaResults.add(AuditReserveResultBO.MediaItem.builder()
-                        .auditLogId(mediaLog.getId())
-                        .mediaType(item.getMediaType())
-                        .mediaUrl(item.getMediaUrl())
-                        .build());
-            }
-        }
-
-        return AuditReserveResultBO.builder()
-                .textAuditLogId(textAuditLogId)
-                .mediaItems(mediaResults)
-                .build();
     }
 
     /**

@@ -44,6 +44,10 @@ public class MediaAttachmentSaveRequest {
         @Max(value = 4, message = "type 不合法")
         private Integer type;
 
+		/** COS 对象键；外链类型不需要。 */
+        @Size(max = 512, message = "objectKey 长度不能超过512")
+        private String objectKey;
+
 		/** 附件访问地址（通常为 COS URL 或外链）。 */
         @NotBlank(message = "url 不能为空")
         @Size(max = 512, message = "url 长度不能超过512")

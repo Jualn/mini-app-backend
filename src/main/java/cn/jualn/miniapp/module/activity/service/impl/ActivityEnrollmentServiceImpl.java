@@ -221,6 +221,23 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
         return userId;
     }
 
+    @Override
+    public long countActiveSubscribers(Long activityId) {
+        return activityEnrollmentMapper.selectCount(
+                new LambdaQueryWrapper<ActivityEnrollment>()
+                        .eq(ActivityEnrollment::getActivityId, activityId)
+                        .eq(ActivityEnrollment::getStatus, STATUS_ACTIVE));
+    }
+
+    @Override
+    public long countNotifyEnabledSubscribers(Long activityId) {
+        return activityEnrollmentMapper.selectCount(
+                new LambdaQueryWrapper<ActivityEnrollment>()
+                        .eq(ActivityEnrollment::getActivityId, activityId)
+                        .eq(ActivityEnrollment::getStatus, STATUS_ACTIVE)
+                        .eq(ActivityEnrollment::getNotifyEnable, 1));
+    }
+
     private void requireActivityExists(Long activityId) {
         if (activityId == null) {
             throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "activityId 不能为空");

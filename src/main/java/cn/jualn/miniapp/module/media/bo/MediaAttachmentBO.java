@@ -17,6 +17,7 @@ public class MediaAttachmentBO {
 
     private Long id;
     private MediaType type;
+    private String objectKey;
     private String url;
     private String originalName;
     private Integer sortOrder;

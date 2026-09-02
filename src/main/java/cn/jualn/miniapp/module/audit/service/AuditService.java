@@ -3,7 +3,6 @@ package cn.jualn.miniapp.module.audit.service;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.module.audit.bo.*;
 import cn.jualn.miniapp.module.wx.dto.WxaMediaCheckMessage;
-import org.springframework.transaction.annotation.Transactional;
 
 public interface AuditService {
 
@@ -51,5 +50,4 @@ public interface AuditService {
      */
     void handleWxMediaCallback(WxaMediaCheckMessage message);
 
-    AuditReserveResultBO reserveAuditLogs(AuditReserveBO bo);
 }

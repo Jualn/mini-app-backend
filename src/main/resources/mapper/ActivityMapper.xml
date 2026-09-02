@@ -10,11 +10,10 @@
             like_count,view_count,published_at,
             <![CDATA[
             CASE
-                WHEN NOW() < enroll_deadline THEN 2
-                WHEN NOW() >= start_time AND NOW() < end_time THEN 3
+                WHEN status IN (0, 1, 5, 6, 7) THEN status
                 WHEN NOW() >= end_time THEN 4
-                WHEN status = 5 THEN 5
-                ELSE 0
+                WHEN NOW() >= start_time THEN 3
+                ELSE 2
             END AS status
             ]]>
         FROM activity
@@ -35,11 +34,10 @@
             location,max_participants,
             <![CDATA[
                 CASE
-                    WHEN NOW() < enroll_deadline THEN 2
-                    WHEN NOW() >= start_time AND NOW() < end_time THEN 3
+                    WHEN status IN (0, 1, 5, 6, 7) THEN status
                     WHEN NOW() >= end_time THEN 4
-                    WHEN status = 5 THEN 5
-                    ELSE 0
+                    WHEN NOW() >= start_time THEN 3
+                    ELSE 2
                 END AS status
             ]]>
         FROM activity
@@ -63,6 +61,236 @@
         FROM activity
         WHERE id = #{id}
     </select>
+
+    <select id="selectAdminActivityPage"
+            resultType="cn.jualn.miniapp.module.activity.mapper.AdminActivityListRow">
+        SELECT a.id,
+               a.title,
+               LEFT(a.content, 160) AS summary,
+               a.category,
+               a.effective_status AS status,
+               a.audit_status,
+               a.organizer,
+               a.location,
+               a.audience_scope,
+               a.is_pinned AS pinned,
+               COALESCE(enrollment.subscriber_count, 0) AS subscriber_count,
+               a.max_participants AS capacity,
+               a.start_time,
+               a.end_time,
+               a.enroll_deadline,
+               a.view_count,
+               a.updated_at
+        FROM (
+            SELECT id,
+                   title,
+                   content,
+                   category,
+                   audit_status,
+                   organizer,
+                   location,
+                   audience_scope,
+                   is_pinned,
+                   max_participants,
+                   start_time,
+                   end_time,
+                   enroll_deadline,
+                   view_count,
+                   updated_at,
+                   CASE
+                       WHEN status IN (0, 1, 5, 6, 7) THEN status
+                       WHEN NOW() &gt;= end_time THEN 4
+                       WHEN NOW() &gt;= start_time THEN 3
+                       ELSE 2
+                   END AS effective_status
+            FROM activity
+            WHERE deleted_at IS NULL
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    <if test="keywordId != null">
+                        id = #{keywordId} OR
+                    </if>
+                    MATCH(title, content, organizer) AGAINST(#{keyword} IN BOOLEAN MODE)
+                )
+            </if>
+        ) a
+        LEFT JOIN (
+            SELECT activity_id, COUNT(*) AS subscriber_count
+            FROM activity_enrollment
+            WHERE status = 1
+            GROUP BY activity_id
+        ) enrollment ON enrollment.activity_id = a.id
+        WHERE 1 = 1
+        <if test="status != null">
+            AND a.effective_status = #{status}
+        </if>
+        <if test="category != null">
+            AND a.category = #{category}
+        </if>
+        <if test="audienceMask != null">
+            AND (a.audience_scope &amp; #{audienceMask}) != 0
+        </if>
+        <if test="lastId != null and sort == 'latest'">
+            AND (
+                a.updated_at &lt; (SELECT updated_at FROM activity WHERE id = #{lastId})
+                OR (a.updated_at = (SELECT updated_at FROM activity WHERE id = #{lastId}) AND a.id &lt; #{lastId})
+            )
+        </if>
+        <if test="lastId != null and sort == 'soonest'">
+            AND (
+                a.start_time &gt; (SELECT start_time FROM activity WHERE id = #{lastId})
+                OR (a.start_time = (SELECT start_time FROM activity WHERE id = #{lastId}) AND a.id &gt; #{lastId})
+            )
+        </if>
+        <if test="lastId != null and sort == 'most-subscribed'">
+            AND (
+                COALESCE(enrollment.subscriber_count, 0) &lt; (
+                    SELECT COUNT(*) FROM activity_enrollment WHERE activity_id = #{lastId} AND status = 1
+                )
+                OR (
+                    COALESCE(enrollment.subscriber_count, 0) = (
+                        SELECT COUNT(*) FROM activity_enrollment WHERE activity_id = #{lastId} AND status = 1
+                    )
+                    AND a.id &lt; #{lastId}
+                )
+            )
+        </if>
+        <choose>
+            <when test="sort == 'soonest'">
+                ORDER BY a.start_time ASC, a.id ASC
+            </when>
+            <when test="sort == 'most-subscribed'">
+                ORDER BY subscriber_count DESC, a.id DESC
+            </when>
+            <otherwise>
+                ORDER BY a.updated_at DESC, a.id DESC
+            </otherwise>
+        </choose>
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectAdminActivitySummary"
+            resultType="cn.jualn.miniapp.module.activity.mapper.AdminActivitySummaryRow">
+        SELECT COALESCE(SUM(effective_status = 2), 0) AS enrolling,
+               COALESCE(SUM(effective_status = 3), 0) AS ongoing,
+               COALESCE(SUM(effective_status = 1), 0) AS reviewing,
+               COALESCE(SUM(effective_status = 2
+                   AND start_time &gt; NOW()
+                   AND start_time &lt;= DATE_ADD(NOW(), INTERVAL 7 DAY)), 0) AS starting_soon
+        FROM (
+            SELECT start_time,
+                   CASE
+                       WHEN status IN (0, 1, 5, 6, 7) THEN status
+                       WHEN NOW() &gt;= end_time THEN 4
+                       WHEN NOW() &gt;= start_time THEN 3
+                       ELSE 2
+                   END AS effective_status
+            FROM activity
+            WHERE deleted_at IS NULL
+        ) activity_summary
+    </select>
+
+    <select id="selectAdminActivityById"
+            resultType="cn.jualn.miniapp.module.activity.entity.Activity">
+        SELECT id,
+               user_id,
+               title,
+               content,
+               location,
+               category,
+               organizer,
+               audience_scope,
+               contact_info,
+               join_method,
+               qrcode_url,
+               start_time,
+               end_time,
+               enroll_deadline,
+               max_participants,
+               CASE
+                   WHEN status IN (0, 1, 5, 6, 7) THEN status
+                   WHEN NOW() &gt;= end_time THEN 4
+                   WHEN NOW() &gt;= start_time THEN 3
+                   ELSE 2
+               END AS status,
+               audit_status,
+               reject_reason,
+               is_pinned,
+               comment_count,
+               like_count,
+               view_count,
+               published_at,
+               created_at,
+               updated_at
+        FROM activity
+        WHERE id = #{activityId}
+          AND deleted_at IS NULL
+    </select>
+
+    <update id="submitAdminReview">
+        UPDATE activity
+        SET status = 1,
+            audit_status = 0,
+            reject_reason = NULL,
+            is_pinned = FALSE
+        WHERE id = #{activityId}
+          AND status IN (0, 6)
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="updateAdminPinned">
+        UPDATE activity
+        SET is_pinned = #{pinned}
+        WHERE id = #{activityId}
+          AND status IN (2, 3)
+          AND NOW() &lt; end_time
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="cancelAdminActivity">
+        UPDATE activity
+        SET status = 5,
+            is_pinned = FALSE
+        WHERE id = #{activityId}
+          AND status = 2
+          AND NOW() &lt; start_time
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="endAdminActivityEarly">
+        UPDATE activity
+        SET status = 4,
+            end_time = NOW(),
+            is_pinned = FALSE
+        WHERE id = #{activityId}
+          AND status IN (2, 3)
+          AND NOW() &gt;= start_time
+          AND NOW() &lt; end_time
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="approveAdminReview">
+        UPDATE activity
+        SET status = 2,
+            audit_status = 1,
+            reject_reason = NULL,
+            published_at = COALESCE(published_at, NOW())
+        WHERE id = #{activityId}
+          AND status IN (1, 6)
+          AND audit_status IN (0, 2)
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="rejectAdminReview">
+        UPDATE activity
+        SET status = 6,
+            audit_status = 2,
+            reject_reason = #{reason}
+        WHERE id = #{activityId}
+          AND status IN (1, 6)
+          AND audit_status IN (0, 2)
+          AND deleted_at IS NULL
+    </update>
 
     <select id="selectViewCountBatch" resultType="cn.jualn.miniapp.module.interact.dto.inner.InteractCountDTO">
         SELECT

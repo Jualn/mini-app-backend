@@ -97,6 +97,42 @@ public interface ActivityService {
 
     PageResult<ActivityListBO> searchActivities(String keyword, Long lastId, Integer pageSize);
 
+    /** 管理端活动列表；实时读取数据库，不复用主应用列表缓存。 */
+    AdminActivityPageBO pageAdminActivities(AdminActivityQueryBO query);
+
+    /** 管理端活动聚合详情。 */
+    AdminActivityDetailBO getAdminActivityDetail(Long id);
+
+    /** 获取可编辑的管理端活动草稿。 */
+    AdminActivityDetailBO getAdminActivityDraft(Long id);
+
+    /** 管理员创建完整活动草稿，操作人由管理端身份显式传入。 */
+    Long createAdminActivity(AdminActivitySaveBO command);
+
+    /** 管理员编辑草稿或审核拒绝的活动。 */
+    void updateAdminActivity(AdminActivitySaveBO command);
+
+    /** 将完整草稿提交到人工审核队列。 */
+    void submitAdminActivityReview(Long activityId, Long operatorId);
+
+    /** 设置或取消已发布活动的置顶标记。 */
+    void updateAdminActivityPinned(Long activityId, Long operatorId, boolean pinned);
+
+    /** 取消尚未开始的活动，并作废后续通知计划。 */
+    void cancelAdminActivity(Long activityId, Long operatorId, String reason);
+
+    /** 提前结束进行中的活动，并作废后续通知计划。 */
+    void endAdminActivityEarly(Long activityId, Long operatorId, String reason);
+
+    /** 管理员软删除活动。 */
+    void removeAdminActivity(Long id, Long operatorId, String reason);
+
+    /** 人工复核通过并发布机器风险活动。 */
+    void approveActivityReview(Long activityId, Long operatorId, String remark);
+
+    /** 人工复核拒绝机器风险活动。 */
+    void rejectActivityReview(Long activityId, Long operatorId, String reason);
+
     /**
      * 增加活动评论数。
      *

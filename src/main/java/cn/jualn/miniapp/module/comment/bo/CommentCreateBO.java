@@ -15,4 +15,5 @@ public class CommentCreateBO {
     private Long replyToUid;
     private String content;
     private String imageUrl;
+    private String imageObjectKey;
 }

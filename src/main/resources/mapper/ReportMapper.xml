@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.report.mapper.ReportMapper">
+
+    <sql id="adminCaseCte">
+        WITH case_base AS (
+            SELECT r.target_type,
+                   r.target_id,
+                   MAX(r.id) AS latest_report_id,
+                   COUNT(*) AS report_count,
+                   SUM(r.reason = 1) AS illegal_count,
+                   SUM(r.reason = 2) AS porn_count,
+                   SUM(r.reason = 3) AS advertising_count,
+                   SUM(r.reason = 4) AS false_info_count,
+                   SUM(r.reason = 5) AS other_count,
+                   SUM(r.status = 0) AS pending_count,
+                   MIN(r.created_at) AS first_reported_at,
+                   MAX(r.created_at) AS last_reported_at
+            FROM report r
+            WHERE r.target_type IN (1, 4)
+            GROUP BY r.target_type, r.target_id
+        ),
+        case_view AS (
+            SELECT base.latest_report_id,
+                   CASE base.target_type WHEN 1 THEN 'post' ELSE 'comment' END AS target_type,
+                   base.target_id,
+                   CASE
+                       WHEN base.target_type = 1 THEN COALESCE(NULLIF(p.title, ''), CONCAT('帖子 #', base.target_id))
+                       ELSE CONCAT('评论 #', base.target_id)
+                   END AS title,
+                   LEFT(COALESCE(p.content, c.content, ''), 160) AS content_preview,
+                   COALESCE(p.user_id, c.user_id) AS author_id,
+                   COALESCE(author.nickname, '已注销用户') AS author_name,
+                   base.report_count,
+                   base.illegal_count,
+                   base.porn_count,
+                   base.advertising_count,
+                   base.false_info_count,
+                   base.other_count,
+                   CASE
+                       WHEN base.pending_count &gt; 0 THEN 'pending'
+                       WHEN latest.status = 1 THEN 'violation'
+                       ELSE 'normal'
+                   END AS status,
+                   base.first_reported_at,
+                   base.last_reported_at,
+                   latest.handler_id,
+                   latest.handle_remark,
+                   latest.handled_at
+            FROM case_base base
+            JOIN report latest ON latest.id = base.latest_report_id
+            LEFT JOIN post p ON base.target_type = 1 AND p.id = base.target_id
+            LEFT JOIN comment c ON base.target_type = 4 AND c.id = base.target_id
+            LEFT JOIN user_profile author ON author.id = COALESCE(p.user_id, c.user_id)
+        )
+    </sql>
+
+    <sql id="adminCaseFilters">
+        <where>
+            <if test="keyword != null">
+                AND (title LIKE CONCAT('%', #{keyword}, '%')
+                    OR content_preview LIKE CONCAT('%', #{keyword}, '%')
+                    OR author_name LIKE CONCAT('%', #{keyword}, '%')
+                    OR CAST(target_id AS CHAR) = #{keyword})
+            </if>
+            <if test="status != null">AND status = #{status}</if>
+            <if test="targetType != null">AND target_type = #{targetType}</if>
+            <if test="reason == 'illegal'">AND illegal_count &gt; 0</if>
+            <if test="reason == 'porn'">AND porn_count &gt; 0</if>
+            <if test="reason == 'advertising'">AND advertising_count &gt; 0</if>
+            <if test="reason == 'false-info'">AND false_info_count &gt; 0</if>
+            <if test="reason == 'other'">AND other_count &gt; 0</if>
+            <if test="cursorId != null">AND latest_report_id &lt; #{cursorId}</if>
+        </where>
+    </sql>
+
+    <select id="selectAdminCasePage" resultType="cn.jualn.miniapp.module.report.mapper.AdminReportCaseRow">
+        <include refid="adminCaseCte"/>
+        SELECT latest_report_id, target_type, target_id, title, content_preview,
+               author_id, author_name, report_count, illegal_count, porn_count,
+               advertising_count, false_info_count, other_count, status,
+               first_reported_at, last_reported_at, handler_id, handle_remark, handled_at
+        FROM case_view
+        <include refid="adminCaseFilters"/>
+        ORDER BY latest_report_id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectAdminCase" resultType="cn.jualn.miniapp.module.report.mapper.AdminReportCaseRow">
+        <include refid="adminCaseCte"/>
+        SELECT latest_report_id, target_type, target_id, title, content_preview,
+               author_id, author_name, report_count, illegal_count, porn_count,
+               advertising_count, false_info_count, other_count, status,
+               first_reported_at, last_reported_at, handler_id, handle_remark, handled_at
+        FROM case_view
+        WHERE target_type = #{targetType} AND target_id = #{targetId}
+        LIMIT 1
+    </select>
+
+    <select id="selectAdminCaseSummary" resultType="cn.jualn.miniapp.module.report.mapper.AdminReportCaseSummaryRow">
+        WITH case_base AS (
+            SELECT target_type, target_id, COUNT(*) AS report_count, SUM(status = 0) AS pending_count
+            FROM report
+            WHERE target_type IN (1, 4)
+            GROUP BY target_type, target_id
+        )
+        SELECT COALESCE(SUM(pending_count &gt; 0), 0) AS pending_cases,
+               COALESCE(SUM(pending_count &gt; 0 AND report_count &gt;= 4), 0) AS urgent_cases,
+               (SELECT COUNT(*) FROM report
+                WHERE target_type IN (1, 4) AND created_at &gt;= CURRENT_DATE) AS reports_today,
+               (SELECT COUNT(DISTINCT CONCAT(target_type, ':', target_id)) FROM report
+                WHERE target_type IN (1, 4) AND handled_at &gt;= CURRENT_DATE) AS completed_today
+        FROM case_base
+    </select>
+
+    <select id="selectAdminCaseEvidence" resultType="cn.jualn.miniapp.module.report.mapper.AdminReportEvidenceRow">
+        SELECT r.id AS report_id,
+               r.reporter_id,
+               COALESCE(reporter.nickname, CONCAT('用户 #', r.reporter_id)) AS reporter_name,
+               CASE r.reason
+                   WHEN 1 THEN '违规违法'
+                   WHEN 2 THEN '色情低俗'
+                   WHEN 3 THEN '广告骚扰'
+                   WHEN 4 THEN '虚假信息'
+                   ELSE '其他'
+               END AS reason,
+               r.remark,
+               r.created_at
+        FROM report r
+        LEFT JOIN user_profile reporter ON reporter.id = r.reporter_id
+        WHERE r.target_type = CASE #{targetType} WHEN 'post' THEN 1 ELSE 4 END
+          AND r.target_id = #{targetId}
+        ORDER BY r.id DESC
+    </select>
+
+    <select id="selectPendingReportIdsForUpdate" resultType="java.lang.Long">
+        SELECT id
+        FROM report
+        WHERE target_type = #{targetType}
+          AND target_id = #{targetId}
+          AND status = 0
+        ORDER BY id
+        FOR UPDATE
+    </select>
+
+    <update id="resolvePendingCase">
+        UPDATE report
+        SET status = #{status},
+            handler_id = #{handlerId},
+            handle_remark = #{remark},
+            handled_at = #{handledAt}
+        WHERE target_type = #{targetType}
+          AND target_id = #{targetId}
+          AND status = 0
+    </update>
+</mapper>

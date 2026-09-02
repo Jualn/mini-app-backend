@@ -1,5 +1,6 @@
 package cn.jualn.miniapp.third.cos.service;
 
+import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.exception.ExternalServiceException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.third.cos.client.CosClient;
@@ -9,6 +10,7 @@ import com.tencent.cloud.Response;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
@@ -36,6 +38,9 @@ public class CosService {
      * @return 上传凭证
      */
     public CosUploadCredentialDTO generateUploadCredential(List<String> objectKeys) {
+        if (objectKeys == null || objectKeys.isEmpty()) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "objectKeys 不能为空");
+        }
         // 调用 SDK 的 STS 接口获取临时凭证
         String prefix = objectKeys.get(0).substring(0, objectKeys.get(0).lastIndexOf("/") + 1);
         Response resp = cosClient.getCredential(prefix);
@@ -71,5 +76,41 @@ public class CosService {
         }
 
         return builder.build();
+    }
+
+    /** 根据服务端 COS 配置生成可信访问地址。 */
+    public String buildPublicUrl(String objectKey) {
+        return cosClient.buildPublicUrl(objectKey);
+    }
+
+    /** 删除一个已不再被业务数据引用的 COS 对象。 */
+    public void deleteObject(String objectKey) {
+        if (objectKey == null || objectKey.isBlank() || objectKey.contains("..")) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "objectKey 不合法");
+        }
+        cosClient.deleteObject(objectKey);
+    }
+
+    /** 判断 URL 是否属于当前配置的 COS/CDN 域名，用于兼容尚未回填 objectKey 的历史附件。 */
+    public boolean isManagedPublicUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return false;
+        }
+        try {
+            String actualHost = URI.create(url).getHost();
+            return actualHost != null && (actualHost.equalsIgnoreCase(hostOf(cosProperties.getPublicUrlPrefix()))
+                    || actualHost.equalsIgnoreCase(hostOf(cosProperties.getCustomDomain())));
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
+    }
+
+    private String hostOf(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String normalized = value.contains("://") ? value : "https://" + value;
+        String host = URI.create(normalized).getHost();
+        return host == null ? "" : host;
     }
 }
