@@ -1,6 +1,7 @@
 package cn.jualn.miniapp.module.exam.mapper;
 
 import cn.jualn.miniapp.module.exam.bo.ExamSimpleBO;
+import cn.jualn.miniapp.module.exam.bo.HomePublicMatterReminderRow;
 import cn.jualn.miniapp.module.exam.entity.ExamInfo;
 import cn.jualn.miniapp.module.interact.dto.inner.InteractCountDTO;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
@@ -8,6 +9,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Update;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
@@ -21,6 +23,11 @@ import java.util.List;
  */
 @Mapper
 public interface ExamInfoMapper extends BaseMapper<ExamInfo> {
+    List<HomePublicMatterReminderRow> selectHomePublicMatterReminders(
+            @Param("userId") Long userId,
+            @Param("evaluatedAt") LocalDateTime evaluatedAt,
+            @Param("limit") int limit);
+
     List<cn.jualn.miniapp.module.exam.bo.AdminPublicEventListBO> selectOperationsPage(
             @Param("query") cn.jualn.miniapp.module.exam.bo.AdminPublicEventQueryBO query,
             @Param("lastId") Long lastId, @Param("limit") int limit);

@@ -4,6 +4,129 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.jualn.miniapp.module.exam.mapper.ExamInfoMapper">
 
+    <select id="selectHomePublicMatterReminders"
+            resultType="cn.jualn.miniapp.module.exam.bo.HomePublicMatterReminderRow">
+        WITH future_nodes AS (
+            SELECT event.id AS publicMatterId,
+                   event.title AS name,
+                   node.id AS timeNodeId,
+                   node.label AS nodeName,
+                   node.start_time AS reminderAt
+            FROM exam_info event
+            INNER JOIN timeline node
+                    ON node.target_type = 3
+                   AND node.target_id = event.id
+                   AND node.start_time &gt; #{evaluatedAt}
+            WHERE event.publish_status = 1
+              AND event.status NOT IN (4, 6)
+              AND event.cancelled_at IS NULL
+              AND event.deleted_at IS NULL
+              AND (event.end_precision = 0
+                   OR event.end_time IS NULL
+                   OR #{evaluatedAt} &lt; CASE
+                       WHEN event.end_precision = 1
+                           THEN DATE_ADD(DATE(event.end_time), INTERVAL 1 DAY)
+                       ELSE event.end_time
+                   END)
+
+            UNION ALL
+
+            SELECT event.id AS publicMatterId,
+                   event.title AS name,
+                   NULL AS timeNodeId,
+                   '事项开始' AS nodeName,
+                   event.start_time AS reminderAt
+            FROM exam_info event
+            WHERE event.publish_status = 1
+              AND event.status NOT IN (4, 6)
+              AND event.cancelled_at IS NULL
+              AND event.deleted_at IS NULL
+              AND event.start_time &gt; #{evaluatedAt}
+              AND (event.end_precision = 0
+                   OR event.end_time IS NULL
+                   OR #{evaluatedAt} &lt; CASE
+                       WHEN event.end_precision = 1
+                           THEN DATE_ADD(DATE(event.end_time), INTERVAL 1 DAY)
+                       ELSE event.end_time
+                   END)
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM timeline future_node
+                  WHERE future_node.target_type = 3
+                    AND future_node.target_id = event.id
+                    AND future_node.start_time &gt; #{evaluatedAt}
+              )
+        ),
+        ranked_nodes AS (
+            SELECT node.publicMatterId,
+                   node.name,
+                   node.timeNodeId,
+                   node.nodeName,
+                   node.reminderAt,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY node.publicMatterId
+                       ORDER BY node.reminderAt ASC, COALESCE(node.timeNodeId, 0) ASC
+                   ) AS nodeRank
+            FROM future_nodes node
+        ),
+        eligible_nodes AS (
+            SELECT node.publicMatterId,
+                   node.name,
+                   node.timeNodeId,
+                   node.nodeName,
+                   node.reminderAt
+            FROM ranked_nodes node
+            WHERE node.nodeRank = 1
+        ),
+        subscribed_nodes AS (
+            SELECT node.publicMatterId,
+                   node.name,
+                   node.timeNodeId,
+                   node.nodeName,
+                   node.reminderAt
+            FROM eligible_nodes node
+            WHERE EXISTS (
+                SELECT 1
+                FROM exam_subscription subscription
+                WHERE subscription.exam_info_id = node.publicMatterId
+                  AND subscription.user_id = #{userId}
+                  AND subscription.status = 1
+                  AND subscription.notify_enable = 1
+            )
+        ),
+        chosen_nodes AS (
+            SELECT subscribed.publicMatterId,
+                   subscribed.name,
+                   subscribed.timeNodeId,
+                   subscribed.nodeName,
+                   subscribed.reminderAt,
+                   'SUBSCRIPTIONS' AS source
+            FROM subscribed_nodes subscribed
+
+            UNION ALL
+
+            SELECT node.publicMatterId,
+                   node.name,
+                   node.timeNodeId,
+                   node.nodeName,
+                   node.reminderAt,
+                   'DEFAULT' AS source
+            FROM eligible_nodes node
+            WHERE NOT EXISTS (SELECT 1 FROM subscribed_nodes)
+        )
+        SELECT candidate.publicMatterId,
+               candidate.name,
+               candidate.timeNodeId,
+               candidate.nodeName,
+               candidate.reminderAt,
+               candidate.source
+        FROM chosen_nodes candidate
+        ORDER BY candidate.reminderAt ASC,
+                 candidate.publicMatterId ASC,
+                 COALESCE(candidate.timeNodeId, 0) ASC
+        LIMIT #{limit}
+    </select>
+
     <select id="selectSimpleExams" resultType="cn.jualn.miniapp.module.exam.bo.ExamSimpleBO">
         SELECT id,
                title,

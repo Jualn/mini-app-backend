@@ -108,7 +108,7 @@ Q0/Q1/Q3 不使用 SELECT *。XML 优先显式列字段；完整 selectById 只�
 ## 6. 现有基础设施的使用边界
 
 - 认证继续使用 Sa-Token。普通请求从 UserContext 等服务端上下文取得身份；管理请求使用独立 AdminStpUtil。需要的 operatorId/reason 显式传给用例。
-- 对外错误由 GlobalExceptionHandler 等 Web 边界适配已确认契约。可预期业务拒绝使用 BusinessException，外部集成失败按 ExternalServiceException 分类；内部 ResultCode 不自动定义公共错误协议。
+- 对外错误由 GlobalExceptionHandler 统一适配为 RFC 9457 Problem Details，并使用真实 HTTP 4xx/5xx 状态；成功响应仍由各接口契约决定，不强制统一包装。可预期业务拒绝使用 BusinessException，外部集成失败按 ExternalServiceException 分类；ResultCode 仅是内部分类，必须在 Web 边界显式映射为稳定 problem type，不能直接成为公共协议。
 - Converter 和 HTTP 层按对应协议输出；不将现有 Result<T> 包装强加给所有新契约。
 - Redis 通过 infrastructure/cache 下的 RedisService 使用，键定义集中在 RedisKeyConstant；数据模块负责相关缓存的写入与失效。
 - 普通数据库派生缓存采用提交后失效、读未命中回填。失败收敛与可接受陈旧范围遵循 Backend §2；协调锁和幂等状态不属于可随意降级的普通缓存。
