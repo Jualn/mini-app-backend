@@ -12,6 +12,12 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class TimelineUpdateBO {
+    private String nodeType;
+    private String location;
+    private Integer startPrecision;
+    private Integer endPrecision;
+    private String timeDescription;
+
 
     private Long id;
 

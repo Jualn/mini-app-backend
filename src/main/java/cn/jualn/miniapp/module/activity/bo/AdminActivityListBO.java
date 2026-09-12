@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 @Builder
 public class AdminActivityListBO {
 
+    private Integer publishStatus;
     private Long id;
     private String title;
     private String summary;

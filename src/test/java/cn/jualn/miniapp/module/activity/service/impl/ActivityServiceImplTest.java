@@ -93,37 +93,18 @@ class ActivityServiceImplTest {
     }
 
     @Test
-    void createActivity_shouldCreateTimelineAndAttachments() {
-        UserContext.setUserId(9L);
-        ActivityServiceImpl service = new ActivityServiceImpl(activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, auditReservationService, queueProducer);
-        ActivityCreateBO command = ActivityCreateBO.builder()
-                .timelineItems(List.of(TimelineItemBO.builder().label("t1").sortOrder(1).build()))
-                .attachmentItems(List.of(AttachmentItemBO.builder().url("https://img").sortOrder(1).build()))
-                .build();
-        Activity entity = Activity.builder().id(66L).build();
-        when(activityConverter.toEntity(command)).thenReturn(entity);
-
-        Long id = service.createActivity(command);
-
-        assertEquals(66L, id);
-        verify(activityMapper).insert(entity);
-        ArgumentCaptor<cn.jualn.miniapp.module.timeline.bo.TimelineSaveBO> timelineCaptor = ArgumentCaptor.forClass(cn.jualn.miniapp.module.timeline.bo.TimelineSaveBO.class);
-        verify(timelineService).replaceTimelines(timelineCaptor.capture());
-        assertEquals(TargetType.ACTIVITY, timelineCaptor.getValue().getTargetType());
-        assertEquals(66L, timelineCaptor.getValue().getTargetId());
-
-        ArgumentCaptor<cn.jualn.miniapp.module.media.bo.MediaAttachmentSaveBO> mediaCaptor = ArgumentCaptor.forClass(cn.jualn.miniapp.module.media.bo.MediaAttachmentSaveBO.class);
-        verify(mediaService).replaceAttachments(mediaCaptor.capture());
-        assertEquals(TargetType.ACTIVITY, mediaCaptor.getValue().getTargetType());
-        assertEquals(66L, mediaCaptor.getValue().getTargetId());
+    void createActivity_shouldRejectLegacyWrite() {
+        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
+        assertThrows(BusinessException.class, () -> service.createActivity(null));
+        org.mockito.Mockito.verifyNoInteractions(activityMapper, mediaService, notifyService);
     }
 
     @Test
     void getActivityDetail_shouldLoadAndEnrichWhenCacheMiss() {
-        ActivityServiceImpl service = new ActivityServiceImpl(activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, auditReservationService, queueProducer);
-        Activity activity = Activity.builder().id(5L).userId(11L).build();
+        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
+        Activity activity = Activity.builder().id(5L).userId(11L).publishStatus(1).status(2).build();
         ActivityDetailBO detailBO = ActivityDetailBO.builder().id(5L).userId(11L).build();
         ActivityDetailVO detailVO = ActivityDetailVO.builder().id(5L).build();
 
@@ -146,8 +127,8 @@ class ActivityServiceImplTest {
 
     @Test
     void increaseCommentCount_shouldUpdateDbAndEvictDetailCache() {
-        ActivityServiceImpl service = new ActivityServiceImpl(activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, auditReservationService, queueProducer);
+        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
 
         service.increaseCommentCount(88L);
 
@@ -156,71 +137,41 @@ class ActivityServiceImplTest {
     }
 
     @Test
-    void updateActivity_shouldAllowOwner() {
-        UserContext.setUserId(9L);
-        ActivityServiceImpl service = new ActivityServiceImpl(activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, auditReservationService, queueProducer);
-        Activity activity = Activity.builder().id(77L).userId(9L).build();
-        ActivityUpdateBO command = ActivityUpdateBO.builder().id(77L).title("new").build();
-        when(userService.getUserAuthInfo(9L)).thenReturn(UserAuthBO.builder().id(9L).role(UserRole.USER).build());
-        when(activityMapper.selectOne(any())).thenReturn(activity);
-
-        service.updateActivity(command);
-
-        verify(activityConverter).updateEntityFromUpdateBO(activity, command);
-        verify(activityMapper).updateById(activity);
-        verify(redisService).delete(RedisKeyConstant.activityDetail(77L));
+    void updateActivity_shouldRejectLegacyOwnerWrite() {
+        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
+        assertThrows(BusinessException.class, () -> service.updateActivity(null));
+        org.mockito.Mockito.verifyNoInteractions(activityMapper, mediaService, notifyService);
     }
 
     @Test
     void updateActivity_shouldThrowWhenUserIsNotOwner() {
-        UserContext.setUserId(9L);
-        ActivityServiceImpl service = new ActivityServiceImpl(activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, auditReservationService, queueProducer);
-        ActivityUpdateBO command = ActivityUpdateBO.builder().id(77L).build();
-        when(userService.getUserAuthInfo(9L)).thenReturn(UserAuthBO.builder().id(9L).role(UserRole.USER).build());
-        when(activityMapper.selectOne(any())).thenReturn(Activity.builder().id(77L).userId(10L).build());
-
-        assertThrows(BusinessException.class, () -> service.updateActivity(command));
-
-        verify(activityMapper, never()).updateById(any(Activity.class));
+        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
+        assertThrows(BusinessException.class, () -> service.updateActivity(null));
+        org.mockito.Mockito.verifyNoInteractions(activityMapper, mediaService, notifyService);
     }
 
     @Test
-    void removeActivity_shouldAllowAdmin() {
-        UserContext.setUserId(99L);
-        ActivityServiceImpl service = new ActivityServiceImpl(activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, auditReservationService, queueProducer);
-        when(userService.getUserAuthInfo(99L)).thenReturn(UserAuthBO.builder().id(99L).role(UserRole.ADMIN).build());
-        when(activityMapper.selectOne(any())).thenReturn(Activity.builder().id(88L).userId(11L).build());
-
-        service.removeActivity(88L);
-
-        ArgumentCaptor<Activity> activityCaptor = ArgumentCaptor.forClass(Activity.class);
-        verify(activityMapper).updateById(activityCaptor.capture());
-        assertEquals(ActivityStatus.DELETED.getCode(), activityCaptor.getValue().getStatus());
-        verify(redisService).delete(RedisKeyConstant.activityDetail(88L));
-        verify(redisService).delete(RedisKeyConstant.targetExists(TargetType.ACTIVITY.getKey(), 88L));
-        verify(notifyService).cancelActivityPlans(88L);
+    void removeActivity_shouldRejectLegacyAdminWrite() {
+        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
+        assertThrows(BusinessException.class, () -> service.removeActivity(1L));
+        org.mockito.Mockito.verifyNoInteractions(activityMapper, mediaService, notifyService);
     }
 
     @Test
     void removeActivity_shouldThrowWhenUserIsNotOwner() {
-        UserContext.setUserId(9L);
-        ActivityServiceImpl service = new ActivityServiceImpl(activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, auditReservationService, queueProducer);
-        when(userService.getUserAuthInfo(9L)).thenReturn(UserAuthBO.builder().id(9L).role(UserRole.USER).build());
-        when(activityMapper.selectOne(any())).thenReturn(Activity.builder().id(88L).userId(10L).build());
-
-        assertThrows(BusinessException.class, () -> service.removeActivity(88L));
-
-        verify(activityMapper, never()).updateById(any(Activity.class));
+        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
+        assertThrows(BusinessException.class, () -> service.removeActivity(1L));
+        org.mockito.Mockito.verifyNoInteractions(activityMapper, mediaService, notifyService);
     }
 
     @Test
     void pageAdminActivities_shouldDecodeAndReturnOpaqueCursor() {
-        ActivityServiceImpl service = new ActivityServiceImpl(activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, auditReservationService, queueProducer);
+        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
         String cursor = AdminIdCursorCodec.encode("latest", 200L);
         AdminActivityListRow row = new AdminActivityListRow();
         row.setId(101L);
@@ -248,45 +199,23 @@ class ActivityServiceImplTest {
     }
 
     @Test
-    void submitAdminActivityReview_shouldTransitionCompleteDraft() {
-        ActivityServiceImpl service = new ActivityServiceImpl(activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, auditReservationService, queueProducer);
-        LocalDateTime startTime = LocalDateTime.now().plusDays(1);
-        Activity draft = Activity.builder()
-                .id(101L)
-                .title("活动")
-                .content("详情")
-                .location("礼堂")
-                .organizer("学生会")
-                .category(0)
-                .audienceScope(1)
-                .startTime(startTime)
-                .endTime(startTime.plusHours(2))
-                .status(ActivityStatus.DRAFT.getCode())
-                .build();
-        when(activityMapper.selectAdminActivityById(101L)).thenReturn(draft);
-        when(mediaService.listAttachments(TargetType.ACTIVITY, 101L)).thenReturn(List.of());
-        when(auditReservationService.reserveAuditLogs(any())).thenReturn(AuditReserveResultBO.builder()
-                .textAuditLogId(901L)
-                .build());
-        when(activityMapper.submitAdminReview(101L)).thenReturn(1);
-
-        service.submitAdminActivityReview(101L, 9L);
-
-        verify(activityMapper).submitAdminReview(101L);
-        verify(redisService).delete(RedisKeyConstant.activityDetail(101L));
+    void submitAdminActivityReview_shouldRejectRetiredReview() {
+        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
+        assertThrows(BusinessException.class, () -> service.submitAdminActivityReview(1L, 9L));
+        org.mockito.Mockito.verifyNoInteractions(activityMapper, mediaService, notifyService);
     }
 
     @Test
     void cancelAdminActivity_shouldCancelPendingNotificationPlans() {
-        ActivityServiceImpl service = new ActivityServiceImpl(activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, auditReservationService, queueProducer);
-        when(activityMapper.selectAdminActivityById(102L)).thenReturn(Activity.builder()
+        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
+        when(activityMapper.selectForUpdate(102L)).thenReturn(Activity.builder()
                 .id(102L)
                 .title("迎新活动")
                 .status(ActivityStatus.SIGNUP.getCode())
                 .build());
-        when(activityMapper.cancelAdminActivity(102L)).thenReturn(1);
+        when(activityMapper.cancelAdminActivity(102L, "场地不可用")).thenReturn(1);
 
         service.cancelAdminActivity(102L, 9L, "场地不可用");
 
@@ -297,9 +226,9 @@ class ActivityServiceImplTest {
 
     @Test
     void updateAdminActivityPinned_shouldBeIdempotentWhenAlreadyPinned() {
-        ActivityServiceImpl service = new ActivityServiceImpl(activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, auditReservationService, queueProducer);
-        when(activityMapper.selectAdminActivityById(103L)).thenReturn(Activity.builder()
+        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
+        when(activityMapper.selectForUpdate(103L)).thenReturn(Activity.builder()
                 .id(103L)
                 .status(ActivityStatus.SIGNUP.getCode())
                 .isPinned(true)

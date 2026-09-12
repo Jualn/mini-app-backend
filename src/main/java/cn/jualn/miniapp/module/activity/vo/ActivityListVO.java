@@ -16,6 +16,27 @@ import java.time.LocalDateTime;
 @Data
 @Builder
 public class ActivityListVO {
+    private Integer startPrecision;
+    private Integer endPrecision;
+    private String timeDescription;
+    private Integer registrationStartPrecision;
+    private Integer registrationEndPrecision;
+    private java.time.LocalDateTime registrationStart;
+    private java.time.LocalDateTime registrationEnd;
+    private Integer publishStatus;
+    private String activityPhase;
+    private String registrationStatus;
+
+    private String summary;
+    private String audienceSummary;
+    private Integer registrationMode;
+    private Integer participantMode;
+    private Integer capacity;
+    private Integer capacityUnit;
+    private Long coverAttachmentId;
+    private LocalDateTime startTime;
+    private LocalDateTime endTime;
+
 
     private Long id;
     private String title;

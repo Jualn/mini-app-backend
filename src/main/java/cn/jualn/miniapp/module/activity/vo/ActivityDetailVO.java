@@ -20,6 +20,30 @@ import java.util.List;
 @Data
 @Builder
 public class ActivityDetailVO {
+    private String activityPhase;
+    private String registrationStatus;
+
+    private Integer publishStatus;
+
+    private Integer startPrecision;
+    private Integer endPrecision;
+    private String timeDescription;
+    private Integer registrationStartPrecision;
+    private Integer registrationEndPrecision;
+    private java.time.LocalDateTime registrationStart;
+    private java.time.LocalDateTime registrationEnd;
+
+    private String summary;
+    private String audienceSummary;
+    private Integer registrationMode;
+    private Integer participantMode;
+    private Integer capacityUnit;
+    private Integer capacity;
+    private Long coverAttachmentId;
+
+    private java.util.List<EventSectionVO> sections;
+    private java.util.List<EventActionVO> actions;
+
 
     private Long id;
     private Long userId;

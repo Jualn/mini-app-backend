@@ -1,0 +1,4 @@
+package cn.jualn.miniapp.module.activity.vo;
+import com.fasterxml.jackson.databind.JsonNode;
+public record ActivityFormVO(Long activityId, JsonNode formSchema, Integer registrationLimit,
+        long submittedCount, boolean frozen, boolean enabled, String registrationStatus) {}

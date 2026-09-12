@@ -38,33 +38,42 @@ class ActivityEnrollmentServiceImplTest {
     @Mock
     private TargetValidator targetValidator;
 
+    @org.junit.jupiter.api.BeforeEach
+    void setup() {
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        var assistant = new org.apache.ibatis.builder.MapperBuilderAssistant(new com.baomidou.mybatisplus.core.MybatisConfiguration(), "");
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(assistant, ActivityEnrollment.class);
+    }
     @AfterEach
     void tearDown() {
         UserContext.clear();
+        org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
     }
 
     @Test
     void enrollActivity_shouldInsertWhenNotEnrolled() {
         UserContext.setUserId(7L);
-        ActivityEnrollmentServiceImpl service = spy(new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator));
-        doReturn(false).when(service).isEnrolled(10L);
+        ActivityEnrollmentServiceImpl service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator);
+        when(activityMapper.selectForUpdate(10L)).thenReturn(cn.jualn.miniapp.module.activity.entity.Activity.builder().id(10L).publishStatus(1).build());
+        when(activityEnrollmentMapper.insert(any(ActivityEnrollment.class))).thenReturn(1);
 
         service.enrollActivity(10L);
 
-        verify(targetValidator).assertExists(TargetType.ACTIVITY, 10L);
+        verify(activityMapper).selectForUpdate(10L);
         verify(activityEnrollmentMapper).insert(any(ActivityEnrollment.class));
     }
 
     @Test
-    void enrollActivity_shouldThrowWhenAlreadyEnrolledInCache() {
+    void enrollActivity_shouldUseDatabaseAndBeIdempotent() {
         UserContext.setUserId(7L);
         ActivityEnrollmentServiceImpl service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator);
         String key = RedisKeyConstant.activityEnrollment(10L, 7L);
-        when(redisService.getString(key)).thenReturn("1");
+        when(activityMapper.selectForUpdate(10L)).thenReturn(cn.jualn.miniapp.module.activity.entity.Activity.builder().id(10L).publishStatus(1).build());
+        when(activityEnrollmentMapper.selectOne(any())).thenReturn(ActivityEnrollment.builder().id(1L).status(1).build());
 
-        assertThrows(BusinessException.class, () -> service.enrollActivity(10L));
+        service.enrollActivity(10L);
 
-        verify(targetValidator).assertExists(TargetType.ACTIVITY, 10L);
+        verify(activityMapper).selectForUpdate(10L);
         verify(activityEnrollmentMapper, never()).insert(any(ActivityEnrollment.class));
     }
 

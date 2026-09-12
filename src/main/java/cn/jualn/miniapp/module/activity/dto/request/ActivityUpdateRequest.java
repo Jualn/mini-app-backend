@@ -18,6 +18,21 @@ import java.util.List;
  */
 @Data
 public class ActivityUpdateRequest {
+    private Integer startPrecision;
+    private Integer endPrecision;
+    private String timeDescription;
+    private Integer registrationStartPrecision;
+    private Integer registrationEndPrecision;
+    private java.time.LocalDateTime registrationStart;
+    private java.time.LocalDateTime registrationEnd;
+
+    @jakarta.validation.Valid
+    @jakarta.validation.constraints.Size(max=30)
+    private java.util.List<EventSectionRequest> sections;
+    @jakarta.validation.Valid
+    @jakarta.validation.constraints.Size(max=20)
+    private java.util.List<EventActionRequest> actions;
+
 
     /** 活动ID，由路径参数回填 */
     private Long id;

@@ -18,6 +18,14 @@ import java.util.List;
  */
 @Mapper(componentModel = "spring", uses = {TimelineConverter.class, EnumConverter.class})
 public interface ActivityConverter {
+    cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO toEventSectionBO(cn.jualn.miniapp.module.activity.dto.request.EventSectionRequest request);
+    cn.jualn.miniapp.module.activity.vo.EventSectionVO toEventSectionVO(cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO bo);
+    java.util.List<cn.jualn.miniapp.module.activity.vo.EventSectionVO> toEventSectionVOs(java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO> bo);
+
+    cn.jualn.miniapp.module.eventcontent.bo.EventActionBO toEventActionBO(cn.jualn.miniapp.module.activity.dto.request.EventActionRequest request);
+    cn.jualn.miniapp.module.activity.vo.EventActionVO toEventActionVO(cn.jualn.miniapp.module.eventcontent.bo.EventActionBO bo);
+    java.util.List<cn.jualn.miniapp.module.activity.vo.EventActionVO> toEventActionVOs(java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventActionBO> bo);
+
 
     ActivityCreateBO toCreateBO(ActivityCreateRequest request);
 
@@ -33,7 +41,12 @@ public interface ActivityConverter {
      * @param entity 待更新的活动Entity对象
      * @param updateBO  包含更新值的BO对象（null字段将被忽略）
      */
+    @Mapping(target="formSchema", ignore=true)
+    @Mapping(target="registrationLimit", ignore=true)
+    @Mapping(target="cancelledAt", ignore=true)
+    @Mapping(target="cancelReason", ignore=true)
     @Mapping(target = "userId", ignore = true)
+    @Mapping(target = "publishStatus", ignore = true)
     @Mapping(target = "status", ignore = true)
     @Mapping(target = "auditStatus", ignore = true)
     @Mapping(target = "rejectReason", ignore = true)
@@ -46,10 +59,22 @@ public interface ActivityConverter {
     @Mapping(target = "updatedAt", ignore = true)
     @Mapping(target = "deletedAt", ignore = true)
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
+    @Mapping(target = "summary", ignore = true)
+    @Mapping(target = "audienceSummary", ignore = true)
+    @Mapping(target = "registrationMode", ignore = true)
+    @Mapping(target = "participantMode", ignore = true)
+    @Mapping(target = "capacity", ignore = true)
+    @Mapping(target = "capacityUnit", ignore = true)
+    @Mapping(target = "coverAttachmentId", ignore = true)
     void updateEntityFromUpdateBO(@MappingTarget Activity entity, ActivityUpdateBO updateBO);
 
     @Mapping(target = "id", ignore = true)
+    @Mapping(target="formSchema", ignore=true)
+    @Mapping(target="registrationLimit", ignore=true)
+    @Mapping(target="cancelledAt", ignore=true)
+    @Mapping(target="cancelReason", ignore=true)
     @Mapping(target = "userId", ignore = true)
+    @Mapping(target = "publishStatus", ignore = true)
     @Mapping(target = "status", ignore = true)
     @Mapping(target = "auditStatus", ignore = true)
     @Mapping(target = "rejectReason", ignore = true)
@@ -61,9 +86,21 @@ public interface ActivityConverter {
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     @Mapping(target = "deletedAt", ignore = true)
+    @Mapping(target = "summary", ignore = true)
+    @Mapping(target = "audienceSummary", ignore = true)
+    @Mapping(target = "registrationMode", ignore = true)
+    @Mapping(target = "participantMode", ignore = true)
+    @Mapping(target = "capacity", ignore = true)
+    @Mapping(target = "capacityUnit", ignore = true)
+    @Mapping(target = "coverAttachmentId", ignore = true)
     Activity toEntity(ActivityCreateBO request);
 
+    @Mapping(target="formSchema", ignore=true)
+    @Mapping(target="registrationLimit", ignore=true)
+    @Mapping(target="cancelledAt", ignore=true)
+    @Mapping(target="cancelReason", ignore=true)
     @Mapping(target = "userId", ignore = true)
+    @Mapping(target = "publishStatus", ignore = true)
     @Mapping(target = "status", ignore = true)
     @Mapping(target = "auditStatus", ignore = true)
     @Mapping(target = "rejectReason", ignore = true)
@@ -75,11 +112,22 @@ public interface ActivityConverter {
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     @Mapping(target = "deletedAt", ignore = true)
+    @Mapping(target = "summary", ignore = true)
+    @Mapping(target = "audienceSummary", ignore = true)
+    @Mapping(target = "registrationMode", ignore = true)
+    @Mapping(target = "participantMode", ignore = true)
+    @Mapping(target = "capacity", ignore = true)
+    @Mapping(target = "capacityUnit", ignore = true)
+    @Mapping(target = "coverAttachmentId", ignore = true)
     Activity toEntity(ActivityUpdateBO request);
 
     @Mapping(target = "author", ignore = true)
     @Mapping(target = "attachmentItems", ignore = true)
     @Mapping(target = "timelineItems", ignore = true)
+    @Mapping(target = "activityPhase", ignore = true)
+    @Mapping(target = "registrationStatus", ignore = true)
+    @Mapping(target = "sections", ignore = true)
+    @Mapping(target = "actions", ignore = true)
     ActivityDetailBO toDetailBO(Activity activity);
 
     ActivityListVO toVO(ActivityDetailBO detailBO);
@@ -87,6 +135,10 @@ public interface ActivityConverter {
     @Mapping(target = "liked", ignore = true)
     @Mapping(target = "enrolled", ignore = true)
     ActivityDetailVO toDetailVO(ActivityDetailBO detailBO);
+
+    @Mapping(target = "activityPhase", ignore = true)
+    @Mapping(target = "registrationStatus", ignore = true)
+    ActivityListBO toListBO(Activity activity);
 
     List<ActivityListBO> toListBOList(List<Activity> activities);
 

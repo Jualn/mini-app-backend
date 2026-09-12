@@ -21,6 +21,7 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ExamSubscriptionServiceImplTest {
+    @Mock private cn.jualn.miniapp.module.exam.mapper.ExamInfoMapper examInfoMapper;
 
     @Mock
     private ExamSubscriptionMapper examSubscriptionMapper;
@@ -29,15 +30,22 @@ class ExamSubscriptionServiceImplTest {
     @Mock
     private TargetValidator targetValidator;
 
+    @org.junit.jupiter.api.BeforeEach
+    void setup() {
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        var assistant = new org.apache.ibatis.builder.MapperBuilderAssistant(new com.baomidou.mybatisplus.core.MybatisConfiguration(), "");
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(assistant, ExamSubscription.class);
+    }
     @AfterEach
     void tearDown() {
         UserContext.clear();
+        org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
     }
 
     @Test
     void isSubscribed_shouldReturnTrueWhenCached() {
         UserContext.setUserId(12L);
-        ExamSubscriptionServiceImpl service = new ExamSubscriptionServiceImpl(examSubscriptionMapper, redisService, targetValidator);
+        ExamSubscriptionServiceImpl service = new ExamSubscriptionServiceImpl(examInfoMapper, examSubscriptionMapper, redisService, targetValidator);
         when(redisService.getString(RedisKeyConstant.examSubscription(88L, 12L))).thenReturn("1");
 
         assertTrue(service.isSubscribed(88L));
@@ -46,12 +54,13 @@ class ExamSubscriptionServiceImplTest {
     }
 
     @Test
-    void subscribeExam_shouldRejectWhenAlreadySubscribed() {
+    void subscribeExam_shouldBeIdempotentWhenAlreadySubscribed() {
         UserContext.setUserId(12L);
-        ExamSubscriptionServiceImpl service = new ExamSubscriptionServiceImpl(examSubscriptionMapper, redisService, targetValidator);
-        when(redisService.getString(RedisKeyConstant.examSubscription(88L, 12L))).thenReturn("1");
+        ExamSubscriptionServiceImpl service = new ExamSubscriptionServiceImpl(examInfoMapper, examSubscriptionMapper, redisService, targetValidator);
+        when(examInfoMapper.selectForUpdate(88L)).thenReturn(cn.jualn.miniapp.module.exam.entity.ExamInfo.builder().id(88L).publishStatus(1).build());
+        when(examSubscriptionMapper.selectOne(any())).thenReturn(ExamSubscription.builder().id(1L).status(1).build());
 
-        org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, () -> service.subscribeExam(88L));
+        service.subscribeExam(88L);
 
         verify(examSubscriptionMapper, never()).insert(any(ExamSubscription.class));
     }

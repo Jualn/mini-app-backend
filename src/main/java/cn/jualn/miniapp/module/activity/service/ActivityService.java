@@ -109,10 +109,14 @@ public interface ActivityService {
     /** 管理员创建完整活动草稿，操作人由管理端身份显式传入。 */
     Long createAdminActivity(AdminActivitySaveBO command);
 
-    /** 管理员编辑草稿或审核拒绝的活动。 */
+    /** 运维保存草稿、下架或已发布内容；已发布编辑保持发布。 */
     void updateAdminActivity(AdminActivitySaveBO command);
 
-    /** 将完整草稿提交到人工审核队列。 */
+    /** 直接发布/下架；旧审核方法仅保留拒绝响应以兼容旧调用方。 */
+    void publishAdminActivity(Long activityId, Long operatorId);
+
+    void takeDownAdminActivity(Long activityId, Long operatorId, String reason);
+
     void submitAdminActivityReview(Long activityId, Long operatorId);
 
     /** 设置或取消已发布活动的置顶标记。 */

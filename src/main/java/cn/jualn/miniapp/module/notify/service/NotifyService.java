@@ -15,6 +15,10 @@ import cn.jualn.miniapp.module.notify.payload.NotifyPayload;
  * - 基于延迟队列处理到期通知计划
  */
 public interface NotifyService {
+    /** 主事项已加锁；同事务取消待发旧计划并保存新计划，提交后入队。null 表示不再提醒。 */
+    void replaceEventReminder(cn.jualn.miniapp.common.enums.TargetType type, Long id, String title,
+                              java.time.LocalDateTime sendAt);
+
 
 	/**
 	 * 分页查询当前用户的通知列表。

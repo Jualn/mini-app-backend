@@ -21,6 +21,16 @@ import java.util.List;
  */
 @Mapper
 public interface ExamInfoMapper extends BaseMapper<ExamInfo> {
+    List<cn.jualn.miniapp.module.exam.bo.AdminPublicEventListBO> selectOperationsPage(
+            @Param("query") cn.jualn.miniapp.module.exam.bo.AdminPublicEventQueryBO query,
+            @Param("lastId") Long lastId, @Param("limit") int limit);
+    int saveOperationsFields(@Param("event") ExamInfo event);
+    int publishDirectly(@Param("id") Long id);
+    int takeDownDirectly(@Param("id") Long id);
+    int cancelDirectly(@Param("id") Long id, @Param("reason") String reason);
+    int removeDirectly(@Param("id") Long id);
+
+    ExamInfo selectForUpdate(@org.apache.ibatis.annotations.Param("id") Long id);
 
 	/**
 	 * 查询考试简要列表。

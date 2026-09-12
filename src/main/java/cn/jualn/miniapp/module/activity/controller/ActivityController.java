@@ -10,6 +10,7 @@ import cn.jualn.miniapp.module.activity.dto.request.ActivityPageQuery;
 import cn.jualn.miniapp.module.activity.dto.request.ActivityUpdateRequest;
 import cn.jualn.miniapp.module.activity.service.ActivityAiService;
 import cn.jualn.miniapp.module.activity.service.ActivityService;
+import cn.jualn.miniapp.module.activity.service.ActivityEnrollmentService;
 import cn.jualn.miniapp.module.activity.vo.ActivityDetailVO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +30,19 @@ public class ActivityController {
     private final ActivityService activityService;
     private final ActivityAiService activityAiService;
     private final ActivityConverter activityConverter;
+    private final ActivityEnrollmentService activityEnrollmentService;
+
+    @PostMapping("/{id}/subscribe")
+    public Result<Void> subscribeActivity(@PathVariable Long id) {
+        activityEnrollmentService.enrollActivity(id);
+        return Result.ok(null);
+    }
+
+    @DeleteMapping("/{id}/subscribe")
+    public Result<Void> unsubscribeActivity(@PathVariable Long id) {
+        activityEnrollmentService.unEnrollActivity(id);
+        return Result.ok(null);
+    }
 
     @PostMapping
     public Result<Long> createActivity(@RequestBody @Valid ActivityCreateRequest request) {

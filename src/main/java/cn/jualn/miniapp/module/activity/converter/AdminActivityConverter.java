@@ -29,7 +29,9 @@ import java.util.Collections;
 import java.util.List;
 
 @Component
+@lombok.RequiredArgsConstructor
 public class AdminActivityConverter {
+    private final ActivityConverter activityConverter;
 
     public AdminActivityQueryBO toQueryBO(AdminActivityPageQuery query) {
         ActivityCategory category = toCategory(query.getCategory());
@@ -49,6 +51,8 @@ public class AdminActivityConverter {
         for (int index = 0; index < safeList(request.getTimeline()).size(); index++) {
             AdminActivitySaveRequest.TimelineItem item = safeList(request.getTimeline()).get(index);
             timelineItems.add(TimelineItemBO.builder()
+                    .id(item.getId()).nodeType(item.getNodeType()).location(item.getLocation())
+                    .startPrecision(item.getStartPrecision()).endPrecision(item.getEndPrecision()).timeDescription(item.getTimeDescription())
                     .label(item.getLabel().trim())
                     .description(trimToNull(item.getDescription()))
                     .startTime(item.getStartTime())
@@ -89,11 +93,25 @@ public class AdminActivityConverter {
         }
 
         return AdminActivitySaveBO.builder()
+                .formSchema(request.getFormSchema()).registrationLimit(request.getRegistrationLimit()).clearRegistrationLimit(request.getClearRegistrationLimit())
                 .id(id)
+                .startPrecision(request.getStartPrecision()).endPrecision(request.getEndPrecision())
+                .timeDescription(request.getTimeDescription())
+                .registrationStart(request.getRegistrationStart()).registrationEnd(request.getRegistrationEnd())
+                .registrationStartPrecision(request.getRegistrationStartPrecision()).registrationEndPrecision(request.getRegistrationEndPrecision())
+                .summary(request.getSummary() == null ? null : request.getSummary().trim())
+                .audienceSummary(request.getAudienceSummary() == null ? null : request.getAudienceSummary().trim())
+                .registrationMode(request.getRegistrationMode())
+                .participantMode(request.getParticipantMode())
+                .capacityUnit(request.getCapacityUnit())
+                .capacity(request.getCapacity()).coverObjectKey(request.getCoverObjectKey()).clearCover(request.getClearCover())
+                .coverAttachmentId(request.getCoverAttachmentId())
+                .sections(request.getSections() == null ? null : request.getSections().stream().map(activityConverter::toEventSectionBO).toList())
+                .actions(request.getActions() == null ? null : request.getActions().stream().map(activityConverter::toEventActionBO).toList())
                 .operatorId(operatorId)
                 .title(request.getTitle().trim())
-                .content(request.getContent().trim())
-                .location(request.getLocation().trim())
+                .content(trimToNull(request.getContent()))
+                .location(trimToNull(request.getLocation()))
                 .category(toCategory(request.getCategory()))
                 .organizer(request.getOrganizer().trim())
                 .audienceScope(toAudienceScope(request.getAudienceCodes()))
@@ -130,6 +148,17 @@ public class AdminActivityConverter {
     public AdminActivityDetailVO toDetailVO(AdminActivityDetailBO detail) {
         UserSimpleBO author = detail.getAuthor();
         return AdminActivityDetailVO.builder()
+                .formSchema(detail.getFormSchema()).registrationLimit(detail.getRegistrationLimit())
+                .cancelledAt(detail.getCancelledAt()).cancelReason(detail.getCancelReason())
+                .publishStatus(detail.getPublishStatus()).activityPhase(detail.getActivityPhase()).registrationStatus(detail.getRegistrationStatus())
+                .startPrecision(detail.getStartPrecision()).endPrecision(detail.getEndPrecision()).timeDescription(detail.getTimeDescription())
+                .registrationStart(detail.getRegistrationStart()).registrationEnd(detail.getRegistrationEnd())
+                .registrationStartPrecision(detail.getRegistrationStartPrecision()).registrationEndPrecision(detail.getRegistrationEndPrecision())
+                .summary(detail.getSummary()).audienceSummary(detail.getAudienceSummary())
+                .registrationMode(detail.getRegistrationMode()).participantMode(detail.getParticipantMode())
+                .capacityUnit(detail.getCapacityUnit()).officialCapacity(detail.getOfficialCapacity()).coverAttachmentId(detail.getCoverAttachmentId())
+                .sections(activityConverter.toEventSectionVOs(detail.getSections()))
+                .actions(activityConverter.toEventActionVOs(detail.getActions()))
                 .id(detail.getId().toString())
                 .title(detail.getTitle())
                 .content(detail.getContent())
@@ -173,7 +202,9 @@ public class AdminActivityConverter {
         for (int index = 0; index < timelineItems.size(); index++) {
             TimelineItemDTO item = timelineItems.get(index);
             timeline.add(AdminActivityDraftVO.TimelineItem.builder()
-                    .id("timeline-" + detail.getId() + "-" + index)
+                    .id(item.getId() == null ? null : item.getId().toString())
+                    .nodeType(item.getNodeType()).location(item.getLocation())
+                    .startPrecision(item.getStartPrecision()).endPrecision(item.getEndPrecision()).timeDescription(item.getTimeDescription())
                     .label(item.getLabel())
                     .description(emptyIfNull(item.getDescription()))
                     .startTime(item.getStartTime())
@@ -184,7 +215,7 @@ public class AdminActivityConverter {
         List<AdminActivityDraftVO.Attachment> attachments = new ArrayList<>();
         for (MediaAttachmentBO item : safeList(detail.getAttachments())) {
             attachments.add(AdminActivityDraftVO.Attachment.builder()
-                    .id(item.getId().toString())
+                .id(item.getId().toString())
                     .type(toDraftAttachmentType(item.getType()))
                     .objectKey(item.getObjectKey())
                     .name(item.getOriginalName() == null ? item.getUrl() : item.getOriginalName())
@@ -201,6 +232,17 @@ public class AdminActivityConverter {
         }
 
         return AdminActivityDraftVO.builder()
+                .formSchema(detail.getFormSchema()).registrationLimit(detail.getRegistrationLimit())
+                .cancelledAt(detail.getCancelledAt()).cancelReason(detail.getCancelReason())
+                .publishStatus(detail.getPublishStatus()).activityPhase(detail.getActivityPhase()).registrationStatus(detail.getRegistrationStatus())
+                .startPrecision(detail.getStartPrecision()).endPrecision(detail.getEndPrecision()).timeDescription(detail.getTimeDescription())
+                .registrationStart(detail.getRegistrationStart()).registrationEnd(detail.getRegistrationEnd())
+                .registrationStartPrecision(detail.getRegistrationStartPrecision()).registrationEndPrecision(detail.getRegistrationEndPrecision())
+                .summary(detail.getSummary()).audienceSummary(detail.getAudienceSummary())
+                .registrationMode(detail.getRegistrationMode()).participantMode(detail.getParticipantMode())
+                .capacityUnit(detail.getCapacityUnit()).officialCapacity(detail.getOfficialCapacity()).coverAttachmentId(detail.getCoverAttachmentId())
+                .sections(activityConverter.toEventSectionVOs(detail.getSections()))
+                .actions(activityConverter.toEventActionVOs(detail.getActions()))
                 .id(detail.getId().toString())
                 .title(detail.getTitle())
                 .category(toCategoryCode(detail.getCategory()))
@@ -222,6 +264,7 @@ public class AdminActivityConverter {
 
     private AdminActivityListVO toListVO(AdminActivityListBO item) {
         return AdminActivityListVO.builder()
+                .publishStatus(item.getPublishStatus())
                 .id(item.getId().toString())
                 .title(item.getTitle())
                 .summary(item.getSummary())
@@ -254,8 +297,10 @@ public class AdminActivityConverter {
     }
 
     private AdminActivityDetailVO.TimelineItem toTimelineVO(TimelineItemDTO item) {
-        return AdminActivityDetailVO.TimelineItem.builder()
-                .label(item.getLabel())
+        return AdminActivityDetailVO.TimelineItem.builder().id(item.getId())
+                .nodeType(item.getNodeType()).location(item.getLocation())
+                    .startPrecision(item.getStartPrecision()).endPrecision(item.getEndPrecision()).timeDescription(item.getTimeDescription())
+                    .label(item.getLabel())
                 .description(item.getDescription())
                 .startTime(item.getStartTime())
                 .endTime(item.getEndTime())

@@ -14,6 +14,12 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @TableName("timeline")
 public class Timeline {
+    private String nodeType;
+    private String location;
+    private Integer startPrecision;
+    private Integer endPrecision;
+    private String timeDescription;
+
 
     @TableId(type = IdType.AUTO)
     private Long id;

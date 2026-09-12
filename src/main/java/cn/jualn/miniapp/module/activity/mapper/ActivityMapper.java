@@ -20,6 +20,9 @@ import java.util.List;
  */
 @Mapper
 public interface ActivityMapper extends BaseMapper<Activity> {
+    Activity selectRegistrationActivity(@Param("id") Long id);
+    Activity lockRegistrationActivity(@Param("id") Long id);
+    Activity selectForUpdate(@org.apache.ibatis.annotations.Param("id") Long id);
 
     /**
      * 根据ID查询活动（不包括已删除的活动）。
@@ -78,7 +81,11 @@ public interface ActivityMapper extends BaseMapper<Activity> {
 
     int updateAdminPinned(@Param("activityId") Long activityId, @Param("pinned") boolean pinned);
 
-    int cancelAdminActivity(@Param("activityId") Long activityId);
+    int cancelAdminActivity(@Param("activityId") Long activityId, @Param("reason") String reason);
+
+    int publishDirectly(@Param("id") Long id);
+
+    int takeDownDirectly(@Param("id") Long id);
 
     int endAdminActivityEarly(@Param("activityId") Long activityId);
 

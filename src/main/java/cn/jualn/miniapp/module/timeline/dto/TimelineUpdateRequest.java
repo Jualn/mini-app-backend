@@ -17,6 +17,12 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class TimelineUpdateRequest {
+    private String nodeType;
+    private String location;
+    private Integer startPrecision;
+    private Integer endPrecision;
+    private String timeDescription;
+
 
     @NotNull(message = "时间线ID不能为空")
     @Positive(message = "ID必须大于0")

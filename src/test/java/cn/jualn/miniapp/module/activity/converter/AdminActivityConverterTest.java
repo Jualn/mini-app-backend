@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class AdminActivityConverterTest {
 
-    private final AdminActivityConverter converter = new AdminActivityConverter();
+    private final AdminActivityConverter converter = new AdminActivityConverter(org.mapstruct.factory.Mappers.getMapper(ActivityConverter.class));
 
     @Test
     void toSaveBO_shouldKeepObjectKeyAndIgnoreClientUrlForCosAttachment() {
@@ -58,6 +58,27 @@ class AdminActivityConverterTest {
         assertEquals(MediaType.URL, result.getAttachmentItems().get(0).getType());
         assertNull(result.getAttachmentItems().get(0).getObjectKey());
         assertEquals("https://example.com/activity", result.getAttachmentItems().get(0).getUrl());
+    }
+
+
+    @Test
+    void newScheduleAcceptsAdminIsoDatesAndKeepsUnknownTimes() throws Exception {
+        var json = new com.fasterxml.jackson.databind.ObjectMapper()
+                .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        var request = json.readValue("""
+                {"title":"test","category":"culture","organizer":"test","startTime":null,
+                 "startPrecision":0,"registrationStart":"2026-09-07T09:30",
+                 "registrationStartPrecision":2,"registrationEnd":"2026-09-08T00:00:00",
+                 "registrationEndPrecision":1,"capacity":18,"capacityUnit":2,"registrationMode":3}
+                """, AdminActivitySaveRequest.class);
+        var bo = converter.toSaveBO(request, null, 1L);
+        assertNull(bo.getStartTime());
+        assertEquals(0, bo.getStartPrecision());
+        assertEquals(LocalDateTime.of(2026,9,7,9,30), bo.getRegistrationStart());
+        assertEquals(1, bo.getRegistrationEndPrecision());
+        assertEquals(18, bo.getCapacity());
+        assertEquals(2, bo.getCapacityUnit());
+        assertNull(bo.getMaxParticipants());
     }
 
     private AdminActivitySaveRequest validRequest() {

@@ -10,6 +10,7 @@ import java.util.List;
 @Builder
 public class AdminActivityListVO {
 
+    private Integer publishStatus;
     private String id;
     private String title;
     private String summary;

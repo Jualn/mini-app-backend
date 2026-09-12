@@ -54,21 +54,24 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
      * @throws BusinessException 当用户未登录、活动不存在或已报名时抛出
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void enrollActivity(Long activityId) {
         Long userId = requireUserId();
-        targetValidator.assertExists(TargetType.ACTIVITY, activityId);
-
-        if (isEnrolled(activityId)) {
-            throw new BusinessException(ResultCode.SUBSCRIBE_ALREADY, "您已经订阅过此活动");
+        var event = activityMapper.selectForUpdate(activityId);
+        if (event == null || !Integer.valueOf(1).equals(event.getPublishStatus()))
+            throw new BusinessException(ResultCode.NOT_FOUND, "事项未发布或不可订阅");
+        var existing = activityEnrollmentMapper.selectOne(new LambdaQueryWrapper<ActivityEnrollment>()
+                .eq(ActivityEnrollment::getActivityId, activityId).eq(ActivityEnrollment::getUserId, userId));
+        if (existing == null) {
+            if (activityEnrollmentMapper.insert(ActivityEnrollment.builder().activityId(activityId).userId(userId)
+                    .status(1).notifyEnable(1).type(2).build()) != 1)
+                throw new BusinessException(ResultCode.INVALID_OPERATION, "订阅保存失败");
+        } else if (!Integer.valueOf(1).equals(existing.getStatus())) {
+            if (activityEnrollmentMapper.update(null, new LambdaUpdateWrapper<ActivityEnrollment>()
+                    .set(ActivityEnrollment::getStatus, 1).eq(ActivityEnrollment::getId, existing.getId())) != 1)
+                throw new BusinessException(ResultCode.INVALID_OPERATION, "订阅恢复失败");
         }
-
-        activityEnrollmentMapper.insert(ActivityEnrollment.builder()
-                .activityId(activityId)
-                .userId(userId)
-                .build()
-        );
-
-        log.info("[活动订阅] 用户 {} 订阅活动 {}", userId, activityId);
+        invalidateSubscriptionAfterCommit(activityId, userId);
     }
 
     /**
@@ -80,18 +83,15 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
      * @throws BusinessException 当用户未登录或报名记录不存在时抛出
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void unEnrollActivity(Long activityId) {
         Long userId = requireUserId();
-        targetValidator.assertExists(TargetType.ACTIVITY, activityId);
-
-        activityEnrollmentMapper.update(
-                new LambdaUpdateWrapper<ActivityEnrollment>()
-                        .set(ActivityEnrollment::getStatus, STATUS_CANCELLED)
-                        .eq(ActivityEnrollment::getActivityId, activityId)
-                        .eq(ActivityEnrollment::getUserId, userId)
-        );
-
-        log.info("[活动订阅] 用户 {} 取消订阅活动 {}", userId, activityId);
+        // Lock the same item as subscribe; cancellation remains possible after take-down.
+        activityMapper.selectForUpdate(activityId);
+        activityEnrollmentMapper.update(null, new LambdaUpdateWrapper<ActivityEnrollment>()
+                .set(ActivityEnrollment::getStatus, STATUS_CANCELLED)
+                .eq(ActivityEnrollment::getActivityId, activityId).eq(ActivityEnrollment::getUserId, userId));
+        invalidateSubscriptionAfterCommit(activityId, userId);
     }
 
     /**
@@ -190,14 +190,16 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
     @Override
     public List<Long> listEnrolledUserIds(Long activityId, long lastId, int limit) {
         if (activityId == null) return java.util.List.of();
-        return activityEnrollmentMapper.selectObjs(
+        return activityEnrollmentMapper.selectList(
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ActivityEnrollment>()
                         .select(ActivityEnrollment::getUserId)
                         .eq(ActivityEnrollment::getActivityId, activityId)
-                        .gt(lastId > 0, ActivityEnrollment::getId, lastId)
-                        .orderByAsc(ActivityEnrollment::getId)
+                        .eq(ActivityEnrollment::getStatus, 1)
+                        .eq(ActivityEnrollment::getNotifyEnable, 1)
+                        .gt(lastId > 0, ActivityEnrollment::getUserId, lastId)
+                        .orderByAsc(ActivityEnrollment::getUserId)
                         .last(" LIMIT " + limit)
-        );
+        ).stream().map(ActivityEnrollment::getUserId).toList();
     }
 
     @Override
@@ -211,6 +213,16 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
             return Set.of();
         }
         return new HashSet<>(enrolledIds);
+    }
+
+    private void invalidateSubscriptionAfterCommit(Long id, Long userId) {
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override public void afterCommit() {
+                        try { redisService.delete(RedisKeyConstant.activityEnrollment(id, userId)); }
+                        catch (RuntimeException e) { log.error("订阅缓存失效失败，id={}", id, e); }
+                    }
+                });
     }
 
     private Long requireUserId() {

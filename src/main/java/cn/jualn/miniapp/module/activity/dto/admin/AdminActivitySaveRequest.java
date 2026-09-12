@@ -15,16 +15,42 @@ import java.util.List;
 
 @Data
 public class AdminActivitySaveRequest {
+    private com.fasterxml.jackson.databind.JsonNode formSchema;
+    private Integer registrationLimit;
+    private Boolean clearRegistrationLimit;
+    private Integer startPrecision;
+    private Integer endPrecision;
+    private String timeDescription;
+    private Integer registrationStartPrecision;
+    private Integer registrationEndPrecision;
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm[:ss]")
+    private java.time.LocalDateTime registrationStart;
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm[:ss]")
+    private java.time.LocalDateTime registrationEnd;
+
+    @Valid @Size(max=30)
+    private List<cn.jualn.miniapp.module.activity.dto.request.EventSectionRequest> sections;
+    @Valid @Size(max=20)
+    private List<cn.jualn.miniapp.module.activity.dto.request.EventActionRequest> actions;
+    @Size(max=300) private String summary;
+    @Size(max=255) private String audienceSummary;
+    private Integer registrationMode;
+    private Integer participantMode;
+    private Integer capacityUnit;
+    @Positive private Integer capacity;
+    @Size(max=512) private String coverObjectKey;
+    private Boolean clearCover;
+    private Long coverAttachmentId;
+
+
 
     @NotBlank(message = "活动标题不能为空")
     @Size(max = 128, message = "活动标题不能超过128字")
     private String title;
 
-    @NotBlank(message = "活动详情不能为空")
     @Size(max = 10000, message = "活动详情不能超过10000字")
     private String content;
 
-    @NotBlank(message = "活动地点不能为空")
     @Size(max = 255, message = "活动地点不能超过255字")
     private String location;
 
@@ -36,7 +62,6 @@ public class AdminActivitySaveRequest {
     @Size(max = 128, message = "主办单位不能超过128字")
     private String organizer;
 
-    @NotEmpty(message = "参与范围不能为空")
     @Size(max = 6, message = "参与范围不能超过6项")
     private List<@Pattern(regexp = "college|information|science|finance|humanities|foundation",
             message = "参与范围不合法") String> audienceCodes;
@@ -53,11 +78,9 @@ public class AdminActivitySaveRequest {
     @Size(max = 512, message = "二维码地址不能超过512字")
     private String qrcodeUrl;
 
-    @NotNull(message = "活动开始时间不能为空")
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm[:ss]")
     private LocalDateTime startTime;
 
-    @NotNull(message = "活动结束时间不能为空")
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm[:ss]")
     private LocalDateTime endTime;
 
@@ -77,6 +100,13 @@ public class AdminActivitySaveRequest {
 
     @Data
     public static class TimelineItem {
+    private String nodeType;
+    private String location;
+    private Integer startPrecision;
+    private Integer endPrecision;
+    private String timeDescription;
+    private Long id;
+
 
         @NotBlank(message = "时间线节点名称不能为空")
         @Size(max = 64, message = "时间线节点名称不能超过64字")

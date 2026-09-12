@@ -63,10 +63,11 @@ class ExamServiceImplTest {
     @Test
     void pageExam_shouldDefaultToPublishedAndSetNextCursor() {
         ExamServiceImpl service = new ExamServiceImpl(
-                examInfoMapper, examSubscriptionMapper, examConverter, mediaService, timelineService, userService, redisService, interactService, examSubscriptionService);
+                org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class),
+                examInfoMapper, examSubscriptionMapper, examConverter, mediaService, timelineService, userService, redisService, interactService, examSubscriptionService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.notify.service.NotifyService.class));
 
-        ExamInfo first = ExamInfo.builder().id(20L).userId(7L).status(ExamStatus.PUBLISHED.getCode()).build();
-        ExamInfo second = ExamInfo.builder().id(10L).userId(8L).status(ExamStatus.PUBLISHED.getCode()).build();
+        ExamInfo first = ExamInfo.builder().id(20L).userId(7L).status(ExamStatus.PUBLISHED.getCode()).publishStatus(1).build();
+        ExamInfo second = ExamInfo.builder().id(10L).userId(8L).status(ExamStatus.PUBLISHED.getCode()).publishStatus(1).build();
         when(examInfoMapper.selectPageExams(ExamStatus.PUBLISHED.getCode(), 3, null, 50L, 2)).thenReturn(List.of(first, second));
         when(examConverter.toDetailList(any())).thenReturn(List.of(
                 ExamDetailBO.builder().id(20L).build(),
@@ -88,37 +89,28 @@ class ExamServiceImplTest {
     }
 
     @Test
-    void getExamDetail_shouldUseCacheWhenPresent() {
-        UserContext.setUserId(99L);
+    void getExamDetail_shouldRejectUnpublishedBeforeLoadingChildren() {
         ExamServiceImpl service = new ExamServiceImpl(
-                examInfoMapper, examSubscriptionMapper, examConverter, mediaService, timelineService, userService, redisService, interactService, examSubscriptionService);
-
-        ExamDetailBO cached = ExamDetailBO.builder().id(88L).title("cached").build();
-        when(redisService.get(RedisKeyConstant.examDetail(88L), ExamDetailBO.class)).thenReturn(cached);
-        when(examConverter.toDetailVO(cached)).thenReturn(new ExamDetailVO());
-        when(interactService.isLiked(TargetType.EXAM, 88L)).thenReturn(true);
-        when(examSubscriptionService.isSubscribed(88L)).thenReturn(true);
-
-        ExamDetailBO result = service.getExamDetail(88L);
-
-        assertEquals(cached, result);
-        verify(examInfoMapper, never()).selectByIdNotDeleted(any());
-        verify(interactService).isLiked(TargetType.EXAM, 88L);
-        verify(examSubscriptionService).isSubscribed(88L);
+                org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class),
+                examInfoMapper, examSubscriptionMapper, examConverter, mediaService, timelineService, userService,
+                redisService, interactService, examSubscriptionService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.notify.service.NotifyService.class));
+        when(examInfoMapper.selectByIdNotDeleted(88L)).thenReturn(ExamInfo.builder().id(88L).publishStatus(2).build());
+        org.junit.jupiter.api.Assertions.assertThrows(cn.jualn.miniapp.common.exception.BusinessException.class,
+                () -> service.getExamDetail(88L));
+        org.mockito.Mockito.verifyNoInteractions(redisService, mediaService);
     }
 
     @Test
     void getExamDetail_shouldLoadAndReturnDetailWhenCacheMiss() {
         UserContext.setUserId(99L);
         ExamServiceImpl service = new ExamServiceImpl(
-                examInfoMapper, examSubscriptionMapper, examConverter, mediaService, timelineService, userService, redisService, interactService, examSubscriptionService);
+                org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class),
+                examInfoMapper, examSubscriptionMapper, examConverter, mediaService, timelineService, userService, redisService, interactService, examSubscriptionService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.notify.service.NotifyService.class));
 
-        ExamInfo examInfo = ExamInfo.builder().id(88L).userId(20L).status(ExamStatus.PUBLISHED.getCode()).build();
+        ExamInfo examInfo = ExamInfo.builder().id(88L).userId(20L).status(ExamStatus.PUBLISHED.getCode()).publishStatus(1).build();
         ExamDetailBO detailBO = ExamDetailBO.builder().id(88L).build();
-        when(redisService.get(RedisKeyConstant.examDetail(88L), ExamDetailBO.class)).thenReturn(null);
         when(examInfoMapper.selectByIdNotDeleted(88L)).thenReturn(examInfo);
         when(examConverter.toDetailBO(examInfo)).thenReturn(detailBO);
-        when(examConverter.toDetailVO(detailBO)).thenReturn(new ExamDetailVO());
         when(userService.getSimpleInfo(20L)).thenReturn(UserSimpleBO.builder().id(20L).nickname("author").build());
         when(mediaService.listAttachments(TargetType.EXAM, 88L)).thenReturn(List.of());
         when(timelineService.listTimelinesByTarget(TargetType.EXAM, 88L)).thenReturn(List.of());

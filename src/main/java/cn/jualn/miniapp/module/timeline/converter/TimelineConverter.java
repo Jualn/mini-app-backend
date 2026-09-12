@@ -27,6 +27,11 @@ public interface TimelineConverter {
     @Mapping(target = "startTime", ignore = true)
     @Mapping(target = "endTime", ignore = true)
     @Mapping(target = "sortOrder", ignore = true)
+    @Mapping(target = "nodeType", ignore = true)
+    @Mapping(target = "location", ignore = true)
+    @Mapping(target = "startPrecision", ignore = true)
+    @Mapping(target = "endPrecision", ignore = true)
+    @Mapping(target = "timeDescription", ignore = true)
     TimelineCreateBO toCreateBO(TimelineCreateRequest request);
 
     @Mapping(target = "targetType", ignore = true)
@@ -46,7 +51,6 @@ public interface TimelineConverter {
     @Mapping(target = "updatedAt", ignore = true)
     Timeline toEntity(TimelineUpdateBO bo);
 
-    @Mapping(target = "id", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     Timeline toTimeline(TimelineItemBO item, Integer targetType, Long targetId);

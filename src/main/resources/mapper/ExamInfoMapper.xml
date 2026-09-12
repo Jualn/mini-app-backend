@@ -10,6 +10,7 @@
                exam_date AS examDate
         FROM exam_info
         WHERE deleted_at IS NULL
+          AND publish_status = 1
         ORDER BY exam_date DESC, id DESC
     </select>
 
@@ -28,9 +29,9 @@
     </select>
 
     <select id="selectPageExams" resultType="cn.jualn.miniapp.module.exam.entity.ExamInfo">
-        SELECT *
+        SELECT id, title, summary, category, event_type, edition_label, organizer, location, audience_scope, audience_summary, registration_mode, participant_mode, capacity, capacity_unit, cover_attachment_id, publish_status, start_time, end_time, start_precision, end_precision, time_description, registration_start, registration_end, registration_start_precision, registration_end_precision, exam_date, exam_date_end, official_url, comment_count, like_count, view_count, published_at
         FROM exam_info
-        WHERE status = #{status}
+        WHERE publish_status = 1
           AND deleted_at IS NULL
         <if test="category != null">
             AND category = #{category}
@@ -45,7 +46,7 @@
         <if test="lastId != null">
             AND id &lt; #{lastId}
         </if>
-        ORDER BY is_pinned DESC, published_at DESC, id DESC
+        ORDER BY id DESC
         LIMIT #{limit}
     </select>
 
@@ -70,5 +71,72 @@
         UPDATE exam_info
         SET view_count = COALESCE(view_count, 0) + #{delta}
         WHERE id = #{id}
+    </update>
+
+    <select id="selectForUpdate" resultType="cn.jualn.miniapp.module.exam.entity.ExamInfo">
+        SELECT organizer, location, audience_scope, audience_summary, contact_name, contact_phone, registration_mode, participant_mode, capacity, capacity_unit, cover_attachment_id, cancelled_at, cancel_reason, publish_status, start_precision, end_precision, time_description, registration_start_precision, registration_end_precision, start_time, end_time, summary, event_type, edition_label, id, user_id, title, category, content, registration_start, registration_end, exam_date, exam_date_end, official_url, status, audit_status, reject_reason, is_pinned, comment_count, like_count, view_count, published_at, created_at, updated_at, deleted_at FROM exam_info WHERE id = #{id} AND deleted_at IS NULL FOR UPDATE
+    </select>
+    <select id="selectOperationsPage" resultType="cn.jualn.miniapp.module.exam.bo.AdminPublicEventListBO">
+        SELECT id, title, summary, category, event_type, edition_label, publish_status,
+            start_time, start_precision, end_time, end_precision, registration_mode, updated_at
+        FROM exam_info WHERE deleted_at IS NULL
+        <if test="query.keyword != null and query.keyword != ''">
+            AND (title LIKE CONCAT('%', #{query.keyword}, '%') OR edition_label LIKE CONCAT('%', #{query.keyword}, '%'))
+        </if>
+        <if test="query.category != null">AND category = #{query.category}</if>
+        <if test="query.eventType != null">AND event_type = #{query.eventType}</if>
+        <if test="query.publishStatus != null">AND publish_status = #{query.publishStatus}</if>
+        <if test="lastId != null">AND id &lt; #{lastId}</if>
+        ORDER BY id DESC LIMIT #{limit}
+    </select>
+    <update id="saveOperationsFields">
+        UPDATE exam_info SET
+            title = #{event.title},
+            summary = #{event.summary},
+            category = #{event.category},
+            event_type = #{event.eventType},
+            edition_label = #{event.editionLabel},
+            organizer = #{event.organizer},
+            location = #{event.location},
+            audience_scope = #{event.audienceScope},
+            audience_summary = #{event.audienceSummary},
+            contact_name = #{event.contactName},
+            contact_phone = #{event.contactPhone},
+            registration_mode = #{event.registrationMode},
+            participant_mode = #{event.participantMode},
+            capacity = #{event.capacity},
+            capacity_unit = #{event.capacityUnit},
+            cover_attachment_id = #{event.coverAttachmentId},
+            time_description = #{event.timeDescription},
+            content = #{event.content},
+            start_time = #{event.startTime},
+            end_time = #{event.endTime},
+            start_precision = #{event.startPrecision},
+            end_precision = #{event.endPrecision},
+            registration_start = #{event.registrationStart},
+            registration_end = #{event.registrationEnd},
+            registration_start_precision = #{event.registrationStartPrecision},
+            registration_end_precision = #{event.registrationEndPrecision},
+            exam_date = #{event.examDate},
+            exam_date_end = #{event.examDateEnd}
+        WHERE id = #{event.id} AND publish_status IN (0, 1, 2) AND deleted_at IS NULL
+    </update>
+    <update id="publishDirectly">
+        UPDATE exam_info SET publish_status = 1, status = 2, audit_status = 0,
+            reject_reason = NULL, published_at = COALESCE(published_at, NOW())
+        WHERE id = #{id} AND publish_status IN (0, 2) AND deleted_at IS NULL
+    </update>
+    <update id="takeDownDirectly">
+        UPDATE exam_info SET publish_status = 2, status = 0, is_pinned = FALSE
+        WHERE id = #{id} AND publish_status = 1 AND deleted_at IS NULL
+    </update>
+    <update id="cancelDirectly">
+        UPDATE exam_info SET publish_status = 3, status = 0, is_pinned = FALSE,
+            cancelled_at = NOW(), cancel_reason = #{reason}
+        WHERE id = #{id} AND publish_status = 1 AND deleted_at IS NULL
+    </update>
+    <update id="removeDirectly">
+        UPDATE exam_info SET deleted_at = NOW(), status = 6, publish_status = 2, is_pinned = FALSE
+        WHERE id = #{id} AND publish_status IN (0, 2, 3) AND deleted_at IS NULL
     </update>
 </mapper>

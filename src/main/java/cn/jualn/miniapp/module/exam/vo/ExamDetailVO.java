@@ -14,6 +14,40 @@ import java.util.List;
  */
 @Data
 public class ExamDetailVO {
+    private String organizer;
+    private String location;
+    private Integer audienceScope;
+    private String audienceSummary;
+    private String contactName;
+    private String contactPhone;
+    private Integer registrationMode;
+    private Integer participantMode;
+    private Integer capacity;
+    private Integer capacityUnit;
+    private Long coverAttachmentId;
+    private java.time.LocalDateTime cancelledAt;
+    private String cancelReason;
+
+    private String activityPhase;
+    private String registrationStatus;
+
+    private Integer publishStatus;
+
+    private Integer startPrecision;
+    private Integer endPrecision;
+    private String timeDescription;
+    private Integer registrationStartPrecision;
+    private Integer registrationEndPrecision;
+    private java.time.LocalDateTime startTime;
+    private java.time.LocalDateTime endTime;
+
+    private String summary;
+    private Integer eventType;
+    private String editionLabel;
+
+    private java.util.List<EventSectionVO> sections;
+    private java.util.List<EventActionVO> actions;
+
 
     private Long id;
     private String title;

@@ -13,6 +13,15 @@ import java.util.List;
  * 考试信息业务接口。
  */
 public interface ExamService {
+    cn.jualn.miniapp.module.exam.bo.AdminPublicEventPageBO pageAdminPublicEvents(cn.jualn.miniapp.module.exam.bo.AdminPublicEventQueryBO query);
+    ExamDetailBO getAdminPublicEvent(Long id);
+    ExamDetailBO createAdminPublicEvent(cn.jualn.miniapp.module.exam.bo.AdminPublicEventSaveBO command);
+    ExamDetailBO updateAdminPublicEvent(cn.jualn.miniapp.module.exam.bo.AdminPublicEventSaveBO command);
+    void publishAdminPublicEvent(Long id, Long operatorId);
+    void takeDownAdminPublicEvent(Long id, Long operatorId, String reason);
+    void cancelAdminPublicEvent(Long id, Long operatorId, String reason);
+    void removeAdminPublicEvent(Long id, Long operatorId, String reason);
+
 
 	/**
 	 * 创建考试信息。

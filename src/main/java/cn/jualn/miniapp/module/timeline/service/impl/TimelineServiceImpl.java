@@ -58,49 +58,85 @@ public class TimelineServiceImpl implements TimelineService {
         LambdaQueryWrapper<Timeline> wrapper = Wrappers.lambdaQuery(Timeline.class)
                 .eq(Timeline::getTargetType, targetType.getCode())
                 .eq(Timeline::getTargetId, targetId);
-        timelineMapper.delete(wrapper);
-
-        if (requestList.isEmpty()) {
-            log.info("清空时间线节点成功, targetType: {}, targetId: {}", targetType, targetId);
-            return;
-        }
-
-
+        List<Timeline> existing = timelineMapper.selectList(wrapper);
+        if (requestList.size() > 20) throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线最多20项");
         List<Timeline> timelines = timelineConverter.toTimelineList(saveDTO);
-        if (CollectionUtils.isEmpty(timelines)) {
-            log.error("转换时间线列表失败, timelines is empty, saveDTO: {}", saveDTO);
-            throw new BusinessException(ResultCode.TIMELINE_OPERATION_FAILED, "转换时间线列表失败");
+        java.util.Set<Long> retained = new java.util.HashSet<>();
+        for (Timeline node : timelines) {
+            Timeline previous = null;
+            if (node.getId() != null) {
+                previous = existing.stream().filter(t -> node.getId().equals(t.getId())).findFirst()
+                        .orElseThrow(() -> new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线ID不属于当前事项"));
+            } else {
+                List<Timeline> matches = existing.stream().filter(t -> java.util.Objects.equals(t.getLabel(), node.getLabel()))
+                        .filter(t -> !retained.contains(t.getId())).toList();
+                if (matches.size() == 1) previous = matches.get(0);
+            }
+            if (previous != null) {
+                node.setId(previous.getId());
+                if (!retained.add(previous.getId())) throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线ID重复");
+                if (node.getNodeType() == null) node.setNodeType(previous.getNodeType());
+                if (node.getLocation() == null) node.setLocation(previous.getLocation());
+                if (node.getTimeDescription() == null) node.setTimeDescription(previous.getTimeDescription());
+                if (node.getStartPrecision() == null && java.util.Objects.equals(node.getStartTime(), previous.getStartTime()))
+                    node.setStartPrecision(previous.getStartPrecision());
+                if (node.getEndPrecision() == null && java.util.Objects.equals(node.getEndTime(), previous.getEndTime()))
+                    node.setEndPrecision(previous.getEndPrecision());
+            }
+            validateNode(node);
+            if (previous == null) {
+                if (timelineMapper.insert(node) != 1) throw new BusinessException(ResultCode.TIMELINE_OPERATION_FAILED);
+            } else {
+                int updated = timelineMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Timeline>()
+                        .set(Timeline::getLabel, node.getLabel()).set(Timeline::getDescription, node.getDescription())
+                        .set(Timeline::getStartTime, node.getStartTime()).set(Timeline::getEndTime, node.getEndTime())
+                        .set(Timeline::getNodeType, node.getNodeType()).set(Timeline::getLocation, node.getLocation())
+                        .set(Timeline::getStartPrecision, node.getStartPrecision()).set(Timeline::getEndPrecision, node.getEndPrecision())
+                        .set(Timeline::getTimeDescription, node.getTimeDescription()).set(Timeline::getSortOrder, node.getSortOrder())
+                        .eq(Timeline::getId, node.getId()).eq(Timeline::getTargetType, targetType.getCode()).eq(Timeline::getTargetId, targetId));
+                if (updated != 1) throw new BusinessException(ResultCode.TIMELINE_OPERATION_FAILED);
+            }
         }
+        List<Long> removed = existing.stream().map(Timeline::getId).filter(id -> !retained.contains(id)).toList();
+        if (!removed.isEmpty()) timelineMapper.delete(new LambdaQueryWrapper<Timeline>()
+                .eq(Timeline::getTargetType, targetType.getCode()).eq(Timeline::getTargetId, targetId).in(Timeline::getId, removed));
+    }
 
-        timelineMapper.insert(timelines);
+    private void validateNode(Timeline node) {
+        if (node.getLabel() == null || node.getLabel().isBlank() || node.getLabel().length() > 64)
+            throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线名称不能为空或超过64字");
+        if (node.getNodeType() == null) node.setNodeType("CUSTOM");
+        if (!node.getNodeType().matches("[A-Z][A-Z0-9_]{0,31}"))
+            throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线类型不合法");
+        for (String text : new String[]{node.getLocation(), node.getDescription(), node.getTimeDescription()})
+            if (text != null && text.length() > 255) throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线说明过长");
+        if (node.getSortOrder() == null || node.getSortOrder() < 0 || node.getSortOrder() > 65535)
+            throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "排序值不合法");
+        node.setStartPrecision(precision(node.getStartTime(), node.getStartPrecision()));
+        node.setEndPrecision(precision(node.getEndTime(), node.getEndPrecision()));
+        cn.jualn.miniapp.module.eventcontent.service.EventTimePolicy.range(node.getStartTime(), node.getEndTime(), node.getEndPrecision());
+    }
 
-        log.info("覆盖保存时间线节点成功, targetType: {}, targetId: {}, count: {}",
-                targetType, targetId, timelines.size());
+    private Integer precision(java.time.LocalDateTime time, Integer precision) {
+        int value = precision == null ? (time == null ? 0 : 2) : precision;
+        if (value < 0 || value > 2 || (time == null && value != 0))
+            throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间与精度不匹配");
+        if (time != null && value == 1 && !time.toLocalTime().equals(java.time.LocalTime.MIDNIGHT))
+            throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "日期精度请提交当天零点");
+        return value;
     }
 
     @Override
     public void updateTimeline(TimelineUpdateBO command) {
 
-        // 更新字段
-        int updated = timelineMapper.updateById(
-                timelineConverter.toEntity(command));
-        if (updated <= 0) {
-            log.error("更新时间线节点失败, id: {}", command.getId());
-            throw new BusinessException(ResultCode.TIMELINE_OPERATION_FAILED, "更新时间线节点失败");
-        }
+        // Standalone writes cannot verify owning event permissions or refresh aggregate audit/cache.
+        throw new BusinessException(ResultCode.TIMELINE_OPERATION_FAILED, "请通过活动或公共事项编辑接口修改时间线");
 
-        log.info("更新时间线节点成功, id: {}", command.getId());
     }
 
     @Override
     public void deleteTimeline(Long id) {
-        int deleted = timelineMapper.deleteById(id);
-        if (deleted > 0) {
-            log.info("删除时间线节点成功, id: {}", id);
-        } else {
-            log.warn("删除时间线节点失败, id: {}", id);
-            throw new BusinessException(ResultCode.TIMELINE_OPERATION_FAILED, "删除时间线节点失败");
-        }
+        throw new BusinessException(ResultCode.TIMELINE_OPERATION_FAILED, "请通过活动或公共事项编辑接口删除时间线");
     }
 
     @Override

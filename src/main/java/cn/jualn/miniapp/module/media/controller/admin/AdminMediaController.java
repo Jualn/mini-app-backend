@@ -29,4 +29,10 @@ public class AdminMediaController {
         AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
         return Result.ok(mediaService.generateUploadCredential(TargetType.ACTIVITY, request.getFileNames()));
     }
+    @PostMapping("/public-event-upload-credentials")
+    public Result<CosUploadCredentialDTO> getPublicEventUploadCredential(
+            @Valid @RequestBody AdminMediaUploadCredentialRequest request) {
+        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.PUBLIC_EVENT_EDIT);
+        return Result.ok(mediaService.generateUploadCredential(TargetType.EXAM, request.getFileNames()));
+    }
 }

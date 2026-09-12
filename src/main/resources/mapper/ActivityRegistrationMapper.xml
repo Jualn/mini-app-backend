@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.activity.mapper.ActivityRegistrationMapper">
+    <select id="page" resultType="cn.jualn.miniapp.module.activity.bo.ActivityRegistrationBO">
+        SELECT id, activity_id, user_id, status, submitted_at, cancelled_at, invalidated_at, invalidated_by, invalid_reason
+        FROM activity_registration WHERE activity_id = #{activityId}
+        <if test="status != null">AND status = #{status}</if>
+        <if test="beforeId != null">AND id &lt; #{beforeId}</if>
+        ORDER BY id DESC LIMIT #{limit}
+    </select>
+    <select id="exportRows" resultType="cn.jualn.miniapp.module.activity.entity.ActivityRegistration">
+        SELECT id, activity_id, user_id, status, form_data, submitted_at, cancelled_at,
+               invalidated_at, invalidated_by, invalid_reason, created_at, updated_at
+        FROM activity_registration WHERE activity_id = #{activityId}
+        <if test="status != null">AND status = #{status}</if>
+        ORDER BY id DESC LIMIT #{limit}
+    </select>
+    <update id="restore">
+        UPDATE activity_registration SET status = 1, form_data = #{data}, submitted_at = #{now}, cancelled_at = NULL
+        WHERE id = #{id} AND status = 2
+    </update>
+    <update id="cancel">
+        UPDATE activity_registration SET status = 2, cancelled_at = #{now} WHERE id = #{id} AND status = 1
+    </update>
+    <update id="invalidate">
+        UPDATE activity_registration SET status = 3, invalidated_at = #{now}, invalidated_by = #{operatorId}, invalid_reason = #{reason}
+        WHERE id = #{id} AND status IN (1, 2)
+    </update>
+</mapper>

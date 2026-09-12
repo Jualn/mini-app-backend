@@ -15,6 +15,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.util.List;
@@ -37,6 +38,7 @@ public class ExamSubscriptionServiceImpl implements ExamSubscriptionService {
     private static final Integer STATUS_CANCELLED = 2;
     private static final Duration CACHE_NULL_TTL = Duration.ofSeconds(30);
 
+    private final cn.jualn.miniapp.module.exam.mapper.ExamInfoMapper examInfoMapper;
     private final ExamSubscriptionMapper examSubscriptionMapper;
     private final RedisService redisService;
     private final TargetValidator targetValidator;
@@ -48,21 +50,24 @@ public class ExamSubscriptionServiceImpl implements ExamSubscriptionService {
      * @throws BusinessException 用户未登录或考试不存在时抛出异常
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void subscribeExam(Long examId) {
         Long userId = requireUserId();
-        targetValidator.assertExists(TargetType.EXAM, examId);
-
-        if (isSubscribed(examId)) {
-            throw new BusinessException(ResultCode.SUBSCRIBE_ALREADY, "您已经订阅过此考试"); // 先查询缓存，避免重复订阅
+        var event = examInfoMapper.selectForUpdate(examId);
+        if (event == null || !Integer.valueOf(1).equals(event.getPublishStatus()))
+            throw new BusinessException(ResultCode.NOT_FOUND, "事项未发布或不可订阅");
+        var existing = examSubscriptionMapper.selectOne(new LambdaQueryWrapper<ExamSubscription>()
+                .eq(ExamSubscription::getExamInfoId, examId).eq(ExamSubscription::getUserId, userId));
+        if (existing == null) {
+            if (examSubscriptionMapper.insert(ExamSubscription.builder().examInfoId(examId).userId(userId)
+                    .status(1).notifyEnable(1).build()) != 1)
+                throw new BusinessException(ResultCode.INVALID_OPERATION, "订阅保存失败");
+        } else if (!Integer.valueOf(1).equals(existing.getStatus())) {
+            if (examSubscriptionMapper.update(null, new LambdaUpdateWrapper<ExamSubscription>()
+                    .set(ExamSubscription::getStatus, 1).eq(ExamSubscription::getId, existing.getId())) != 1)
+                throw new BusinessException(ResultCode.INVALID_OPERATION, "订阅恢复失败");
         }
-
-        examSubscriptionMapper.insert(ExamSubscription.builder()
-                .examInfoId(examId)
-                .userId(userId)
-                .build()
-        );
-
-        log.info("[考试订阅] 用户 {} 订阅考试 {}", userId, examId);
+        invalidateSubscriptionAfterCommit(examId, userId);
     }
 
     /**
@@ -72,20 +77,15 @@ public class ExamSubscriptionServiceImpl implements ExamSubscriptionService {
      * @throws BusinessException 用户未登录或订阅不存在时抛出异常
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void unsubscribeExam(Long examId) {
         Long userId = requireUserId();
-        String cacheKey = RedisKeyConstant.examSubscription(examId, userId);
-        targetValidator.assertExists(TargetType.EXAM, examId);
-
-        examSubscriptionMapper.update(
-                new LambdaUpdateWrapper<ExamSubscription>()
-                        .set(ExamSubscription::getStatus, STATUS_CANCELLED)
-                        .eq(ExamSubscription::getExamInfoId, examId)
-                        .eq(ExamSubscription::getUserId, userId)
-        );
-
-        redisService.delete(cacheKey);
-        log.info("[考试订阅] 用户 {} 取消订阅考试 {}", userId, examId);
+        // Lock the same item as subscribe; cancellation remains possible after take-down.
+        examInfoMapper.selectForUpdate(examId);
+        examSubscriptionMapper.update(null, new LambdaUpdateWrapper<ExamSubscription>()
+                .set(ExamSubscription::getStatus, STATUS_CANCELLED)
+                .eq(ExamSubscription::getExamInfoId, examId).eq(ExamSubscription::getUserId, userId));
+        invalidateSubscriptionAfterCommit(examId, userId);
     }
 
     @Override
@@ -126,14 +126,26 @@ public class ExamSubscriptionServiceImpl implements ExamSubscriptionService {
     @Override
     public List<Long> listSubscriberUserIds(Long examId, long lastId, int limit) {
         if (examId == null) return java.util.List.of();
-        return examSubscriptionMapper.selectObjs(
+        return examSubscriptionMapper.selectList(
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ExamSubscription>()
                         .select(ExamSubscription::getUserId)
                         .eq(ExamSubscription::getExamInfoId, examId)
-                        .gt(lastId > 0, ExamSubscription::getId, lastId)
-                        .orderByAsc(ExamSubscription::getId)
+                        .eq(ExamSubscription::getStatus, 1)
+                        .eq(ExamSubscription::getNotifyEnable, 1)
+                        .gt(lastId > 0, ExamSubscription::getUserId, lastId)
+                        .orderByAsc(ExamSubscription::getUserId)
                         .last(" LIMIT " + limit)
-        );
+        ).stream().map(ExamSubscription::getUserId).toList();
+    }
+
+    private void invalidateSubscriptionAfterCommit(Long id, Long userId) {
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override public void afterCommit() {
+                        try { redisService.delete(RedisKeyConstant.examSubscription(id, userId)); }
+                        catch (RuntimeException e) { log.error("订阅缓存失效失败，id={}", id, e); }
+                    }
+                });
     }
 
     private Long requireUserId() {

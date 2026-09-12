@@ -169,6 +169,39 @@ public class NotifyServiceImpl implements NotifyService {
     }
 
     @Override
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void replaceEventReminder(TargetType type, Long id, String title, java.time.LocalDateTime sendAt) {
+        if ((type != TargetType.ACTIVITY && type != TargetType.EXAM) || id == null)
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "提醒来源不合法");
+        int sourceType = type == TargetType.ACTIVITY ? 1 : 2;
+        notifyPlanMapper.cancelBySource(sourceType, id);
+        if (sendAt == null || !sendAt.isAfter(java.time.LocalDateTime.now())) return;
+        // 已发送记录保持历史事实；同一时间的通知不因编辑或重新发布而重发。
+        if (notifyPlanMapper.exists(new LambdaQueryWrapper<NotifyPlan>()
+                .eq(NotifyPlan::getSourceType, sourceType).eq(NotifyPlan::getSourceId, id)
+                .eq(NotifyPlan::getSendAt, sendAt).eq(NotifyPlan::getStatus, 1))) return;
+        boolean activity = type == TargetType.ACTIVITY;
+        NotifyPlan plan = NotifyPlan.builder().sourceType(sourceType).sourceId(id)
+                .notifyType((activity ? NotifyType.ACTIVITY_REMIND : NotifyType.EXAM_REMIND).getCode())
+                .title(activity ? "活动即将开始" : "公共事项报名即将开始")
+                .content("你关注的「" + title + "」即将" + (activity ? "开始" : "开始报名"))
+                .scope(0).scene(activity ? "活动开始前1小时" : "报名开始前1小时")
+                .sendAt(sendAt).status(0).build();
+        if (notifyPlanMapper.insert(plan) != 1)
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "提醒计划保存失败");
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override public void afterCommit() {
+                        try { enqueueNotifyPlan(plan.getId()); }
+                        catch (RuntimeException e) {
+                            // 数据库待发计划可由现有启动恢复补投；不把已提交的事项保存报为失败。
+                            log.error("提醒计划入队失败，planId={}", plan.getId(), e);
+                        }
+                    }
+                });
+    }
+
+    @Override
     public void cancelActivityPlans(Long activityId) {
         if (activityId == null) {
             throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "activityId 不能为空");

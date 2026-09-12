@@ -23,6 +23,8 @@ public class AdminPermissionPolicy {
     public static final String REPORT_HANDLE = "report:handle";
     public static final String ACTIVITY_READ = "activity:read";
     public static final String ACTIVITY_EDIT = "activity:edit";
+    public static final String PUBLIC_EVENT_READ = "public-event:read";
+    public static final String PUBLIC_EVENT_EDIT = "public-event:edit";
     public static final String NOTICE_READ = "notice:read";
     public static final String USER_READ = "user:read";
     public static final String USER_MANAGE = "user:manage";
@@ -38,6 +40,8 @@ public class AdminPermissionPolicy {
             REPORT_HANDLE,
             ACTIVITY_READ,
             ACTIVITY_EDIT,
+            PUBLIC_EVENT_READ,
+            PUBLIC_EVENT_EDIT,
             NOTICE_READ,
             USER_READ
     );

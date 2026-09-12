@@ -10,6 +10,13 @@ import java.time.LocalDateTime;
 
 @Data
 public class TimelineItemRequest {
+    private String nodeType;
+    private String location;
+    private Integer startPrecision;
+    private Integer endPrecision;
+    private String timeDescription;
+    private Long id;
+
     @NotBlank(message = "时间线标签不能为空")
     @Size(max = 64, message = "标签不能超过64字")
     private String label;

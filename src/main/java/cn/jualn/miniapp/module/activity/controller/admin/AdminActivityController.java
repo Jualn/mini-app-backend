@@ -78,6 +78,21 @@ public class AdminActivityController {
         return Result.ok(AdminActivitySavedVO.builder().id(id.toString()).savedAt(LocalDateTime.now()).build());
     }
 
+    @PostMapping("/{id}/publish")
+    public Result<Void> publish(@PathVariable @Positive Long id) {
+        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
+        activityService.publishAdminActivity(id, AdminStpUtil.STP_LOGIC.getLoginIdAsLong());
+        return Result.ok(null);
+    }
+
+    @PostMapping("/{id}/take-down")
+    public Result<Void> takeDown(@PathVariable @Positive Long id,
+            @RequestBody @Valid AdminActivityReasonRequest request) {
+        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
+        activityService.takeDownAdminActivity(id, AdminStpUtil.STP_LOGIC.getLoginIdAsLong(), request.getReason());
+        return Result.ok(null);
+    }
+
     @PostMapping("/{id}/submit-review")
     public Result<Void> submitReview(@PathVariable @Positive(message = "活动ID必须大于0") Long id) {
         AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);

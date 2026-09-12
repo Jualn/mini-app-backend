@@ -5,14 +5,14 @@
 <mapper namespace="cn.jualn.miniapp.module.activity.mapper.ActivityMapper">
 
     <select id="selectByIdNotDeleted" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
-        SELECT id, user_id,title,content,location,category,organizer,audience_scope,contact_info,
+        SELECT form_schema, registration_limit, cancelled_at, cancel_reason, audit_status, publish_status, start_precision, end_precision, time_description, registration_start, registration_end, registration_start_precision, registration_end_precision, summary, audience_summary, registration_mode, participant_mode, COALESCE(capacity, max_participants) AS capacity, COALESCE(capacity_unit, CASE WHEN max_participants IS NOT NULL THEN 1 END) AS capacity_unit, cover_attachment_id, id, user_id,title,content,location,category,organizer,audience_scope,contact_info,
             join_method,qrcode_url,start_time,end_time,enroll_deadline,max_participants,comment_count,
             like_count,view_count,published_at,
             <![CDATA[
             CASE
-                WHEN status IN (0, 1, 5, 6, 7) THEN status
-                WHEN NOW() >= end_time THEN 4
-                WHEN NOW() >= start_time THEN 3
+                WHEN status IN (0, 1, 4, 5, 6, 7) THEN status
+                WHEN end_precision > 0 AND NOW() >= CASE WHEN end_precision = 1 THEN DATE_ADD(DATE(end_time), INTERVAL 1 DAY) ELSE end_time END THEN 4
+                WHEN start_precision > 0 AND NOW() >= start_time THEN 3
                 ELSE 2
             END AS status
             ]]>
@@ -30,19 +30,24 @@
     </select>
 
     <select id="selectPageActivities" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
-        SELECT id, title, category, organizer, audience_scope, enroll_deadline, published_at,
+        SELECT form_schema, registration_limit, cancelled_at, cancel_reason, audit_status, publish_status, start_precision, end_precision, time_description, registration_start, registration_end, registration_start_precision, registration_end_precision, summary, audience_summary, registration_mode, participant_mode, COALESCE(capacity, max_participants) AS capacity, COALESCE(capacity_unit, CASE WHEN max_participants IS NOT NULL THEN 1 END) AS capacity_unit, cover_attachment_id, start_time, end_time, id, title, category, organizer, audience_scope, enroll_deadline, published_at,
             location,max_participants,
             <![CDATA[
                 CASE
-                    WHEN status IN (0, 1, 5, 6, 7) THEN status
-                    WHEN NOW() >= end_time THEN 4
-                    WHEN NOW() >= start_time THEN 3
+                    WHEN status IN (0, 1, 4, 5, 6, 7) THEN status
+                    WHEN end_precision > 0 AND NOW() >= CASE WHEN end_precision = 1 THEN DATE_ADD(DATE(end_time), INTERVAL 1 DAY) ELSE end_time END THEN 4
+                    WHEN start_precision > 0 AND NOW() >= start_time THEN 3
                     ELSE 2
                 END AS status
             ]]>
         FROM activity
-        WHERE status = #{status}
+        WHERE publish_status = 1
           AND deleted_at IS NULL
+        <if test="status != null">AND CASE
+            WHEN status IN (0, 1, 4, 5, 6, 7) THEN status
+            WHEN end_precision > 0 AND NOW() &gt;= CASE WHEN end_precision = 1 THEN DATE_ADD(DATE(end_time), INTERVAL 1 DAY) ELSE end_time END THEN 4
+            WHEN start_precision > 0 AND start_precision > 0 AND NOW() &gt;= start_time THEN 3
+            ELSE 2 END = #{status}</if>
         <if test="category != null">
             AND category = #{category}
         </if>
@@ -52,7 +57,7 @@
         <if test="lastId != null">
             AND id &lt; #{lastId}
         </if>
-        ORDER BY id, published_at DESC
+        ORDER BY id DESC
         LIMIT #{limit}
     </select>
 
@@ -64,7 +69,7 @@
 
     <select id="selectAdminActivityPage"
             resultType="cn.jualn.miniapp.module.activity.mapper.AdminActivityListRow">
-        SELECT a.id,
+        SELECT a.publish_status, a.id,
                a.title,
                LEFT(a.content, 160) AS summary,
                a.category,
@@ -82,7 +87,7 @@
                a.view_count,
                a.updated_at
         FROM (
-            SELECT id,
+            SELECT publish_status, id,
                    title,
                    content,
                    category,
@@ -98,9 +103,9 @@
                    view_count,
                    updated_at,
                    CASE
-                       WHEN status IN (0, 1, 5, 6, 7) THEN status
-                       WHEN NOW() &gt;= end_time THEN 4
-                       WHEN NOW() &gt;= start_time THEN 3
+                       WHEN status IN (0, 1, 4, 5, 6, 7) THEN status
+                       WHEN end_precision > 0 AND NOW() &gt;= CASE WHEN end_precision = 1 THEN DATE_ADD(DATE(end_time), INTERVAL 1 DAY) ELSE end_time END THEN 4
+                       WHEN start_precision > 0 AND start_precision > 0 AND NOW() &gt;= start_time THEN 3
                        ELSE 2
                    END AS effective_status
             FROM activity
@@ -180,9 +185,9 @@
         FROM (
             SELECT start_time,
                    CASE
-                       WHEN status IN (0, 1, 5, 6, 7) THEN status
-                       WHEN NOW() &gt;= end_time THEN 4
-                       WHEN NOW() &gt;= start_time THEN 3
+                       WHEN status IN (0, 1, 4, 5, 6, 7) THEN status
+                       WHEN end_precision > 0 AND NOW() &gt;= CASE WHEN end_precision = 1 THEN DATE_ADD(DATE(end_time), INTERVAL 1 DAY) ELSE end_time END THEN 4
+                       WHEN start_precision > 0 AND start_precision > 0 AND NOW() &gt;= start_time THEN 3
                        ELSE 2
                    END AS effective_status
             FROM activity
@@ -192,7 +197,7 @@
 
     <select id="selectAdminActivityById"
             resultType="cn.jualn.miniapp.module.activity.entity.Activity">
-        SELECT id,
+        SELECT form_schema, registration_limit, cancelled_at, cancel_reason, audit_status, publish_status, start_precision, end_precision, time_description, registration_start, registration_end, registration_start_precision, registration_end_precision, summary, audience_summary, registration_mode, participant_mode, capacity, capacity_unit, cover_attachment_id, id,
                user_id,
                title,
                content,
@@ -208,9 +213,9 @@
                enroll_deadline,
                max_participants,
                CASE
-                   WHEN status IN (0, 1, 5, 6, 7) THEN status
-                   WHEN NOW() &gt;= end_time THEN 4
-                   WHEN NOW() &gt;= start_time THEN 3
+                   WHEN status IN (0, 1, 4, 5, 6, 7) THEN status
+                   WHEN end_precision > 0 AND NOW() &gt;= CASE WHEN end_precision = 1 THEN DATE_ADD(DATE(end_time), INTERVAL 1 DAY) ELSE end_time END THEN 4
+                   WHEN start_precision > 0 AND start_precision > 0 AND NOW() &gt;= start_time THEN 3
                    ELSE 2
                END AS status,
                audit_status,
@@ -229,7 +234,7 @@
 
     <update id="submitAdminReview">
         UPDATE activity
-        SET status = 1,
+        SET status = 1, publish_status = 0,
             audit_status = 0,
             reject_reason = NULL,
             is_pinned = FALSE
@@ -242,36 +247,36 @@
         UPDATE activity
         SET is_pinned = #{pinned}
         WHERE id = #{activityId}
-          AND status IN (2, 3)
-          AND NOW() &lt; end_time
+          AND status IN (2, 3) AND publish_status = 1
+          AND (end_precision = 0 OR end_time IS NULL OR NOW() &lt; CASE WHEN end_precision = 1 THEN DATE_ADD(DATE(end_time), INTERVAL 1 DAY) ELSE end_time END)
           AND deleted_at IS NULL
     </update>
 
     <update id="cancelAdminActivity">
         UPDATE activity
-        SET status = 5,
+        SET status = 5, publish_status = 3, cancelled_at = NOW(), cancel_reason = #{reason},
             is_pinned = FALSE
         WHERE id = #{activityId}
-          AND status = 2
-          AND NOW() &lt; start_time
+          AND status = 2 AND publish_status = 1
+          AND (start_precision = 0 OR start_time IS NULL OR NOW() &lt; start_time)
           AND deleted_at IS NULL
     </update>
 
     <update id="endAdminActivityEarly">
         UPDATE activity
         SET status = 4,
-            end_time = NOW(),
+            end_time = NOW(), end_precision = 2,
             is_pinned = FALSE
         WHERE id = #{activityId}
-          AND status IN (2, 3)
-          AND NOW() &gt;= start_time
-          AND NOW() &lt; end_time
+          AND status IN (2, 3) AND publish_status = 1
+          AND start_precision > 0 AND NOW() &gt;= start_time
+          AND (end_precision = 0 OR end_time IS NULL OR NOW() &lt; CASE WHEN end_precision = 1 THEN DATE_ADD(DATE(end_time), INTERVAL 1 DAY) ELSE end_time END)
           AND deleted_at IS NULL
     </update>
 
     <update id="approveAdminReview">
         UPDATE activity
-        SET status = 2,
+        SET status = 2, publish_status = 1,
             audit_status = 1,
             reject_reason = NULL,
             published_at = COALESCE(published_at, NOW())
@@ -283,7 +288,7 @@
 
     <update id="rejectAdminReview">
         UPDATE activity
-        SET status = 6,
+        SET status = 6, publish_status = 0,
             audit_status = 2,
             reject_reason = #{reason}
         WHERE id = #{activityId}
@@ -308,4 +313,23 @@
         SET view_count = COALESCE(view_count, 0) + #{delta}
         WHERE id = #{id}
     </update>
+
+    <select id="selectForUpdate" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
+        SELECT form_schema, registration_limit, cancelled_at, cancel_reason, publish_status, start_precision, end_precision, time_description, registration_start_precision, registration_end_precision, registration_start, registration_end, summary, audience_summary, registration_mode, participant_mode, capacity_unit, capacity, cover_attachment_id, id, user_id, title, content, location, category, organizer, audience_scope, contact_info, join_method, qrcode_url, start_time, end_time, enroll_deadline, max_participants, status, audit_status, reject_reason, is_pinned, comment_count, like_count, view_count, published_at, created_at, updated_at, deleted_at FROM activity WHERE id = #{id} AND deleted_at IS NULL FOR UPDATE
+    </select>
+    <update id="publishDirectly">
+        UPDATE activity SET publish_status = 1, status = 2, audit_status = 0,
+            reject_reason = NULL, published_at = COALESCE(published_at, NOW())
+        WHERE id = #{id} AND publish_status IN (0, 2) AND deleted_at IS NULL
+    </update>
+    <update id="takeDownDirectly">
+        UPDATE activity SET publish_status = 2, status = 0, is_pinned = FALSE
+        WHERE id = #{id} AND publish_status = 1 AND deleted_at IS NULL
+    </update>
+    <select id="selectRegistrationActivity" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
+        SELECT id, form_schema, registration_limit, registration_mode, participant_mode, publish_status, registration_start, registration_end, registration_start_precision, registration_end_precision, deleted_at FROM activity WHERE id = #{id}
+    </select>
+    <select id="lockRegistrationActivity" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
+        SELECT id, form_schema, registration_limit, registration_mode, participant_mode, publish_status, registration_start, registration_end, registration_start_precision, registration_end_precision, deleted_at FROM activity WHERE id = #{id} FOR UPDATE
+    </select>
 </mapper>

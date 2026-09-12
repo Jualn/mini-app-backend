@@ -20,6 +20,21 @@ import java.util.List;
  */
 @Data
 public class ActivityCreateRequest {
+    private Integer startPrecision;
+    private Integer endPrecision;
+    private String timeDescription;
+    private Integer registrationStartPrecision;
+    private Integer registrationEndPrecision;
+    private java.time.LocalDateTime registrationStart;
+    private java.time.LocalDateTime registrationEnd;
+
+    @jakarta.validation.Valid
+    @jakarta.validation.constraints.Size(max=30)
+    private java.util.List<EventSectionRequest> sections;
+    @jakarta.validation.Valid
+    @jakarta.validation.constraints.Size(max=20)
+    private java.util.List<EventActionRequest> actions;
+
 
     /** 活动标题，必填 */
     @NotBlank(message = "活动标题不能为空")
@@ -27,7 +42,6 @@ public class ActivityCreateRequest {
     private String title;
 
     /** 活动详情，必填 */
-    @NotBlank(message = "活动详情不能为空")
     @Size(max = 10000, message = "活动详情不能超过10000字")
     private String content;
 
@@ -59,11 +73,9 @@ public class ActivityCreateRequest {
     private String qrcodeUrl;
 
     /** 活动开始时间，必填 */
-    @NotNull(message = "活动开始时间不能为空")
     private LocalDateTime startTime;
 
     /** 活动结束时间，必填 */
-    @NotNull(message = "活动结束时间不能为空")
     private LocalDateTime endTime;
 
     /** 报名截止时间，可选 */
