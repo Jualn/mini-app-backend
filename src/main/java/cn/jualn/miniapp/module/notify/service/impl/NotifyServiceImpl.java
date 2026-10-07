@@ -283,43 +283,6 @@ public class NotifyServiceImpl implements NotifyService {
         }
     }
 
-    @Override
-    public void cancelActivityPlans(Long activityId) {
-        if (activityId == null) {
-            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "activityId 不能为空");
-        }
-        notifyPlanMapper.cancelBySource(1, activityId);
-    }
-
-    @Override
-    public void notifyActivitySubscribers(Long activityId, String title, String content) {
-        if (activityId == null) {
-            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "activityId 不能为空");
-        }
-        long lastId = 0L;
-        while (true) {
-            List<Long> userIds = enrollmentService.listEnrolledUserIds(activityId, lastId, BATCH_SIZE);
-            if (userIds.isEmpty()) {
-                return;
-            }
-            for (Long userId : userIds) {
-                queueProducer.send(NotifyPayload.builder()
-                        .receiverId(userId)
-                        .senderId(null)
-                        .type(NotifyType.ACTIVITY_REMIND)
-                        .title(title)
-                        .content(content)
-                        .targetType(TargetType.ACTIVITY)
-                        .targetId(activityId)
-                        .build());
-            }
-            if (userIds.size() < BATCH_SIZE) {
-                return;
-            }
-            lastId = userIds.get(userIds.size() - 1);
-        }
-    }
-
     // 延迟队列消费，发送消息队列
     @Override
     public void broadcastPlanFanOut(Long planId) {
