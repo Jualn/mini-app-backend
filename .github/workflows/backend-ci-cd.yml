@@ -61,9 +61,29 @@ jobs:
       # ----------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Migration Policy 需要比较 PR base 或 push 前一个 commit。
+          fetch-depth: 0
 
       # ----------------------------------------------------
-      # 2. 安装项目要求的 JDK
+      # 2. 数据库迁移治理
+      #
+      # - 所有事件校验文件名和版本唯一性；
+      # - 有比较基线时禁止修改、删除或重命名历史迁移；
+      # - PR 修改 Entity 却没新增迁移时阻断。
+      # ----------------------------------------------------
+      - name: Check migration policy
+        env:
+          MIGRATION_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          MIGRATION_POLICY_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'no-db-migration') }}
+        run: |
+          bash .github/scripts/check-migration-policy.sh \
+            "$MIGRATION_BASE_SHA" \
+            "$GITHUB_EVENT_NAME" \
+            "$MIGRATION_POLICY_EXEMPT"
+
+      # ----------------------------------------------------
+      # 3. 安装项目要求的 JDK
       #
       # Maven 本身由项目的 Maven Wrapper 控制；
       # JDK 由 setup-java 控制。
@@ -77,13 +97,13 @@ jobs:
           cache-dependency-path: pom.xml
 
       # ----------------------------------------------------
-      # 3. 确保 Linux Runner 可以执行 mvnw
+      # 4. 确保 Linux Runner 可以执行 mvnw
       # ----------------------------------------------------
       - name: Prepare Maven Wrapper
         run: chmod +x mvnw
 
       # ----------------------------------------------------
-      # 4. 打印环境
+      # 5. 打印环境
       #
       # 出问题时 Actions 日志可以直接看到版本。
       # ----------------------------------------------------
@@ -93,7 +113,7 @@ jobs:
           ./mvnw --version
 
       # ----------------------------------------------------
-      # 5. 从生产基线重放全部数据库迁移
+      # 6. 从生产基线重放全部数据库迁移
       #
       # 这里只连接 CI 的临时 MySQL，不持有生产数据库凭据。
       # 使用与生产运维脚本相同的固定 Flyway CLI 版本。
@@ -128,7 +148,7 @@ jobs:
             validate
 
       # ----------------------------------------------------
-      # 6. 正式 CI
+      # 7. 正式 CI
       #
       # verify 比 package 更适合作为 CI 入口：
       # 它会经过 Maven 生命周期中的 test /
@@ -139,7 +159,7 @@ jobs:
         run: ./mvnw -B -ntp clean package -Dmaven.test.skip=true
 
       # ----------------------------------------------------
-      # 7. 确认 Spring Boot JAR 真正产生
+      # 8. 确认 Spring Boot JAR 真正产生
       # ----------------------------------------------------
       - name: Verify JAR
         run: |
@@ -151,7 +171,7 @@ jobs:
           ls -lh "$JAR_PATH"
 
       # ----------------------------------------------------
-      # 8. 记录 JAR SHA256
+      # 9. 记录 JAR SHA256
       #
       # 后面的 deploy Job 下载 Artifact 后再算一次，
       # 确认拿到的是同一个文件。
@@ -166,7 +186,7 @@ jobs:
           echo "JAR SHA256: $SHA256"
 
       # ----------------------------------------------------
-      # 9. 生成不可变生产发布包
+      # 10. 生成不可变生产发布包
       # ----------------------------------------------------
       - name: Package production release
         if: github.event_name != 'pull_request'
@@ -192,7 +212,7 @@ jobs:
           )
 
       # ----------------------------------------------------
-      # 10. 构建失败时保存测试报告
+      # 11. 构建失败时保存测试报告
       #
       # 如果 Surefire/Failsafe 有报告，
       # 可以直接从 Actions 下载排查。
@@ -209,7 +229,7 @@ jobs:
           retention-days: 3
 
       # ----------------------------------------------------
-      # 11. PR 不需要保存生产发布包。
+      # 12. PR 不需要保存生产发布包。
       #
       # push main / 手动执行才上传，
       # 供 deploy Job 使用。
