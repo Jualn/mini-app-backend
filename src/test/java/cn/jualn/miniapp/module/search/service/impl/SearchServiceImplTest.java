@@ -147,9 +147,9 @@ class SearchServiceImplTest {
         SearchServiceImpl service = new SearchServiceImpl(searchDocMapper, redisService, postService, activityService);
         ActivitySearchBO activity = ActivitySearchBO.builder()
                 .id(9L)
-                .status(ActivityStatus.PENDING)
+                .publishStatus(0)
                 .title("activity")
-                .content("content")
+                .summary("content")
                 .publishedAt(LocalDateTime.of(2026, 5, 31, 10, 0))
                 .build();
 

@@ -68,7 +68,7 @@ class UserServiceImplRoleChangeTest {
                 userConverter,
                 eventPublisher,
                 mediaService,
-                adminOperationLogService);
+                adminOperationLogService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.audit.service.ProfileSafetyCheckService.class), org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
     }
 
     @Test

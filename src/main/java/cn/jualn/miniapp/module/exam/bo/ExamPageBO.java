@@ -14,10 +14,13 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class ExamPageBO {
 
+    private String cursor;
     private Long lastId;
     private Integer pageSize;
     private Integer category;
     private Integer status;
+    private Integer eventType;
+    private Integer lifecycleStatus;
     private String keyword;
 }
 

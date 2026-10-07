@@ -1,6 +1,5 @@
 package cn.jualn.miniapp.module.wx.dto;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlProperty;
 import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlRootElement;
@@ -42,6 +41,4 @@ public class WxBaseMessage {
     @JacksonXmlProperty(localName = "MsgId")
     private String msgId;
 
-    @JsonIgnore
-    private String rawXml;
 }

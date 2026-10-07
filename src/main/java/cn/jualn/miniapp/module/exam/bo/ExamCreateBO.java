@@ -23,6 +23,21 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ExamCreateBO {
+    private Integer startPrecision;
+    private Integer endPrecision;
+    private String timeDescription;
+    private Integer registrationStartPrecision;
+    private Integer registrationEndPrecision;
+    private java.time.LocalDateTime startTime;
+    private java.time.LocalDateTime endTime;
+
+    private String summary;
+    private Integer eventType;
+    private String editionLabel;
+
+    private java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO> sections;
+    private java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventActionBO> actions;
+
 
     private String title;
     private Integer category;

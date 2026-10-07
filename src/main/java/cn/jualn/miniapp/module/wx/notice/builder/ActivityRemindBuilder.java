@@ -1,20 +1,14 @@
 package cn.jualn.miniapp.module.wx.notice.builder;
 
 import cn.jualn.miniapp.common.enums.NotifyType;
-import cn.jualn.miniapp.module.activity.entity.Activity;
-import cn.jualn.miniapp.module.activity.mapper.ActivityMapper;
 import cn.jualn.miniapp.module.notify.payload.NotifyPayload;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
 import java.util.Map;
 
 @Component
-@RequiredArgsConstructor
 public class ActivityRemindBuilder implements WxNoticeBuilder {
-
-    private final ActivityMapper activityMapper;
 
     @Override
     public NotifyType notifyType() {
@@ -30,20 +24,10 @@ public class ActivityRemindBuilder implements WxNoticeBuilder {
             data.putAll(payload.getWxData().toMap());
         }
 
-        // 2. 广播路径：按 targetId 查 Activity 补全字段
-        if (payload.getTargetId() != null) {
-            Activity activity = activityMapper.selectById(payload.getTargetId());
-            if (activity != null) {
-                data.put("activityTitle", activity.getTitle());
-                data.put("startTime", activity.getStartTime());
-                data.put("location", activity.getLocation());
-            }
-        }
-
-        // 3. DB查不到时用 payload 兜底
+        // 历史 payload 只允许消费已冻结字段；微信映射层不得回查 Activity。
         data.putIfAbsent("activityTitle", payload.getTitle());
 
-        // 4. 公共字段（targetId 用于 pagePath 变量替换）
+        // 公共字段（targetId 用于 pagePath 变量替换）
         putCommonFields(data, payload);
         return data;
     }

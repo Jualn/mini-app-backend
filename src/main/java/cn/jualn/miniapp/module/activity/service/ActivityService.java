@@ -3,7 +3,6 @@ package cn.jualn.miniapp.module.activity.service;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.PageResult;
 import cn.jualn.miniapp.module.activity.bo.*;
-import cn.jualn.miniapp.module.activity.vo.ActivityDetailVO;
 
 /**
  * 活动业务接口。
@@ -21,6 +20,9 @@ import cn.jualn.miniapp.module.activity.vo.ActivityDetailVO;
  * @since 2026-04-28
  */
 public interface ActivityService {
+    /** Authoritative public visibility without loading content or personal state. */
+    boolean isPubliclyVisible(Long id);
+
 
     /**
      * 创建活动。
@@ -79,7 +81,12 @@ public interface ActivityService {
      *
      * @throws BusinessException 当活动不存在或已删除时抛出 NOT_FOUND
      */
-    ActivityDetailVO getActivityDetail(Long id);
+    ActivityDetailBO getActivityDetail(Long id);
+
+    /** Public contract read with current participation facts. */
+    ActivityDetailBO getActivityResource(Long id);
+
+    ActivityResourcePageBO pageActivityResources(ActivityPageBO query);
 
     /**
      * 活动分页列表。
@@ -109,14 +116,20 @@ public interface ActivityService {
     /** 管理员创建完整活动草稿，操作人由管理端身份显式传入。 */
     Long createAdminActivity(AdminActivitySaveBO command);
 
-    /** 管理员编辑草稿或审核拒绝的活动。 */
+    /** 运维保存草稿、下架或已发布内容；已发布编辑保持发布。 */
     void updateAdminActivity(AdminActivitySaveBO command);
 
-    /** 将完整草稿提交到人工审核队列。 */
-    void submitAdminActivityReview(Long activityId, Long operatorId);
+    AdminActivityDetailBO replaceAdminActivity(AdminActivitySaveBO command, String ifMatch);
 
-    /** 设置或取消已发布活动的置顶标记。 */
-    void updateAdminActivityPinned(Long activityId, Long operatorId, boolean pinned);
+    /** 直接发布/下架；旧审核方法仅保留拒绝响应以兼容旧调用方。 */
+    void publishAdminActivity(Long activityId, Long operatorId);
+
+    void takeDownAdminActivity(Long activityId, Long operatorId, String reason);
+
+    /** Canonical conditional lifecycle transition; validates If-Match while holding the activity lock. */
+    AdminActivityDetailBO transitionAdminActivity(Long activityId, Long operatorId, String ifMatch, String action);
+
+    void submitAdminActivityReview(Long activityId, Long operatorId);
 
     /** 取消尚未开始的活动，并作废后续通知计划。 */
     void cancelAdminActivity(Long activityId, Long operatorId, String reason);

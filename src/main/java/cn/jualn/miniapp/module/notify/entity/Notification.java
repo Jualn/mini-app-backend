@@ -22,7 +22,7 @@ public class Notification {
     /** 接收用户ID */
     private Long userId;
 
-    /** 通知类型：1-评论 2-回复 3-点赞 4-活动提醒 5-考试提醒 6-审核结果 7-系统广播 */
+    /** 通知类型代码；稳定 wire 名称由 NotifyType 显式映射，不能使用 ordinal。 */
     private Integer type;
 
     /** 通知标题 */
@@ -30,6 +30,12 @@ public class Notification {
 
     /** 通知内容 */
     private String content;
+
+    /** 渠道无关的冻结内容版本；旧通知为空。 */
+    private Integer contentSchemaVersion;
+
+    /** 渠道无关的冻结内容 JSON；外部投递不得再回查业务 Mapper。 */
+    private String contentPayload;
 
     /** 关联内容类型：1-帖子 2-活动 3-考试 4-评论，点击跳转用 */
     private Integer targetType;
@@ -40,8 +46,19 @@ public class Notification {
     /** 触发者用户ID，NULL=系统 */
     private Long senderId;
 
-    /** 0-未读 1-已读 */
+    /** 稳定业务来源，用于 at-least-once 下的收件箱去重。 */
+    private String sourceKey;
+
+    /** LEGACY compatibility writer or CANONICAL channel-planned producer. */
+    private String inboxGeneration;
+
+    /** Compatibility shadow only; readAt owns the business fact. */
     private Integer isRead;
+
+    private LocalDateTime readAt;
+
+    /** Immutable per-user position assigned on first entry into the IN_APP stream. */
+    private Long inboxSeq;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

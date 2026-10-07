@@ -6,6 +6,8 @@ import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
 import cn.jualn.miniapp.module.media.bo.AttachmentItemBO;
+import cn.jualn.miniapp.module.media.bo.AttachmentLinkBO;
+import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentSaveBO;
 import cn.jualn.miniapp.module.media.converter.MediaConverter;
 import cn.jualn.miniapp.module.media.entity.MediaAttachment;
@@ -56,6 +58,12 @@ class MediaServiceImplTest {
         TableInfoHelper.initTableInfo(
                 new MapperBuilderAssistant(new MybatisConfiguration(), ""),
                 MediaAttachment.class);
+        org.mockito.Mockito.lenient().when(mediaAttachmentMapper.insert(any(MediaAttachment.class))).thenReturn(1);
+        org.mockito.Mockito.lenient().when(mediaAttachmentMapper.update(any(), any())).thenReturn(1);
+        org.mockito.Mockito.lenient().when(mediaConverter.toMediaAttachmentList(any())).thenAnswer(invocation ->
+                ((MediaAttachmentSaveBO) invocation.getArgument(0)).getAttachments().stream().map(a ->
+                        MediaAttachment.builder().type(a.getType().getCode()).objectKey(a.getObjectKey())
+                                .url(a.getUrl()).originalName(a.getOriginalName()).sortOrder(a.getSortOrder()).build()).toList());
         mediaService = new MediaServiceImpl(
                 mediaConverter, mediaAttachmentMapper, targetValidator, cosService, uploadRecordService);
     }
@@ -86,6 +94,31 @@ class MediaServiceImplTest {
     }
 
     @Test
+    void registerAttachmentStoresImmutableCanonicalMetadata() {
+        mediaService.registerAttachment("POSTER", " 招新海报 ", "https://cdn.example/poster.png", 9L);
+
+        ArgumentCaptor<MediaAttachment> captor = ArgumentCaptor.forClass(MediaAttachment.class);
+        verify(mediaAttachmentMapper).insert(captor.capture());
+        assertEquals("POSTER", captor.getValue().getKind());
+        assertEquals(MediaType.IMAGE.getCode(), captor.getValue().getType());
+        assertEquals("招新海报", captor.getValue().getOriginalName());
+        assertEquals(9L, captor.getValue().getRegisteredBy());
+    }
+
+    @Test
+    void replaceAttachmentLinksValidatesRegistryBeforeReplacing() {
+        var entity = MediaAttachment.builder().id(31L).registered(true).build();
+        when(mediaAttachmentMapper.selectBatchIds(any())).thenReturn(List.of(entity));
+        when(mediaAttachmentMapper.selectById(31L)).thenReturn(entity);
+        when(mediaConverter.toBOList(List.of(entity))).thenReturn(List.of(MediaAttachmentBO.builder().id(31L).build()));
+
+        mediaService.replaceAttachmentLinks(TargetType.ACTIVITY, 7L, List.of(new AttachmentLinkBO(31L, 0)));
+
+        verify(mediaAttachmentMapper).deleteLinks(TargetType.ACTIVITY.getCode(), 7L);
+        verify(mediaAttachmentMapper).insertLink(TargetType.ACTIVITY.getCode(), 7L, 31L, 0);
+    }
+
+    @Test
     void generateUploadCredential_shouldRejectEmptyFileNames() {
         UserContext.setUserId(7L);
 
@@ -111,15 +144,13 @@ class MediaServiceImplTest {
                 .build();
         when(cosService.buildPublicUrl("post/7/image.jpg"))
                 .thenReturn("https://cos.example/post/7/image.jpg");
-        when(mediaConverter.toMediaAttachmentList(any()))
-                .thenReturn(List.of(MediaAttachment.builder().build()));
 
         mediaService.replaceAttachments(saveBO);
 
         AttachmentItemBO normalized = saveBO.getAttachments().get(0);
         assertEquals("post/7/image.jpg", normalized.getObjectKey());
         assertEquals("https://cos.example/post/7/image.jpg", normalized.getUrl());
-        verify(mediaAttachmentMapper).insertBatch(any());
+        verify(mediaAttachmentMapper).insert(any(MediaAttachment.class));
     }
 
     @Test
@@ -143,7 +174,7 @@ class MediaServiceImplTest {
     void replaceAttachments_shouldDeleteRemovedObjectOnlyAfterCommit() {
         UserContext.setUserId(7L);
         when(mediaAttachmentMapper.selectList(any())).thenReturn(List.of(
-                MediaAttachment.builder()
+                MediaAttachment.builder().id(41L).type(MediaType.IMAGE.getCode())
                         .objectKey("post/7/old.jpg")
                         .url("https://cos.example/post/7/old.jpg")
                         .build()));
@@ -169,13 +200,11 @@ class MediaServiceImplTest {
         UserContext.setUserId(7L);
         String publicUrl = "https://cos.example/post/7/kept.jpg";
         when(mediaAttachmentMapper.selectList(any())).thenReturn(List.of(
-                MediaAttachment.builder()
+                MediaAttachment.builder().id(41L).type(MediaType.IMAGE.getCode())
                         .objectKey("post/7/kept.jpg")
                         .url(publicUrl)
                         .build()));
         when(cosService.buildPublicUrl("post/7/kept.jpg")).thenReturn(publicUrl);
-        when(mediaConverter.toMediaAttachmentList(any()))
-                .thenReturn(List.of(MediaAttachment.builder().build()));
 
         MediaAttachmentSaveBO saveBO = MediaAttachmentSaveBO.builder()
                 .targetType(TargetType.POST)
@@ -196,13 +225,11 @@ class MediaServiceImplTest {
     void replaceAttachments_shouldAllowAuthorizedCallerToRetainExistingObject() {
         String publicUrl = "https://cos.example/post/8/existing.jpg";
         when(mediaAttachmentMapper.selectList(any())).thenReturn(List.of(
-                MediaAttachment.builder()
+                MediaAttachment.builder().id(41L).type(MediaType.IMAGE.getCode())
                         .objectKey("post/8/existing.jpg")
                         .url(publicUrl)
                         .build()));
         when(cosService.buildPublicUrl("post/8/existing.jpg")).thenReturn(publicUrl);
-        when(mediaConverter.toMediaAttachmentList(any()))
-                .thenReturn(List.of(MediaAttachment.builder().build()));
 
         mediaService.replaceAttachments(MediaAttachmentSaveBO.builder()
                 .targetType(TargetType.POST)
@@ -214,7 +241,7 @@ class MediaServiceImplTest {
                         .build()))
                 .build());
 
-        verify(mediaAttachmentMapper).insertBatch(any());
+        verify(mediaAttachmentMapper).update(any(), any());
         verify(cosService, never()).deleteObject(any());
     }
 

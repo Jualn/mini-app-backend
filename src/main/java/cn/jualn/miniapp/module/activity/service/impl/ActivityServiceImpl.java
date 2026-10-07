@@ -2,42 +2,33 @@ package cn.jualn.miniapp.module.activity.service.impl;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.constant.UserContext;
+import cn.jualn.miniapp.module.eventcontent.service.EventTimePolicy;
 import cn.jualn.miniapp.common.enums.ActivityCategory;
 import cn.jualn.miniapp.common.enums.ActivityStatus;
-import cn.jualn.miniapp.common.enums.AuditScene;
 import cn.jualn.miniapp.common.enums.TargetType;
-import cn.jualn.miniapp.common.enums.UserRole;
+import cn.jualn.miniapp.common.enums.NotifyType;
 import cn.jualn.miniapp.common.exception.BusinessException;
-import cn.jualn.miniapp.common.pagination.AdminIdCursorCodec;
 import cn.jualn.miniapp.common.result.PageResult;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.infrastructure.queue.contract.QueueProducer;
 import cn.jualn.miniapp.module.activity.bo.*;
 import cn.jualn.miniapp.module.activity.converter.ActivityConverter;
 import cn.jualn.miniapp.module.activity.entity.Activity;
 import cn.jualn.miniapp.module.activity.mapper.ActivityMapper;
 import cn.jualn.miniapp.module.activity.mapper.AdminActivityListRow;
-import cn.jualn.miniapp.module.activity.mapper.AdminActivitySummaryRow;
 import cn.jualn.miniapp.module.activity.service.ActivityEnrollmentService;
+import cn.jualn.miniapp.module.activity.service.ActivityPublicCursorCodec;
 import cn.jualn.miniapp.module.activity.service.ActivityService;
-import cn.jualn.miniapp.module.activity.vo.ActivityDetailVO;
-import cn.jualn.miniapp.module.audit.bo.AuditReserveBO;
-import cn.jualn.miniapp.module.audit.bo.AuditReserveResultBO;
-import cn.jualn.miniapp.module.audit.payload.AuditMediaBatchPayload;
-import cn.jualn.miniapp.module.audit.payload.AuditTextPayload;
-import cn.jualn.miniapp.module.audit.service.AuditReservationService;
 import cn.jualn.miniapp.module.interact.service.InteractService;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentSaveBO;
 import cn.jualn.miniapp.module.media.service.MediaService;
 import cn.jualn.miniapp.module.notify.service.NotifyService;
 import cn.jualn.miniapp.module.timeline.bo.TimelineSaveBO;
+import cn.jualn.miniapp.module.timeline.service.CardTimelinePolicy;
 import cn.jualn.miniapp.module.timeline.service.TimelineService;
-import cn.jualn.miniapp.module.user.bo.UserAuthBO;
 import cn.jualn.miniapp.module.user.bo.UserSimpleBO;
 import cn.jualn.miniapp.module.user.service.UserService;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -50,11 +41,13 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
+import cn.jualn.miniapp.common.web.StrongEtag;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -79,8 +72,11 @@ import java.util.Set;
 @Service
 @RequiredArgsConstructor
 public class ActivityServiceImpl implements ActivityService {
+    private final cn.jualn.miniapp.module.eventcontent.service.EventContentService eventContentService;
 
     private static final ObjectMapper CONTACT_MAPPER = new ObjectMapper();
+    private static final cn.jualn.miniapp.module.activity.service.ActivityReminderPolicy REMINDER_POLICY =
+            new cn.jualn.miniapp.module.activity.service.ActivityReminderPolicy();
 
     private final ActivityMapper activityMapper;
     private final ActivityConverter activityConverter;
@@ -91,205 +87,41 @@ public class ActivityServiceImpl implements ActivityService {
     private final RedisService redisService;
     private final InteractService interactService;
     private final NotifyService notifyService;
-    private final AuditReservationService auditReservationService;
-    private final QueueProducer queueProducer;
+    private final cn.jualn.miniapp.module.eventcontent.service.EventContactCodec eventContactCodec;
+    private final cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy participationPolicy;
+    private final cn.jualn.miniapp.module.activity.service.ActivityRegistrationService activityRegistrationService;
+    private final cn.jualn.miniapp.module.activity.service.ActivityFormAvailability activityFormAvailability;
 
     /**
-     * 创建活动。
-     *
-     * <p>该方法在事务内执行，确保活动主数据与媒体附件关联的一致性。过程包括：</p>
-     * <ol>
-     *   <li>获取当前用户ID（通过UserContext ThreadLocal）</li>
-     *   <li>将BO对象转换为Entity并设置用户ID</li>
-     *   <li>保存活动到数据库，由数据库自动生成ID</li>
-     *   <li>如果提供了媒体列表，则调用媒体服务关联附件</li>
-     * </ol>
-     *
-     * <p><b>事务控制</b>：任何异常都会导致整个操作回滚，包括已插入的活动和媒体附件。</p>
-     *
-     * @param command 活动创建参数对象，已由Controller层@Valid注解校验过合法性
-     * @return 新创建活动的数据库自增ID
-     * @throws BusinessException 当用户未登录时抛出 {@link ResultCode#UNAUTHORIZED}
-     * @throws BusinessException 当媒体服务操作失败时抛出相应异常
-     * @see ActivityConverter#toEntity(ActivityCreateBO)
-     * @see MediaService#replaceAttachments(MediaAttachmentSaveBO)
+     * 旧用户写入口已停用；事项统一由独立管理端身份维护。
      */
+    @Override
+    public boolean isPubliclyVisible(Long id) {
+        return id != null && activityMapper.existsPublicById(id);
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createActivity(ActivityCreateBO command) {
-        Long userId = requireUserId();
-        userService.assertContentCreationAllowed(userId);
-
-        Activity activity = activityConverter.toEntity(command);
-        activity.setUserId(userId);
-        // 直接设置状态为通过，确保searchService能及时搜索到新活动；如果需要审核流程，可以改为PENDING，等待审核回调修改状态
-        // DRAFT 暂时代表默认
-        activity.setStatus(ActivityStatus.DRAFT.getCode());
-        activity.setPublishedAt(LocalDateTime.now());
-
-        activityMapper.insert(activity);
-
-        if (!CollectionUtils.isEmpty(command.getTimelineItems())) {
-            timelineService.replaceTimelines(
-                    TimelineSaveBO.builder()
-                            .targetType(TargetType.ACTIVITY)
-                            .targetId(activity.getId())
-                            .timelines(command.getTimelineItems())
-                            .build()
-            );
-        }
-
-        if (!CollectionUtils.isEmpty(command.getAttachmentItems())) {
-            mediaService.replaceAttachments(
-                    MediaAttachmentSaveBO.builder()
-                            .targetId(activity.getId())
-                            .targetType(TargetType.ACTIVITY)
-                            .attachments(command.getAttachmentItems())
-                            .build()
-            );
-        }
-
-        // 原本是交给审核后提交，但目前不需要审核，直接提交
-        // 事务提交后同步搜索索引，确保搜索服务看到的活动数据是最终一致的状态
-//        afterCommit(() -> searchService.syncActivity(activityConverter.toSearchBO(activity)));
-        log.info("[活动] 用户 {} 创建活动 {}", userId, activity.getId());
-        return activity.getId();
+        throw new BusinessException(ResultCode.INVALID_OPERATION, "活动由运维管理，请使用管理端接口");
     }
 
     /**
-     * 更新活动。
-     *
-     * <p>该方法支持部分更新（只更新提供的字段）。过程包括：</p>
-     * <ol>
-     *   <li>获取当前用户ID，一次查询同时验证活动存在性和所有权</li>
-     *   <li>应用更新的字段到Entity对象</li>
-     *   <li>设置审核状态为待审核（PENDING）</li>
-     *   <li>保存更新后的Entity到数据库</li>
-     *   <li>如果提供了新的媒体列表，则替换所有关联的附件</li>
-     *   <li>清空活动详情缓存，保证用户立即看到最新数据</li>
-     * </ol>
-     *
-     * <p><b>权限验证</b>：只有活动创建者可以编辑。使用{@code selectByIdAndUserId}一次查询同时完成
-     * 活动获取和权限验证，避免N+1问题。</p>
-     *
-     * <p><b>事务控制</b>：任何异常都会导致整个操作回滚，缓存清空操作不会执行。</p>
-     *
-     * @param command 活动更新参数对象，包含要更新的字段（null字段不更新）和活动ID
-     * @throws BusinessException 当用户未登录时抛出 {@link ResultCode#UNAUTHORIZED}
-     * @throws BusinessException 当活动不存在或用户无权编辑时抛出 {@link ResultCode#NOT_FOUND}
-     * @throws BusinessException 当媒体服务操作失败时抛出相应异常
-     * @see ActivityMapper#selectByIdAndUserId(Long, Long)
-     * @see ActivityConverter#updateEntityFromUpdateBO(Activity, ActivityUpdateBO)
-     * @see MediaService#replaceAttachments(MediaAttachmentSaveBO)
+     * 旧用户写入口已停用；事项统一由独立管理端身份维护。
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateActivity(ActivityUpdateBO command) {
-        Long userId = requireUserId();
-        userService.assertContentCreationAllowed(userId);
-        // 一次查询同时获取活动和验证权限，避免N+1查询
-        UserAuthBO currentUser = userService.getUserAuthInfo(userId);
-
-        Activity activity = activityMapper.selectOne(
-                new LambdaQueryWrapper<Activity>()
-                        .select(Activity::getId, Activity::getUserId)
-                        .eq(Activity::getId, command.getId())
-        );
-
-        if (activity == null) {
-            throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND, "活动不存在或无权编辑");
-        }
-
-        if (currentUser.getRole() == UserRole.USER && !userId.equals(activity.getUserId())) {
-            throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND, "活动不存在或无权编辑");
-        }
-
-        activityConverter.updateEntityFromUpdateBO(activity, command);
-
-        activityMapper.updateById(activity);
-
-        if (command.getAttachmentItems() != null) {
-            mediaService.replaceAttachments(
-                    MediaAttachmentSaveBO.builder()
-                            .targetId(activity.getId())
-                            .targetType(TargetType.ACTIVITY)
-                            .attachments(command.getAttachmentItems())
-                            .build()
-            );
-        }
-
-        if (command.getTimelineItems() != null) {
-            timelineService.replaceTimelines(
-                    TimelineSaveBO.builder()
-                            .targetType(TargetType.ACTIVITY)
-                            .targetId(activity.getId())
-                            .timelines(command.getTimelineItems())
-                            .build()
-            );
-        }
-
-        // 清空活动详情缓存，保证用户立即看到最新数据
-        redisService.delete(RedisKeyConstant.activityDetail(activity.getId()));
-        log.info("[活动] 用户 {} 更新活动 {}", userId, activity.getId());
+        throw new BusinessException(ResultCode.INVALID_OPERATION, "活动由运维管理，请使用管理端接口");
     }
 
     /**
-     * 删除活动（软删除）。
-     *
-     * <p>该方法执行软删除（逻辑删除），不真正移除数据库记录。过程包括：</p>
-     * <ol>
-     *   <li>获取当前用户ID，一次查询同时验证活动存在性和所有权</li>
-     *   <li>设置活动状态为DELETED，设置deletedAt为当前时间</li>
-     *   <li>保存更新到数据库</li>
-     *   <li>清空所有相关缓存，包括详情页缓存和存在性缓存</li>
-     * </ol>
-     *
-     * <p><b>权限验证</b>：只有活动创建者可以删除。使用{@code selectByIdAndUserId}一次查询同时完成
-     * 活动获取和权限验证。</p>
-     *
-     * <p><b>缓存清空</b>：需要同时清空详情缓存和存在性缓存，因为存在性缓存可能记录过此活动的信息。</p>
-     *
-     * <p><b>事务控制</b>：任何异常都会导致操作回滚，缓存清空操作不会执行。</p>
-     *
-     * @param id 包含活动ID的参数对象
-     * @throws BusinessException 当用户未登录时抛出 {@link ResultCode#UNAUTHORIZED}
-     * @throws BusinessException 当活动不存在或用户无权删除时抛出 {@link ResultCode#NOT_FOUND}
-     * @see ActivityMapper#selectByIdAndUserId(Long, Long)
+     * 旧用户写入口已停用；事项统一由独立管理端身份维护。
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void removeActivity(Long id) {
-        Long userId = requireUserId();
-        // 一次查询同时获取活动和验证权限
-        UserAuthBO currentUser = userService.getUserAuthInfo(userId);
-
-        Activity activity = activityMapper.selectOne(
-                new LambdaQueryWrapper<Activity>()
-                        .select(Activity::getUserId)
-                        .eq(Activity::getId, id)
-        );
-
-        if (activity == null) {
-            throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND, "活动不存在");
-        }
-
-        if (currentUser.getRole() == UserRole.USER && !userId.equals(activity.getUserId())) {
-            throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND, "活动不存在或无权删除");
-        }
-
-        activity.setId(id);
-        activity.setStatus(ActivityStatus.DELETED.getCode());
-        activity.setDeletedAt(LocalDateTime.now());
-        activityMapper.updateById(activity);
-
-        // 作废该活动的所有通知计划
-        notifyService.cancelActivityPlans(id);
-
-        // 清空所有活动相关缓存
-        redisService.delete(RedisKeyConstant.activityDetail(activity.getId()));
-        redisService.delete(RedisKeyConstant.targetExists(TargetType.ACTIVITY.getKey(), id));
-//        afterCommit(() -> searchService.removeByTarget(TargetType.ACTIVITY, id));
-        log.info("[活动] 用户 {} 删除活动 {}", userId, id);
+        throw new BusinessException(ResultCode.INVALID_OPERATION, "活动由运维管理，请使用管理端接口");
     }
 
     /**
@@ -310,11 +142,12 @@ public class ActivityServiceImpl implements ActivityService {
      * @return 活动详情业务对象，包含完整的作者信息和媒体列表
      * @throws BusinessException 当活动不存在时抛出 {@link ResultCode#NOT_FOUND}
      * @see #getVisibleActivityOrThrow(Long)
-     * @see #enrichUserState(ActivityDetailVO, Long)
+     * @see #enrichUserState(ActivityDetailBO, Long)
      * @see ActivityConverter#toDetailBO(Activity)
      */
     @Override
-    public ActivityDetailVO getActivityDetail(Long id) {
+    public ActivityDetailBO getActivityDetail(Long id) {
+        Activity visibleActivity = getVisibleActivityOrThrow(id);
         String cacheKey = RedisKeyConstant.activityDetail(id);
 
         // 1. 查缓存
@@ -326,7 +159,7 @@ public class ActivityServiceImpl implements ActivityService {
             detailBO = cached;
         } else {
             // 2. 查数据库
-            Activity activity = getVisibleActivityOrThrow(id);
+            Activity activity = visibleActivity;
 
             detailBO = activityConverter.toDetailBO(activity);
 
@@ -341,12 +174,16 @@ public class ActivityServiceImpl implements ActivityService {
             redisService.set(cacheKey, detailBO, RedisKeyConstant.ACTIVITY_DETAIL_TTL);
         }
 
-        // 4. 转 VO
-        ActivityDetailVO vo = activityConverter.toDetailVO(detailBO);
-
-        // 5. 补用户态字段（关键：最后做）
-        enrichUserState(vo, id);
-        return vo;
+        detailBO.setPublishStatus(visibleActivity.getPublishStatus());
+        detailBO.setRegistrationMode(visibleActivity.getRegistrationMode());
+        detailBO.setParticipantMode(visibleActivity.getParticipantMode());
+        detailBO.setSections(eventContentService.sections(TargetType.ACTIVITY, id));
+        detailBO.setActions(eventContentService.actions(TargetType.ACTIVITY, id));
+        detailBO.setLifecycleStatus(visibleActivity.getLifecycleStatus());
+        detailBO.setAudienceDepartmentIds(visibleActivity.getAudienceDepartmentIds());
+        detailBO.setContactsJson(visibleActivity.getContactsJson());
+        enrichUserState(detailBO, id);
+        return detailBO;
     }
 
     /**
@@ -374,21 +211,80 @@ public class ActivityServiceImpl implements ActivityService {
      *   <li>用户状态（liked/enrolled）不被缓存，每次查询时实时计算</li>
      * </ul>
      *
-     * @param command 分页查询参数，包含lastId、pageSize、status、category、keyword
      * @return 分页结果，包含活动列表、是否有下一页标志、下次查询的lastId
      * @see ActivityConverter#toListBOList(List)
      */
     @Override
+    public ActivityDetailBO getActivityResource(Long id) {
+        Activity activity = getVisibleActivityOrThrow(id);
+        ActivityDetailBO result = activityConverter.toDetailBO(activity);
+        result.setAttachmentItems(mediaService.listAttachments(TargetType.ACTIVITY, id));
+        result.setTimelineItems(timelineService.listTimelinesByTarget(TargetType.ACTIVITY, id));
+        result.setSections(eventContentService.sections(TargetType.ACTIVITY, id));
+        result.setActions(eventContentService.actions(TargetType.ACTIVITY, id));
+        result.setContacts(eventContactCodec.read(result.getContactsJson(), null, null, null));
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"));
+        result.setCardTimeline(CardTimelinePolicy.select(result.getTimelineItems(), now));
+        if (participationPolicy.platform(result.getRegistrationMode())) {
+            var form = activityRegistrationService.getForm(id);
+            result.setRegistrationForm(form);
+            result.setSubmittedCount(form.submittedCount());
+        }
+        result.setEvaluatedAt(now);
+        result.setParticipationState(participationPolicy.evaluate(result.getPublishStatus(), result.getLifecycleStatus(),
+                result.getRegistrationMode(), result.getTimelineItems(), result.getCapacity(), result.getSubmittedCount(), now));
+        return result;
+    }
+
+    @Override
+    public ActivityResourcePageBO pageActivityResources(ActivityPageBO query) {
+        query.setLastId(ActivityPublicCursorCodec.decode(query));
+        PageResult<ActivityListBO> page = pageActivityList(query);
+        var coverIds = page.getList().stream().map(ActivityListBO::getCoverAttachmentId)
+                .filter(java.util.Objects::nonNull).toList();
+        Map<Long, MediaAttachmentBO> covers = mediaService.batchGetAttachments(coverIds);
+        var ids = page.getList().stream().filter(item -> participationPolicy.platform(item.getRegistrationMode()))
+                .map(ActivityListBO::getId).toList();
+        Map<Long, Long> counts = activityRegistrationService.countSubmittedByActivityIds(ids);
+        Map<Long, List<cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO>> timelines =
+                timelineService.listTimelinesByTargets(TargetType.ACTIVITY,
+                        page.getList().stream().map(ActivityListBO::getId).toList());
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"));
+        for (ActivityListBO item : page.getList()) {
+            MediaAttachmentBO cover = covers.get(item.getCoverAttachmentId());
+            if (cover != null && Integer.valueOf(TargetType.ACTIVITY.getCode()).equals(cover.getTargetType())
+                    && item.getId().equals(cover.getTargetId())) {
+                item.setCoverAttachment(cover);
+            }
+            item.setEvaluatedAt(now);
+            item.setCardTimeline(CardTimelinePolicy.select(
+                    timelines.getOrDefault(item.getId(), List.of()), now));
+            if (participationPolicy.platform(item.getRegistrationMode())) {
+                item.setSubmittedCount(counts.getOrDefault(item.getId(), 0L));
+            }
+            item.setParticipationState(participationPolicy.evaluate(item.getPublishStatus(), item.getLifecycleStatus(),
+                    item.getRegistrationMode(), timelines.getOrDefault(item.getId(), List.of()),
+                    item.getCapacity(), item.getSubmittedCount(), now));
+        }
+        String nextCursor = Boolean.TRUE.equals(page.getHasMore())
+                ? ActivityPublicCursorCodec.encode(query, page.getNextCursor()) : null;
+        return new ActivityResourcePageBO(page.getList(), nextCursor);
+    }
+
+    @Override
     public PageResult<ActivityListBO> pageActivityList(ActivityPageBO command) {
         int pageSize = command.getPageSize();
-        Integer status = command.getStatus() == null ? ActivityStatus.DRAFT.getCode() : command.getStatus();
+        Integer status = command.getStatus();
+        if (status != null && !java.util.Set.of(2, 3, 4).contains(status)) status = null;
 
         // 复杂动态SQL下沉到Mapper XML，Service层只做业务编排
         List<Activity> activities = activityMapper.selectPageActivities(
                 status,
                 command.getCategory(),
+                command.getLifecycleStatus(),
                 command.getKeyword(),
                 command.getLastId(),
+                command.isCampusAudienceOnly(),
                 pageSize + 1
         );
         boolean hasMore = activities.size() > pageSize;
@@ -397,6 +293,11 @@ public class ActivityServiceImpl implements ActivityService {
         }
 
         List<ActivityListBO> list = activityConverter.toListBOList(activities);
+        for (int index = 0; index < list.size(); index++) {
+            ActivityListBO item = list.get(index);
+            item.setRegistrationMode(activities.get(index).getRegistrationMode());
+            item.setParticipantMode(activities.get(index).getParticipantMode());
+        }
 
         return PageResult.of(list, hasMore, list.isEmpty() ? null : list.get(list.size() - 1).getId());
     }
@@ -412,41 +313,25 @@ public class ActivityServiceImpl implements ActivityService {
 
     @Override
     public AdminActivityPageBO pageAdminActivities(AdminActivityQueryBO query) {
+        int page = query.getPage() == null ? 1 : query.getPage();
         int pageSize = query.getPageSize() == null ? 20 : query.getPageSize();
-        String sort = query.getSort() == null ? "latest" : query.getSort();
-        Long lastId = AdminIdCursorCodec.decode(query.getCursor(), sort);
         Long keywordId = parseId(query.getKeyword());
         List<AdminActivityListRow> rows = activityMapper.selectAdminActivityPage(
-                query.getStatus(),
-                query.getCategory(),
-                query.getAudienceMask(),
+                query.getPublishStatus(),
+                query.getLifecycleStatus(),
                 query.getKeyword(),
                 keywordId,
-                sort,
-                lastId,
-                pageSize + 1);
-
-        boolean hasMore = rows.size() > pageSize;
-        if (hasMore) {
-            rows = rows.subList(0, pageSize);
-        }
+                (page - 1) * pageSize,
+                pageSize);
         List<AdminActivityListBO> items = rows.stream().map(this::toAdminListBO).toList();
-        AdminActivitySummaryRow summaryRow = activityMapper.selectAdminActivitySummary();
-        AdminActivitySummaryBO summary = AdminActivitySummaryBO.builder()
-                .enrolling(summaryRow == null ? 0L : summaryRow.getEnrolling())
-                .ongoing(summaryRow == null ? 0L : summaryRow.getOngoing())
-                .reviewing(summaryRow == null ? 0L : summaryRow.getReviewing())
-                .startingSoon(summaryRow == null ? 0L : summaryRow.getStartingSoon())
-                .build();
+        long totalItems = activityMapper.countAdminActivities(
+                query.getPublishStatus(), query.getLifecycleStatus(), query.getKeyword(), keywordId);
 
         return AdminActivityPageBO.builder()
                 .items(items)
-                .summary(summary)
-                .hasMore(hasMore)
-                .nextCursor(items.isEmpty()
-                        ? null
-                        : AdminIdCursorCodec.encode(sort, items.get(items.size() - 1).getId()))
+                .page(page)
                 .pageSize(pageSize)
+                .totalItems(totalItems)
                 .build();
     }
 
@@ -456,28 +341,25 @@ public class ActivityServiceImpl implements ActivityService {
         if (activity == null) {
             throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND);
         }
-        Contact contact = parseContact(activity.getContactInfo());
         return AdminActivityDetailBO.builder()
+                .contractVersion(activity.getContractVersion()).lifecycleStatus(activity.getLifecycleStatus()).formVersion(activity.getFormVersion())
+                .formSchema(cn.jualn.miniapp.module.activity.service.ActivityFormPolicy.parse(activity.getFormSchema()))
+                .cancelledAt(activity.getCancelledAt()).cancelReason(activity.getCancelReason())
+                .publishStatus(activity.getPublishStatus())
+                .summary(activity.getSummary()).audienceSummary(activity.getAudienceSummary())
+                .audienceDepartmentIds(activity.getAudienceDepartmentIds()).contactsJson(activity.getContactsJson())
+                .registrationMode(activity.getRegistrationMode()).participantMode(activity.getParticipantMode())
+                .capacityUnit(activity.getCapacityUnit()).coverAttachmentId(activity.getCoverAttachmentId())
+                .sections(eventContentService.sections(TargetType.ACTIVITY, id))
+                .actions(eventContentService.actions(TargetType.ACTIVITY, id))
                 .id(activity.getId())
                 .userId(activity.getUserId())
                 .title(activity.getTitle())
-                .content(activity.getContent())
                 .location(activity.getLocation())
                 .category(ActivityCategory.fromCode(activity.getCategory()))
-                .status(ActivityStatus.fromCode(activity.getStatus()))
-                .auditStatus(activity.getAuditStatus())
-                .rejectReason(activity.getRejectReason())
                 .organizer(activity.getOrganizer())
                 .audienceScope(activity.getAudienceScope())
-                .contactName(contact.name())
-                .contactPhone(contact.phone())
-                .joinMethod(activity.getJoinMethod())
-                .qrcodeUrl(activity.getQrcodeUrl())
-                .startTime(activity.getStartTime())
-                .endTime(activity.getEndTime())
-                .enrollDeadline(activity.getEnrollDeadline())
-                .capacity(activity.getMaxParticipants())
-                .pinned(activity.getIsPinned())
+                .officialCapacity(activity.getCapacity())
                 .commentCount(activity.getCommentCount())
                 .likeCount(activity.getLikeCount())
                 .viewCount(activity.getViewCount())
@@ -486,7 +368,6 @@ public class ActivityServiceImpl implements ActivityService {
                 .publishedAt(activity.getPublishedAt())
                 .createdAt(activity.getCreatedAt())
                 .updatedAt(activity.getUpdatedAt())
-                .author(userService.getSimpleInfo(activity.getUserId()))
                 .attachments(mediaService.listAttachments(TargetType.ACTIVITY, id))
                 .timeline(timelineService.listTimelinesByTarget(TargetType.ACTIVITY, id))
                 .build();
@@ -494,12 +375,7 @@ public class ActivityServiceImpl implements ActivityService {
 
     @Override
     public AdminActivityDetailBO getAdminActivityDraft(Long id) {
-        AdminActivityDetailBO detail = getAdminActivityDetail(id);
-        if (detail.getStatus() != ActivityStatus.DRAFT && detail.getStatus() != ActivityStatus.REJECTED) {
-            throw new BusinessException(ResultCode.ACTIVITY_OPERATION_NOT_ALLOWED,
-                    "只有草稿或审核拒绝的活动可以继续编辑");
-        }
-        return detail;
+        return getAdminActivityDetail(id);
     }
 
     @Override
@@ -508,16 +384,14 @@ public class ActivityServiceImpl implements ActivityService {
         validateAdminSave(command);
         Activity activity = toAdminEntity(command);
         activity.setUserId(command.getOperatorId());
-        activity.setStatus(ActivityStatus.DRAFT.getCode());
-        activity.setAuditStatus(0);
-        activity.setIsPinned(Boolean.FALSE);
+        activity.setPublishStatus(0);
         activity.setCommentCount(0);
         activity.setLikeCount(0);
         activity.setViewCount(0);
         if (activityMapper.insert(activity) != 1) {
             throw new BusinessException(ResultCode.ACTIVITY_OPERATION_NOT_ALLOWED, "活动草稿创建失败");
         }
-        saveAdminChildren(activity.getId(), command, false);
+        saveAdminChildren(activity.getId(), command);
         log.info("[管理端活动] 管理员 {} 创建草稿 {}", command.getOperatorId(), activity.getId());
         return activity.getId();
     }
@@ -529,117 +403,102 @@ public class ActivityServiceImpl implements ActivityService {
         if (command.getId() == null) {
             throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "活动ID不能为空");
         }
-        Activity current = activityMapper.selectAdminActivityById(command.getId());
+        Activity current = activityMapper.selectForUpdate(command.getId());
         assertAdminEditable(current);
+        boolean notifyActionableChange = publication(current) == 1
+                && Integer.valueOf(0).equals(current.getLifecycleStatus());
+        String previousLocation = current.getLocation();
+        List<cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO> previousTimeline = notifyActionableChange
+                ? timelineService.listTimelinesByTarget(TargetType.ACTIVITY, current.getId()) : List.of();
+        String nextSchema = command.isCanonicalFullReplacement()
+                ? (command.getFormSchema() == null ? null : command.getFormSchema().toString())
+                : command.getFormSchema() == null ? current.getFormSchema()
+                : command.getFormSchema().isNull() ? null : command.getFormSchema().toString();
+        Integer nextCapacity = command.isCanonicalFullReplacement() ? command.getCapacity()
+                : command.getCapacity() == null ? current.getCapacity() : command.getCapacity();
+        activityRegistrationService.validateFormChange(current.getId(), current.getFormSchema(), nextSchema, nextCapacity,
+                current.getRegistrationMode(), command.getRegistrationMode() == null ? current.getRegistrationMode() : command.getRegistrationMode(),
+                command.getParticipantMode() == null ? current.getParticipantMode() : command.getParticipantMode());
+        if (current.getCapacityUnit() != null && current.getCapacityUnit() == 2 && command.getCapacityUnit() == null)
+            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "此活动按队限制容量，请使用新版编辑器");
 
         int updated = activityMapper.update(null,
                 new LambdaUpdateWrapper<Activity>()
+                        .set(Activity::getFormSchema, nextSchema)
                         .set(Activity::getTitle, command.getTitle())
-                        .set(Activity::getContent, command.getContent())
                         .set(Activity::getLocation, command.getLocation())
-                        .set(Activity::getCategory, command.getCategory().getCode())
+                        .set(Activity::getCategory, command.getCategory() == null ? null : command.getCategory().getCode())
                         .set(Activity::getOrganizer, command.getOrganizer())
                         .set(Activity::getAudienceScope, command.getAudienceScope())
-                        .set(Activity::getContactInfo, serializeContact(command.getContactName(), command.getContactPhone()))
-                        .set(Activity::getJoinMethod, command.getJoinMethod())
-                        .set(Activity::getQrcodeUrl, command.getQrcodeUrl())
-                        .set(Activity::getStartTime, command.getStartTime())
-                        .set(Activity::getEndTime, command.getEndTime())
-                        .set(Activity::getEnrollDeadline, command.getEnrollDeadline())
-                        .set(Activity::getMaxParticipants, command.getMaxParticipants())
-                        .set(Activity::getStatus, ActivityStatus.DRAFT.getCode())
-                        .set(Activity::getAuditStatus, 0)
-                        .set(Activity::getRejectReason, null)
+                        .set(Activity::getAudienceDepartmentIds, command.getAudienceDepartmentIds())
+                        .set(Activity::getContactsJson, command.getContactsJson())
+                        .set(Activity::getPublishStatus, publication(current))
+                        .setSql("contract_version = contract_version + 1")
                         .eq(Activity::getId, command.getId())
-                        .in(Activity::getStatus, ActivityStatus.DRAFT.getCode(), ActivityStatus.REJECTED.getCode())
+                        .eq(Activity::getPublishStatus, publication(current))
                         .isNull(Activity::getDeletedAt));
         if (updated != 1) {
             throw new BusinessException(ResultCode.ACTIVITY_OPERATION_NOT_ALLOWED, "活动草稿更新失败");
         }
-        saveAdminChildren(command.getId(), command, true);
+        saveAdminChildren(command.getId(), command);
+        Activity saved = activityMapper.selectForUpdate(command.getId());
+        if (publication(saved) == 1) {
+            validateAdminSubmission(saved);
+            initializeFormVersionIfAbsent(saved);
+        }
+        refreshActivityReminder(saved);
+        if (notifyActionableChange) {
+            enqueueActivityActionableChanges(saved, previousLocation, previousTimeline,
+                    timelineService.listTimelinesByTarget(TargetType.ACTIVITY, saved.getId()));
+        }
         afterCommit(() -> redisService.delete(RedisKeyConstant.activityDetail(command.getId())));
         log.info("[管理端活动] 管理员 {} 更新草稿 {}", command.getOperatorId(), command.getId());
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void submitAdminActivityReview(Long activityId, Long operatorId) {
-        validateAdminAction(activityId, operatorId, null, false);
-        Activity current = activityMapper.selectAdminActivityById(activityId);
-        assertAdminEditable(current);
-        validateAdminSubmission(current);
-        String auditText = String.join("\n", current.getTitle(), current.getOrganizer(), current.getContent());
-        List<MediaAttachmentBO> attachments = mediaService.listAttachments(TargetType.ACTIVITY, activityId);
-        AuditReserveResultBO reserveResult = auditReservationService.reserveAuditLogs(AuditReserveBO.builder()
-                .auditScene(AuditScene.ACTIVITY)
-                .targetId(activityId)
-                .textContent(auditText)
-                .mediaItems(buildActivityAuditMediaItems(attachments))
-                .build());
-        if (activityMapper.submitAdminReview(activityId) != 1) {
-            throwAdminActivityConflict(activityId, "活动当前状态不允许提交审核");
-        }
-        if (reserveResult == null || !reserveResult.hasAuditTask()) {
-            if (activityMapper.approveAdminReview(activityId) != 1) {
-                throwAdminActivityConflict(activityId, "活动自动发布失败");
-            }
-        }
-        afterCommit(() -> {
-            redisService.delete(RedisKeyConstant.activityDetail(activityId));
-            enqueueActivityAudit(activityId, auditText, reserveResult);
-        });
-        log.info("[管理端活动] 管理员 {} 提交活动 {} 审核", operatorId, activityId);
+    public AdminActivityDetailBO replaceAdminActivity(AdminActivitySaveBO command, String ifMatch) {
+        if (command == null || command.getId() == null) throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID);
+        Activity current = activityMapper.selectForUpdate(command.getId());
+        if (current == null) throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND);
+        StrongEtag.require(ifMatch, "activity", command.getId(), current.getContractVersion() == null ? 1L : current.getContractVersion());
+        updateAdminActivity(command);
+        return getAdminActivityDetail(command.getId());
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void updateAdminActivityPinned(Long activityId, Long operatorId, boolean pinned) {
-        validateAdminAction(activityId, operatorId, null, false);
-        Activity current = activityMapper.selectAdminActivityById(activityId);
-        if (current == null) {
-            throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND);
-        }
-        if (current.getStatus() == null
-                || (current.getStatus() != ActivityStatus.SIGNUP.getCode()
-                && current.getStatus() != ActivityStatus.ONGOING.getCode())) {
-            throw new BusinessException(ResultCode.ACTIVITY_OPERATION_NOT_ALLOWED,
-                    "只有报名中或进行中的活动可以调整置顶状态");
-        }
-        if (Boolean.valueOf(pinned).equals(current.getIsPinned())) {
-            return;
-        }
-        if (activityMapper.updateAdminPinned(activityId, pinned) != 1) {
-            throwAdminActivityConflict(activityId, "活动状态已变化，请刷新后重试");
-        }
-        afterCommit(() -> redisService.delete(RedisKeyConstant.activityDetail(activityId)));
-        log.info("[管理端活动] 管理员 {} {}活动 {}", operatorId, pinned ? "置顶" : "取消置顶", activityId);
+    public void submitAdminActivityReview(Long activityId, Long operatorId) {
+        throw new BusinessException(ResultCode.INVALID_OPERATION, "活动暂不接入审核，请使用直接发布接口");
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void cancelAdminActivity(Long activityId, Long operatorId, String reason) {
         validateAdminAction(activityId, operatorId, reason, true);
-        Activity current = activityMapper.selectAdminActivityById(activityId);
+        Activity current = activityMapper.selectForUpdate(activityId);
         if (current == null) {
             throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND);
         }
-        if (activityMapper.cancelAdminActivity(activityId) != 1) {
+        if (Integer.valueOf(2).equals(current.getLifecycleStatus())) return;
+        if (activityMapper.cancelAdminActivity(activityId, reason.trim()) != 1) {
             throwAdminActivityConflict(activityId, "只有尚未开始的报名中活动可以取消");
         }
         notifyService.cancelActivityPlans(activityId);
         String noticeContent = "活动「" + current.getTitle() + "」已取消：" + reason.trim();
-        afterCommit(() -> {
-            redisService.delete(RedisKeyConstant.activityDetail(activityId));
-            notifyActivityStatusChange(activityId, "活动已取消", noticeContent);
-        });
-        log.info("[管理端活动] 管理员 {} 取消活动 {}, reason={}", operatorId, activityId, reason.trim());
+        notifyService.enqueueBusinessNotification(TargetType.ACTIVITY, activityId,
+                "activity:" + activityId + ":cancel:v" + nextVersion(current), NotifyType.ACTIVITY_CANCELLED,
+                "SUBSCRIBERS_OR_REGISTERED_USERS", "活动已取消", noticeContent,
+                subjectSnapshot(current, "活动已取消", noticeContent));
+        afterCommit(() -> redisService.delete(RedisKeyConstant.activityDetail(activityId)));
+        log.info("[管理端活动] 管理员 {} 取消活动 {}", operatorId, activityId);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void endAdminActivityEarly(Long activityId, Long operatorId, String reason) {
         validateAdminAction(activityId, operatorId, reason, true);
-        Activity current = activityMapper.selectAdminActivityById(activityId);
+        Activity current = activityMapper.selectForUpdate(activityId);
         if (current == null) {
             throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND);
         }
@@ -648,11 +507,12 @@ public class ActivityServiceImpl implements ActivityService {
         }
         notifyService.cancelActivityPlans(activityId);
         String noticeContent = "活动「" + current.getTitle() + "」已提前结束：" + reason.trim();
-        afterCommit(() -> {
-            redisService.delete(RedisKeyConstant.activityDetail(activityId));
-            notifyActivityStatusChange(activityId, "活动已提前结束", noticeContent);
-        });
-        log.info("[管理端活动] 管理员 {} 提前结束活动 {}, reason={}", operatorId, activityId, reason.trim());
+        notifyService.enqueueBusinessNotification(TargetType.ACTIVITY, activityId,
+                "activity:" + activityId + ":end:v" + nextVersion(current), NotifyType.ACTIVITY_ENDED_EARLY,
+                "SUBSCRIBERS_OR_REGISTERED_USERS", "活动已提前结束", noticeContent,
+                subjectSnapshot(current, "活动已提前结束", noticeContent));
+        afterCommit(() -> redisService.delete(RedisKeyConstant.activityDetail(activityId)));
+        log.info("[管理端活动] 管理员 {} 提前结束活动 {}", operatorId, activityId);
     }
 
     @Override
@@ -664,15 +524,16 @@ public class ActivityServiceImpl implements ActivityService {
         if (reason == null || reason.isBlank()) {
             throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "删除原因不能为空");
         }
-        Activity current = activityMapper.selectAdminActivityById(id);
+        Activity current = activityMapper.selectForUpdate(id);
         assertAdminEditable(current);
+        if (publication(current) == 1)
+            throw new BusinessException(ResultCode.ACTIVITY_OPERATION_NOT_ALLOWED, "已发布活动请先下架");
         int updated = activityMapper.update(null,
                 new LambdaUpdateWrapper<Activity>()
-                        .set(Activity::getStatus, ActivityStatus.DELETED.getCode())
-                        .set(Activity::getIsPinned, Boolean.FALSE)
+                        .set(Activity::getPublishStatus, 2)
                         .set(Activity::getDeletedAt, LocalDateTime.now())
                         .eq(Activity::getId, id)
-                        .in(Activity::getStatus, ActivityStatus.DRAFT.getCode(), ActivityStatus.REJECTED.getCode())
+                        .eq(Activity::getPublishStatus, publication(current))
                         .isNull(Activity::getDeletedAt));
         if (updated != 1) {
             throw new BusinessException(ResultCode.ACTIVITY_OPERATION_NOT_ALLOWED, "活动草稿删除失败");
@@ -682,41 +543,21 @@ public class ActivityServiceImpl implements ActivityService {
             redisService.delete(RedisKeyConstant.targetExists(TargetType.ACTIVITY.getKey(), id));
         });
         // 当前版本尚无通用管理员审计表，先保留结构化日志；后续接入审计模型时由本用例统一写入。
-        log.info("[管理端活动] 管理员 {} 删除草稿 {}, reason={}", operatorId, id, reason);
+        log.info("[管理端活动] 管理员 {} 删除草稿 {}", operatorId, id);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void approveActivityReview(Long activityId, Long operatorId, String remark) {
-        validateActivityReview(activityId, operatorId, false, remark);
-        if (activityMapper.approveAdminReview(activityId) != 1) {
-            throwActivityReviewConflict(activityId, "活动当前状态不允许通过复核");
-        }
-        afterCommit(() -> redisService.delete(RedisKeyConstant.activityDetail(activityId)));
-        log.info("[ActivityService.approveActivityReview][完成] operatorId={}, activityId={}, remark={}",
-                operatorId, activityId, remark);
+        throw new BusinessException(ResultCode.INVALID_OPERATION, "活动暂不接入审核，请使用直接发布接口");
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void rejectActivityReview(Long activityId, Long operatorId, String reason) {
-        validateActivityReview(activityId, operatorId, true, reason);
-        if (activityMapper.rejectAdminReview(activityId, reason.trim()) != 1) {
-            throwActivityReviewConflict(activityId, "活动当前状态不允许拒绝复核");
-        }
-        afterCommit(() -> redisService.delete(RedisKeyConstant.activityDetail(activityId)));
-        log.info("[ActivityService.rejectActivityReview][完成] operatorId={}, activityId={}, reason={}",
-                operatorId, activityId, reason);
+        throw new BusinessException(ResultCode.INVALID_OPERATION, "活动暂不接入审核，请使用直接发布接口");
     }
 
-    private void validateActivityReview(Long activityId, Long operatorId, boolean reasonRequired, String reason) {
-        if (activityId == null || operatorId == null) {
-            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "人工复核参数不完整");
-        }
-        if (reasonRequired && (reason == null || reason.isBlank())) {
-            throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "拒绝原因不能为空");
-        }
-    }
 
     private void throwActivityReviewConflict(Long activityId, String message) {
         if (activityMapper.selectAdminActivityById(activityId) == null) {
@@ -736,77 +577,56 @@ public class ActivityServiceImpl implements ActivityService {
 
     private void validateAdminSubmission(Activity activity) {
         if (!StringUtils.hasText(activity.getTitle())
-                || !StringUtils.hasText(activity.getContent())
-                || !StringUtils.hasText(activity.getLocation())
+                || !StringUtils.hasText(activity.getSummary())
                 || !StringUtils.hasText(activity.getOrganizer())
+                || !StringUtils.hasText(activity.getAudienceSummary())
                 || activity.getCategory() == null
                 || activity.getAudienceScope() == null
-                || activity.getAudienceScope() == 0
-                || activity.getStartTime() == null
-                || activity.getEndTime() == null) {
-            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "活动必填信息未填写完整");
+                || activity.getParticipantMode() == null
+                || !Set.of(1, 2).contains(activity.getParticipantMode())) {
+            throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict(
+                    "publish-validation-failed", "发布所需的摘要、分类、主办方、参与范围或参与形式不完整");
         }
-        if (!activity.getEndTime().isAfter(activity.getStartTime())) {
-            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "活动结束时间必须晚于开始时间");
+        List<cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO> timeline =
+                timelineService.listTimelinesByTarget(TargetType.ACTIVITY, activity.getId());
+        if (activity.getRegistrationMode() == null || !Set.of(1, 2, 3, 4).contains(activity.getRegistrationMode()))
+            throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict(
+                    "publish-validation-failed", "发布前请确认报名方式");
+        if ((activity.getCapacity() == null) != (activity.getCapacityUnit() == null)
+                || (activity.getCapacity() != null && activity.getCapacity() <= 0)
+                || (activity.getCapacityUnit() != null && !Set.of(1, 2).contains(activity.getCapacityUnit())))
+            throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict(
+                    "publish-validation-failed", "capacity 与 capacityUnit 必须成对且合法");
+        if (activity.getCapacityUnit() != null
+                && ((Integer.valueOf(1).equals(activity.getParticipantMode()) && !Integer.valueOf(1).equals(activity.getCapacityUnit()))
+                || (Integer.valueOf(2).equals(activity.getParticipantMode()) && !Integer.valueOf(2).equals(activity.getCapacityUnit()))))
+            throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict(
+                    "publish-validation-failed", "参与形式与容量单位不一致");
+        if (activity.getRegistrationMode() == 1
+                && activity.getFormSchema() != null)
+            throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict(
+                    "publish-validation-failed", "无需报名时不能配置报名窗口或平台表单");
+        if (activity.getRegistrationMode() == 3) {
+            if (activity.getFormSchema() != null || eventContentService.actions(TargetType.ACTIVITY, activity.getId()).stream()
+                    .noneMatch(a -> Integer.valueOf(7).equals(a.getActionType()) && StringUtils.hasText(a.getTargetValue())))
+                throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict(
+                        "publish-validation-failed", "纯外部报名须提供外部报名入口且不能配置平台表单");
         }
-        if (activity.getEnrollDeadline() != null
-                && activity.getEnrollDeadline().isAfter(activity.getStartTime())) {
-            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "报名截止时间不能晚于活动开始时间");
-        }
-    }
-
-    private List<AuditReserveBO.MediaItem> buildActivityAuditMediaItems(List<MediaAttachmentBO> attachments) {
-        return safeList(attachments).stream()
-                .filter(item -> item != null && StringUtils.hasText(item.getUrl()) && item.getType() != null)
-                .map(item -> AuditReserveBO.MediaItem.builder()
-                        .mediaType(item.getType())
-                        .mediaUrl(item.getUrl())
-                        .build())
-                .toList();
-    }
-
-    private void enqueueActivityAudit(
-            Long activityId,
-            String content,
-            AuditReserveResultBO reserveResult) {
-        if (reserveResult == null || !reserveResult.hasAuditTask()) {
-            return;
-        }
-        List<AuditMediaBatchPayload.AuditMediaItem> mediaItems = safeList(reserveResult.getMediaItems()).stream()
-                .filter(item -> item != null && item.getAuditLogId() != null)
-                .map(item -> AuditMediaBatchPayload.AuditMediaItem.builder()
-                        .auditLogId(item.getAuditLogId())
-                        .mediaType(item.getMediaType())
-                        .mediaUrl(item.getMediaUrl())
-                        .build())
-                .toList();
-        if (!mediaItems.isEmpty()) {
-            queueProducer.send(AuditMediaBatchPayload.builder()
-                    .auditScene(AuditScene.ACTIVITY)
-                    .targetId(activityId)
-                    .scene(3)
-                    .items(mediaItems)
-                    .build());
-        }
-        if (reserveResult.getTextAuditLogId() != null) {
-            queueProducer.send(AuditTextPayload.builder()
-                    .auditLogId(reserveResult.getTextAuditLogId())
-                    .auditScene(AuditScene.ACTIVITY)
-                    .targetId(activityId)
-                    .content(content)
-                    .scene(3)
-                    .build());
+        if (Set.of(2, 4).contains(activity.getRegistrationMode())) {
+            activityFormAvailability.requireEnabled();
+            cn.jualn.miniapp.module.activity.service.ActivityFormPolicy.schema(
+                    cn.jualn.miniapp.module.activity.service.ActivityFormPolicy.parse(activity.getFormSchema()));
+            var window = participationPolicy.window(timeline);
+            cn.jualn.miniapp.module.activity.service.ActivityFormPolicy.require(Integer.valueOf(1).equals(activity.getParticipantMode())
+                            && window.platformValid(),
+                    "平台表单仅支持个人报名；timeline须有唯一EXACT_POINT截止节点且至多一个EXACT_POINT开始节点");
+            if (activity.getRegistrationMode() == 4)
+                cn.jualn.miniapp.module.activity.service.ActivityFormPolicy.require(eventContentService.actions(TargetType.ACTIVITY, activity.getId()).stream()
+                                .anyMatch(a -> Integer.valueOf(7).equals(a.getActionType()) && StringUtils.hasText(a.getTargetValue())),
+                        "组合报名须提供外部报名入口");
         }
     }
 
-    private void notifyActivityStatusChange(Long activityId, String title, String content) {
-        try {
-            notifyService.notifyActivitySubscribers(activityId, title, content);
-        } catch (Exception exception) {
-            // 当前通知基础设施没有业务 outbox；状态提交成功后通知失败只能记录，避免对外误报状态回滚。
-            log.error("[管理端活动] 活动状态通知投递失败，activityId={}", activityId, exception);
-        }
-    }
 
     private void throwAdminActivityConflict(Long activityId, String message) {
         if (activityMapper.selectAdminActivityById(activityId) == null) {
@@ -821,12 +641,11 @@ public class ActivityServiceImpl implements ActivityService {
                 .title(row.getTitle())
                 .summary(row.getSummary())
                 .category(ActivityCategory.fromCode(row.getCategory()))
-                .status(ActivityStatus.fromCode(row.getStatus()))
-                .auditStatus(row.getAuditStatus())
+                .publishStatus(row.getPublishStatus())
+                .lifecycleStatus(row.getLifecycleStatus())
                 .organizer(row.getOrganizer())
                 .location(row.getLocation())
                 .audienceScope(row.getAudienceScope())
-                .pinned(row.getPinned())
                 .subscriberCount(row.getSubscriberCount())
                 .capacity(row.getCapacity())
                 .startTime(row.getStartTime())
@@ -839,77 +658,75 @@ public class ActivityServiceImpl implements ActivityService {
 
     private Activity toAdminEntity(AdminActivitySaveBO command) {
         return Activity.builder()
+                .formSchema(command.getFormSchema() == null || command.getFormSchema().isNull() ? null : command.getFormSchema().toString())
                 .title(command.getTitle())
-                .content(command.getContent())
+                .summary(command.getSummary()).audienceSummary(command.getAudienceSummary())
                 .location(command.getLocation())
-                .category(command.getCategory().getCode())
+                .category(command.getCategory() == null ? null : command.getCategory().getCode())
                 .organizer(command.getOrganizer())
                 .audienceScope(command.getAudienceScope())
-                .contactInfo(serializeContact(command.getContactName(), command.getContactPhone()))
-                .joinMethod(command.getJoinMethod())
-                .qrcodeUrl(command.getQrcodeUrl())
-                .startTime(command.getStartTime())
-                .endTime(command.getEndTime())
-                .enrollDeadline(command.getEnrollDeadline())
-                .maxParticipants(command.getMaxParticipants())
+                .audienceDepartmentIds(command.getAudienceDepartmentIds()).contactsJson(command.getContactsJson())
+                .registrationMode(command.getRegistrationMode()).participantMode(command.getParticipantMode())
+                .capacity(command.getCapacity()).capacityUnit(command.getCapacityUnit())
+                .coverAttachmentId(command.getCoverAttachmentId())
                 .build();
     }
 
-    private void saveAdminChildren(Long activityId, AdminActivitySaveBO command, boolean replaceEmpty) {
-        if (replaceEmpty || !CollectionUtils.isEmpty(command.getTimelineItems())) {
-            timelineService.replaceTimelines(TimelineSaveBO.builder()
-                    .targetType(TargetType.ACTIVITY)
-                    .targetId(activityId)
-                    .timelines(command.getTimelineItems())
-                    .build());
-        }
-        if (replaceEmpty || !CollectionUtils.isEmpty(command.getAttachmentItems())) {
-            mediaService.replaceAttachments(MediaAttachmentSaveBO.builder()
-                    .targetType(TargetType.ACTIVITY)
-                    .targetId(activityId)
-                    .attachments(command.getAttachmentItems())
-                    .build());
-        }
+    private void saveAdminChildren(Long activityId, AdminActivitySaveBO command) {
+        eventContentService.saveSections(TargetType.ACTIVITY, activityId, command.getSections());
+        eventContentService.prepareActions(TargetType.ACTIVITY, activityId, command.getActions());
+
+        timelineService.replaceTimelines(TimelineSaveBO.builder()
+                .targetType(TargetType.ACTIVITY)
+                .targetId(activityId)
+                .timelines(command.getTimelineItems())
+                .build());
+        mediaService.replaceAttachmentLinks(TargetType.ACTIVITY, activityId, command.getAttachmentLinks());
+        eventContentService.saveActions(TargetType.ACTIVITY, activityId, command.getActions());
+        Long coverId = command.getCoverAttachmentId();
+        eventContentService.validateCover(TargetType.ACTIVITY, activityId, coverId);
+        Integer capacity = command.getCapacity();
+        Integer unit = command.getCapacityUnit() == null ? (capacity == null ? null : 1) : command.getCapacityUnit();
+        if ((capacity == null) != (unit == null))
+            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "容量与单位必须同时填写");
+
+        int rows = activityMapper.update(null, new LambdaUpdateWrapper<Activity>()
+                .set(command.isCanonicalFullReplacement() || command.getSummary() != null, Activity::getSummary, command.getSummary())
+                .set(command.isCanonicalFullReplacement() || command.getAudienceSummary() != null, Activity::getAudienceSummary, command.getAudienceSummary())
+                .set(command.isCanonicalFullReplacement() || command.getRegistrationMode() != null, Activity::getRegistrationMode, command.getRegistrationMode())
+                .set(command.isCanonicalFullReplacement() || command.getParticipantMode() != null, Activity::getParticipantMode, command.getParticipantMode())
+                .set(Activity::getCapacity, capacity).set(Activity::getCapacityUnit, unit)
+                .set(Activity::getCoverAttachmentId, coverId)
+                .eq(Activity::getId, activityId));
+        if (rows != 1) throw new BusinessException(ResultCode.ACTIVITY_OPERATION_NOT_ALLOWED, "活动子资源保存失败");
     }
 
     private void validateAdminSave(AdminActivitySaveBO command) {
         if (command == null || command.getOperatorId() == null) {
             throw new BusinessException(ResultCode.UNAUTHORIZED);
         }
-        if (command.getCategory() == null || command.getAudienceScope() == null || command.getAudienceScope() == 0) {
-            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID);
-        }
-        if ((command.getAudienceScope() & 1) != 0 && command.getAudienceScope() != 1) {
+        if (command.getRegistrationMode() != null && !java.util.Set.of(0, 1, 2, 3, 4).contains(command.getRegistrationMode()))
+            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "报名方式不合法");
+        if (command.getFormSchema() != null && !command.getFormSchema().isNull())
+            cn.jualn.miniapp.module.activity.service.ActivityFormPolicy.schema(command.getFormSchema());
+        if (command.getParticipantMode() != null && (command.getParticipantMode() < 0 || command.getParticipantMode() > 3))
+            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "参与形式不合法");
+        if (command.getCapacity() != null && command.getCapacity() <= 0)
+            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "容量必须大于0");
+        if (command.getCapacityUnit() != null && command.getCapacityUnit() != 1 && command.getCapacityUnit() != 2)
+            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "容量单位不合法");
+        if (command.getAudienceScope() != null && (command.getAudienceScope() & 1) != 0 && command.getAudienceScope() != 1) {
             throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "全院与具体学科部不能同时选择");
         }
-        if (!command.getEndTime().isAfter(command.getStartTime())) {
-            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "活动结束时间必须晚于开始时间");
-        }
-        if (command.getEnrollDeadline() != null && command.getEnrollDeadline().isAfter(command.getStartTime())) {
-            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "报名截止时间不能晚于活动开始时间");
-        }
-        boolean hasContactName = command.getContactName() != null;
-        boolean hasContactPhone = command.getContactPhone() != null;
-        if (hasContactName != hasContactPhone) {
-            throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "联系人姓名和电话必须同时填写");
-        }
         for (var item : safeList(command.getTimelineItems())) {
-            if (item.getStartTime() != null && item.getEndTime() != null
-                    && item.getEndTime().isBefore(item.getStartTime())) {
-                throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "时间线结束时间不能早于开始时间");
-            }
+            EventTimePolicy.range(item.getStartTime(), item.getEndTime(), item.getEndPrecision());
         }
     }
 
     private void assertAdminEditable(Activity activity) {
-        if (activity == null) {
-            throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND);
-        }
-        if (activity.getStatus() == null
-                || (activity.getStatus() != ActivityStatus.DRAFT.getCode()
-                && activity.getStatus() != ActivityStatus.REJECTED.getCode())) {
-            throw new BusinessException(ResultCode.ACTIVITY_OPERATION_NOT_ALLOWED, "只有草稿或审核拒绝的活动可以编辑或删除");
-        }
+        if (activity == null) throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND);
+        if (activity.getDeletedAt() != null)
+            throw new BusinessException(ResultCode.ACTIVITY_OPERATION_NOT_ALLOWED, "已删除活动不可编辑");
     }
 
     private Long parseId(String keyword) {
@@ -999,13 +816,7 @@ public class ActivityServiceImpl implements ActivityService {
      * @return 当前用户的ID
      * @throws BusinessException 当用户未登录时抛出 {@link ResultCode#UNAUTHORIZED}
      */
-    private Long requireUserId() {
-        Long userId = UserContext.getUserId();
-        if (userId == null) {
-            throw new BusinessException(ResultCode.UNAUTHORIZED);
-        }
-        return userId;
-    }
+
 
     /**
      * 根据ID获取可见的活动。
@@ -1026,6 +837,8 @@ public class ActivityServiceImpl implements ActivityService {
             redisService.setNullPlaceholder(cacheKey, RedisKeyConstant.ACTIVITY_DETAIL_TTL);
             throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND, "活动不存在");
         }
+        if (publication(activity) != 1)
+            throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND);
         return activity;
     }
 
@@ -1069,48 +882,12 @@ public class ActivityServiceImpl implements ActivityService {
      * <p><b>重要</b>：这些字段不会被Redis缓存，每次都需要根据当前用户动态计算，
      * 防止不同用户看到彼此的状态。</p>
      *
-     * @param detailVO   活动详情业务对象
+     * @param detailBO   活动详情业务对象
      * @param activityId 活动ID，用于查询报名状态
      */
-    private void enrichUserState(ActivityDetailVO detailVO, Long activityId) {
-        detailVO.setLiked(interactService.isLiked(TargetType.ACTIVITY, activityId));
-        detailVO.setEnrolled(activityEnrollmentService.isEnrolled(activityId));
-    }
-
-    /**
-     * 丰富分页结果中所有活动的用户相关状态。(保留，但目前分页接口不返回用户状态字段)
-     *
-     * <p>该方法为分页列表中的每个活动对象都计算当前用户的相关状态。
-     * 避免在循环内调用enrichUserState以减少方法调用开销。</p>
-     *
-     * <p><b>性能说明</b>：该方法会对每个活动调用activityEnrollmentService.isEnrolled()，
-     * 相关查询应该在服务层做了缓存处理。</p>
-     *
-     * @param pageResult 分页结果对象
-     */
-    private void enrichPageUserState(PageResult<ActivityDetailVO> pageResult) {
-        if (pageResult == null || pageResult.getList() == null) {
-            return;
-        }
-        Long userId = UserContext.getUserId();
-        if (userId == null) {
-            for (ActivityDetailVO detailVO : pageResult.getList()) {
-                detailVO.setLiked(Boolean.FALSE);
-                detailVO.setEnrolled(Boolean.FALSE);
-            }
-            return;
-        }
-
-        List<Long> activityIds = new ArrayList<>(pageResult.getList().size());
-        for (ActivityDetailVO detailVO : pageResult.getList()) {
-            activityIds.add(detailVO.getId());
-        }
-        Set<Long> enrolledActivityIds = activityEnrollmentService.listEnrolledActivityIds(activityIds);
-
-        for (ActivityDetailVO detailVO : pageResult.getList()) {
-            detailVO.setLiked(Boolean.FALSE);
-            detailVO.setEnrolled(enrolledActivityIds.contains(detailVO.getId()));
-        }
+    private void enrichUserState(ActivityDetailBO detailBO, Long activityId) {
+        detailBO.setLiked(interactService.isLiked(TargetType.ACTIVITY, activityId));
+        detailBO.setEnrolled(activityEnrollmentService.isEnrolled(activityId));
     }
 
     private void afterCommit(Runnable task) {
@@ -1119,11 +896,200 @@ public class ActivityServiceImpl implements ActivityService {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    task.run();
+                    try {
+                        task.run();
+                    } catch (RuntimeException e) {
+                        log.error("活动提交后副作用失败", e);
+                    }
                 }
             });
         } else {
             task.run();
         }
     }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void publishAdminActivity(Long activityId, Long operatorId) {
+        validateAdminAction(activityId, operatorId, null, false);
+        Activity current = activityMapper.selectForUpdate(activityId);
+        assertAdminEditable(current);
+        if (publication(current) == 1) return;
+        validateAdminSubmission(current);
+        if (activityMapper.publishDirectly(activityId, initialFormVersionFor(current)) != 1)
+            throw new BusinessException(ResultCode.ACTIVITY_OPERATION_NOT_ALLOWED, "活动发布失败");
+        refreshActivityReminder(activityMapper.selectForUpdate(activityId));
+        afterCommit(() -> redisService.delete(RedisKeyConstant.activityDetail(activityId)));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void takeDownAdminActivity(Long activityId, Long operatorId, String reason) {
+        validateAdminAction(activityId, operatorId, reason, true);
+        Activity current = activityMapper.selectForUpdate(activityId);
+        if (current == null) throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND);
+        if (publication(current) == 2) return;
+        if (publication(current) != 1 || activityMapper.takeDownDirectly(activityId) != 1)
+            throw new BusinessException(ResultCode.ACTIVITY_OPERATION_NOT_ALLOWED, "只有已发布活动可以下架");
+        notifyService.cancelActivityPlans(activityId);
+        afterCommit(() -> redisService.delete(RedisKeyConstant.activityDetail(activityId)));
+        log.info("[活动下架] id={}, operatorId={}", activityId, operatorId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AdminActivityDetailBO transitionAdminActivity(Long activityId, Long operatorId, String ifMatch, String action) {
+        validateAdminAction(activityId, operatorId, null, false);
+        Activity current = activityMapper.selectForUpdate(activityId);
+        if (current == null) throw new BusinessException(ResultCode.ACTIVITY_NOT_FOUND);
+        long version = current.getContractVersion() == null ? 1L : current.getContractVersion();
+        StrongEtag.require(ifMatch, "activity", activityId, version);
+        int publication = publication(current);
+        int lifecycle = current.getLifecycleStatus() == null ? 0 : current.getLifecycleStatus();
+        int nextPublication = publication;
+        int nextLifecycle = lifecycle;
+        boolean publishing = false;
+        switch (action) {
+            case "publish" -> {
+                if (publication == 1) return getAdminActivityDetail(activityId);
+                validateAdminSubmission(current);
+                nextPublication = 1;
+                publishing = true;
+            }
+            case "unpublish" -> {
+                if (publication == 2) return getAdminActivityDetail(activityId);
+                if (publication != 1)
+                    throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict("state-conflict", "Only published content can be unpublished");
+                nextPublication = 2;
+            }
+            case "cancel" -> {
+                if (lifecycle == 2) return getAdminActivityDetail(activityId);
+                if (publication != 1 || lifecycle != 0)
+                    throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict("state-conflict", "Only a published active activity can be cancelled");
+                nextPublication = 1;
+                nextLifecycle = 2;
+            }
+            case "end" -> {
+                if (lifecycle == 1) return getAdminActivityDetail(activityId);
+                if (publication != 1 || lifecycle != 0)
+                    throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict("state-conflict", "Only a published active activity can be ended");
+                nextLifecycle = 1;
+            }
+            default -> throw new BusinessException(ResultCode.BAD_REQUEST, "Unknown lifecycle action");
+        }
+        String formVersion = publishing ? initialFormVersionFor(current) : null;
+        int updated = activityMapper.transitionContract(activityId, version, nextPublication, nextLifecycle,
+                publishing, formVersion);
+        if (updated != 1) {
+            throw cn.jualn.miniapp.common.exception.ContractProblemException.preconditionFailed(
+                    "activity-transition update-count=" + updated + ", id=" + activityId + ", version=" + version
+                            + ", action=" + action);
+        }
+        notifyService.cancelActivityPlans(activityId);
+        Activity changed = activityMapper.selectForUpdate(activityId);
+        if (publishing && nextLifecycle == 0) refreshActivityReminder(changed);
+        if ("cancel".equals(action)) {
+            notifyService.enqueueBusinessNotification(TargetType.ACTIVITY, activityId,
+                    "activity:" + activityId + ":cancel:v" + changed.getContractVersion(),
+                    NotifyType.ACTIVITY_CANCELLED, "SUBSCRIBERS_OR_REGISTERED_USERS", "活动已取消",
+                    "活动「" + changed.getTitle() + "」已取消",
+                    subjectSnapshot(changed, "活动已取消", "活动「" + changed.getTitle() + "」已取消"));
+        } else if ("end".equals(action)) {
+            notifyService.enqueueBusinessNotification(TargetType.ACTIVITY, activityId,
+                    "activity:" + activityId + ":end:v" + changed.getContractVersion(),
+                    NotifyType.ACTIVITY_ENDED_EARLY, "SUBSCRIBERS_OR_REGISTERED_USERS", "活动已提前结束",
+                    "活动「" + changed.getTitle() + "」已提前结束",
+                    subjectSnapshot(changed, "活动已提前结束", "活动「" + changed.getTitle() + "」已提前结束"));
+        }
+        afterCommit(() -> redisService.delete(RedisKeyConstant.activityDetail(activityId)));
+        return getAdminActivityDetail(changed.getId());
+    }
+
+    private void initializeFormVersionIfAbsent(Activity activity) {
+        String formVersion = initialFormVersionFor(activity);
+        if (formVersion == null || activity.getFormVersion() != null) return;
+        if (activityMapper.initializeFormVersionIfAbsent(activity.getId(), formVersion) != 1)
+            throw new BusinessException(ResultCode.ACTIVITY_OPERATION_NOT_ALLOWED, "活动表单版本初始化失败");
+        activity.setFormVersion(formVersion);
+    }
+
+    private String initialFormVersionFor(Activity activity) {
+        return activity != null && participationPolicy.platform(activity.getRegistrationMode())
+                ? "activity-" + activity.getId() + "-form-v1" : null;
+    }
+
+    private void refreshActivityReminder(Activity activity) {
+        LocalDateTime now = LocalDateTime.now();
+        List<cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO> timeline =
+                timelineService.listTimelinesByTarget(TargetType.ACTIVITY, activity.getId());
+        notifyService.reconcileReminders(TargetType.ACTIVITY, activity.getId(),
+                activity.getContractVersion() == null ? 0L : activity.getContractVersion(),
+                REMINDER_POLICY.evaluate(activity, timeline, now), now);
+    }
+
+    private void enqueueActivityActionableChanges(Activity saved, String previousLocation,
+            List<cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO> previousTimeline,
+            List<cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO> currentTimeline) {
+        long version = saved.getContractVersion() == null ? 1L : saved.getContractVersion();
+        java.util.Set<String> timeSemantics = java.util.Set.of("ACTIVITY_START", "REGISTRATION_END");
+        if (cn.jualn.miniapp.module.timeline.service.ActionableTimelineChangeDetector.exactTimeChanged(
+                previousTimeline, currentTimeline, timeSemantics)) {
+            notifyService.enqueueBusinessNotification(TargetType.ACTIVITY, saved.getId(),
+                    "activity:" + saved.getId() + ":time:v" + version, NotifyType.ACTIVITY_TIME_CHANGED,
+                    "SUBSCRIBERS_OR_REGISTERED_USERS", "活动时间已变更",
+                    "活动「" + saved.getTitle() + "」的行动时间已变更",
+                    changeSnapshot(saved, "活动时间已变更", cn.jualn.miniapp.module.timeline.service.ActionableTimelineChangeDetector
+                            .timeChanges(previousTimeline, currentTimeline, timeSemantics)));
+        }
+        boolean locationChanged = cn.jualn.miniapp.module.timeline.service.ActionableTimelineChangeDetector
+                .effectiveValueChanged(previousLocation, saved.getLocation())
+                || cn.jualn.miniapp.module.timeline.service.ActionableTimelineChangeDetector
+                .effectiveLocationChanged(previousTimeline, currentTimeline, java.util.Set.of("ACTIVITY_START"));
+        if (locationChanged) {
+            notifyService.enqueueBusinessNotification(TargetType.ACTIVITY, saved.getId(),
+                    "activity:" + saved.getId() + ":location:v" + version,
+                    NotifyType.ACTIVITY_LOCATION_CHANGED, "SUBSCRIBERS_OR_REGISTERED_USERS", "活动地点已变更",
+                    "活动「" + saved.getTitle() + "」的行动地点已变更",
+                    changeSnapshot(saved, "活动地点已变更", activityLocationChanges(previousLocation, saved.getLocation(), previousTimeline, currentTimeline)));
+        }
+    }
+
+    private List<cn.jualn.miniapp.module.timeline.service.ActionableTimelineChangeDetector.Change> activityLocationChanges(
+            String before, String after, List<cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO> previous,
+            List<cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO> current) {
+        var changes = new java.util.ArrayList<>(cn.jualn.miniapp.module.timeline.service.ActionableTimelineChangeDetector
+                .locationChanges(previous, current, java.util.Set.of("ACTIVITY_START")));
+        if (cn.jualn.miniapp.module.timeline.service.ActionableTimelineChangeDetector.effectiveValueChanged(before, after)) {
+            changes.add(new cn.jualn.miniapp.module.timeline.service.ActionableTimelineChangeDetector.Change("活动地点", before.trim(), after.trim()));
+        }
+        return List.copyOf(changes);
+    }
+
+    private cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot subjectSnapshot(Activity activity, String title, String body) {
+        String id = activity.getId().toString();
+        return new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot(
+                new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Presentation(title, body, null, null, null, activity.getTitle(), null),
+                null, new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Subject("ACTIVITY", id),
+                new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Target("ACTIVITY_DETAIL", null, null, id, null));
+    }
+
+    private cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot changeSnapshot(Activity activity, String title,
+            List<cn.jualn.miniapp.module.timeline.service.ActionableTimelineChangeDetector.Change> changes) {
+        String id = activity.getId().toString();
+        return new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot(
+                new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Presentation(title, null, activity.getTitle(), null,
+                        changes.stream().map(change -> new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Change(
+                                change.label(), change.before(), change.after())).toList(), activity.getTitle(), null), null,
+                new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Subject("ACTIVITY", id),
+                new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Target("ACTIVITY_DETAIL", null, null, id, null));
+    }
+
+    private int publication(Activity activity) {
+        return activity.getPublishStatus() == null ? 0 : activity.getPublishStatus();
+    }
+
+    private long nextVersion(Activity activity) {
+        return (activity.getContractVersion() == null ? 1L : activity.getContractVersion()) + 1L;
+    }
+
 }

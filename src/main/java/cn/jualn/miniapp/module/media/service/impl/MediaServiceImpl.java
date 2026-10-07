@@ -1,5 +1,8 @@
 package cn.jualn.miniapp.module.media.service.impl;
 
+import cn.jualn.miniapp.module.media.bo.ProfileMediaSnapshotBO;
+import org.springframework.dao.DataIntegrityViolationException;
+
 import cn.jualn.miniapp.common.constant.UserContext;
 import cn.jualn.miniapp.common.enums.MediaType;
 import cn.jualn.miniapp.common.enums.TargetType;
@@ -9,6 +12,8 @@ import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentSimpleBO;
 import cn.jualn.miniapp.module.media.bo.AttachmentItemBO;
+import cn.jualn.miniapp.module.media.bo.AttachmentLinkBO;
+import cn.jualn.miniapp.module.media.bo.AttachmentTargetBO;
 import cn.jualn.miniapp.module.media.converter.MediaConverter;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentSaveBO;
@@ -61,7 +66,7 @@ public class MediaServiceImpl implements MediaService {
     /**
      * 覆盖保存目标附件。
      *
-     * <p>写入语义：先删后插，保持数据与前端提交结果一致。</p>
+     * <p>写入语义：按资源身份保留原ID，差量增删改，保持数据与前端提交结果一致。</p>
      *
      * @param saveDTO <p>目标类型：{@link TargetType}</p>
      *                <p>目标 ID</p>
@@ -78,7 +83,7 @@ public class MediaServiceImpl implements MediaService {
                 ? List.of()
                 : saveDTO.getAttachments();
         long start = System.currentTimeMillis();
-        log.info("[MediaService.replaceAttachments][开始] userId={}, targetType={}, targetId={}", userId, targetType, targetId);
+        log.debug("[MediaService.replaceAttachments][开始] userId={}, targetType={}, targetId={}", userId, targetType, targetId);
 
         requireTargetId(targetId);
         assertTargetTypeAllowed(targetType);
@@ -86,7 +91,7 @@ public class MediaServiceImpl implements MediaService {
         targetValidator.assertExists(targetType, targetId);
         List<MediaAttachment> existingAttachments = mediaAttachmentMapper.selectList(
                 new LambdaQueryWrapper<MediaAttachment>()
-                        .select(MediaAttachment::getObjectKey, MediaAttachment::getUrl)
+                        .select(MediaAttachment::getId, MediaAttachment::getType, MediaAttachment::getObjectKey, MediaAttachment::getUrl)
                         .eq(MediaAttachment::getTargetType, targetType.getCode())
                         .eq(MediaAttachment::getTargetId, targetId));
         attachments = normalizeAttachments(targetType, userId, attachments, existingAttachments);
@@ -110,30 +115,50 @@ public class MediaServiceImpl implements MediaService {
                 .toList();
         uploadRecordService.bindPending(userId, targetType, targetId, newObjectKeys);
 
-        // 通过删除然后覆写，就可以不用再写接口更新target的attachments了，统一覆写
-        mediaAttachmentMapper.delete(new LambdaQueryWrapper<MediaAttachment>()
-                .eq(MediaAttachment::getTargetType, targetType.getCode())
-                .eq(MediaAttachment::getTargetId, targetId));
-
-        if (attachments.isEmpty()) {
-            deleteObjectsAfterCommit(removedObjectKeys, targetType, targetId);
-            log.info("[MediaService.replaceAttachments][清空完成] userId={}, targetType={}, targetId={}",
-                    userId, targetType, targetId);
-            return;
-        }
-
-        // 构建一个列表，用于存储批量插入的数据
         List<MediaAttachment> mediaAttachments = mediaConverter.toMediaAttachmentList(saveDTO);
-        if (mediaAttachments.isEmpty()) {
-            log.error("[MediaService.replaceAttachments][附件转换失败] userId={}, targetType={}, targetId={}",
-                    userId, targetType, targetId);
-            throw new SystemException("附件转换失败");
+        Set<Long> retainedIds = new HashSet<>();
+        Set<String> identities = new HashSet<>();
+        for (MediaAttachment incoming : mediaAttachments) {
+            String identity = incoming.getType() + ":" + (StringUtils.hasText(incoming.getObjectKey())
+                    ? incoming.getObjectKey() : incoming.getUrl());
+            if (!identities.add(identity)) throw new BusinessException(ResultCode.INVALID_OPERATION, "同一附件不能重复添加");
+            MediaAttachment existing = existingAttachments.stream()
+                    .filter(old -> Objects.equals(old.getType(), incoming.getType()))
+                    .filter(old -> StringUtils.hasText(incoming.getObjectKey())
+                            ? Objects.equals(old.getObjectKey(), incoming.getObjectKey())
+                            : Objects.equals(old.getUrl(), incoming.getUrl()))
+                    .filter(old -> !retainedIds.contains(old.getId())).findFirst().orElse(null);
+            if (existing == null) {
+                incoming.setId(null);
+                if (mediaAttachmentMapper.insert(incoming) != 1) throw new SystemException("新增附件失败");
+            } else {
+                incoming.setId(existing.getId());
+                retainedIds.add(existing.getId());
+                if (mediaAttachmentMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<MediaAttachment>()
+                        .set(MediaAttachment::getUrl, incoming.getUrl())
+                        .set(MediaAttachment::getObjectKey, incoming.getObjectKey())
+                        .set(MediaAttachment::getOriginalName, incoming.getOriginalName())
+                        .set(MediaAttachment::getSortOrder, incoming.getSortOrder())
+                        .eq(MediaAttachment::getId, existing.getId())
+                        .eq(MediaAttachment::getTargetType, targetType.getCode())
+                        .eq(MediaAttachment::getTargetId, targetId)) != 1) throw new SystemException("更新附件失败");
+            }
         }
-
-        mediaAttachmentMapper.insertBatch(mediaAttachments);
+        List<Long> removedIds = existingAttachments.stream().map(MediaAttachment::getId)
+                .filter(id -> !retainedIds.contains(id)).toList();
+        if (!removedIds.isEmpty()) {
+            try {
+                mediaAttachmentMapper.delete(new LambdaQueryWrapper<MediaAttachment>()
+                        .eq(MediaAttachment::getTargetType, targetType.getCode())
+                        .eq(MediaAttachment::getTargetId, targetId)
+                        .in(MediaAttachment::getId, removedIds));
+            } catch (DataIntegrityViolationException e) {
+                throw new BusinessException(ResultCode.INVALID_OPERATION, "附件仍被参与入口引用，请同时修改对应参与入口");
+            }
+        }
         deleteObjectsAfterCommit(removedObjectKeys, targetType, targetId);
 
-        log.info("[MediaService.replaceAttachments][完成] userId={}, targetType={}, targetId={}, count={}, costMs={}",
+        log.debug("[MediaService.replaceAttachments][完成] userId={}, targetType={}, targetId={}, count={}, costMs={}",
                 userId, targetType, targetId, attachments.size(), System.currentTimeMillis() - start);
     }
 
@@ -152,13 +177,102 @@ public class MediaServiceImpl implements MediaService {
 
         targetValidator.assertExists(targetType, targetId);
 
-        List<MediaAttachment> attachments = mediaAttachmentMapper.selectList(new LambdaQueryWrapper<MediaAttachment>()
-                .eq(MediaAttachment::getTargetType, targetType.getCode())
-                .eq(MediaAttachment::getTargetId, targetId)
-                .orderByAsc(MediaAttachment::getSortOrder)
-                .orderByAsc(MediaAttachment::getId));
+        List<MediaAttachment> attachments = targetType == TargetType.ACTIVITY || targetType == TargetType.EXAM
+                ? mediaAttachmentMapper.selectLinked(targetType.getCode(), targetId)
+                : mediaAttachmentMapper.selectList(new LambdaQueryWrapper<MediaAttachment>()
+                        .eq(MediaAttachment::getTargetType, targetType.getCode())
+                        .eq(MediaAttachment::getTargetId, targetId)
+                        .orderByAsc(MediaAttachment::getSortOrder)
+                        .orderByAsc(MediaAttachment::getId));
 
         return mediaConverter.toBOList(attachments);
+    }
+
+    @Override
+    public MediaAttachmentBO getAttachment(Long attachmentId) {
+        if (attachmentId == null || attachmentId <= 0) throw new BusinessException(ResultCode.MEDIA_ATTACHMENT_NOT_FOUND);
+        MediaAttachment value = mediaAttachmentMapper.selectById(attachmentId);
+        if (value == null) throw new BusinessException(ResultCode.MEDIA_ATTACHMENT_NOT_FOUND);
+        return mediaConverter.toBO(value);
+    }
+
+    @Override
+    public Map<Long, MediaAttachmentBO> batchGetAttachments(Collection<Long> attachmentIds) {
+        if (CollectionUtils.isEmpty(attachmentIds)) {
+            return Collections.emptyMap();
+        }
+        Map<Long, MediaAttachmentBO> result = new HashMap<>();
+        for (MediaAttachmentBO attachment : mediaConverter.toBOList(
+                mediaAttachmentMapper.selectBatchIds(new HashSet<>(attachmentIds)))) {
+            result.put(attachment.getId(), attachment);
+        }
+        return result;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public MediaAttachmentBO registerAttachment(String kind, String name, String url, Long operatorId) {
+        if (operatorId == null || !Set.of("IMAGE", "POSTER", "QR_CODE", "PDF", "WORD", "LINK").contains(kind)) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "附件类型不合法");
+        }
+        if (!StringUtils.hasText(name) || name.trim().length() > 200) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "附件名称为空或超过200字");
+        }
+        if (!StringUtils.hasText(url) || !url.trim().matches("^https?://.+")) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "附件地址必须使用 HTTP(S)");
+        }
+        MediaType type = switch (kind) {
+            case "IMAGE", "POSTER", "QR_CODE" -> MediaType.IMAGE;
+            case "PDF" -> MediaType.PDF;
+            case "WORD" -> MediaType.WORD;
+            case "LINK" -> MediaType.URL;
+            default -> throw new IllegalStateException();
+        };
+        MediaAttachment entity = MediaAttachment.builder().type(type.getCode()).kind(kind)
+                .registered(Boolean.TRUE).registeredBy(operatorId).url(url.trim())
+                .originalName(name.trim()).sortOrder(0).build();
+        if (mediaAttachmentMapper.insert(entity) != 1) {
+            throw new SystemException("登记附件失败");
+        }
+        return mediaConverter.toBO(entity);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void replaceAttachmentLinks(TargetType targetType, Long targetId, List<AttachmentLinkBO> links) {
+        requireTargetId(targetId);
+        if (targetType != TargetType.ACTIVITY && targetType != TargetType.EXAM) {
+            throw new BusinessException(ResultCode.MEDIA_TARGET_TYPE_UNSUPPORTED);
+        }
+        List<AttachmentLinkBO> values = links == null ? List.of() : links;
+        if (values.size() > 100) throw new BusinessException(ResultCode.INVALID_OPERATION, "附件最多100项");
+        Set<Long> ids = new HashSet<>();
+        for (AttachmentLinkBO link : values) {
+            if (link == null || link.attachmentId() == null || link.attachmentId() <= 0
+                    || link.displayOrder() == null || link.displayOrder() < 0
+                    || !ids.add(link.attachmentId())) {
+                throw new BusinessException(ResultCode.INVALID_OPERATION, "附件引用或展示顺序不合法");
+            }
+        }
+        Map<Long, MediaAttachmentBO> attachments = batchGetAttachments(ids);
+        if (attachments.size() != ids.size()) throw new BusinessException(ResultCode.MEDIA_ATTACHMENT_NOT_FOUND);
+        for (Long id : ids) {
+            MediaAttachment entity = mediaAttachmentMapper.selectById(id);
+            if (entity == null || !Boolean.TRUE.equals(entity.getRegistered())) {
+                throw new BusinessException(ResultCode.MEDIA_ATTACHMENT_NOT_FOUND);
+            }
+        }
+        mediaAttachmentMapper.deleteLinks(targetType.getCode(), targetId);
+        values.stream().sorted(Comparator.comparingInt(AttachmentLinkBO::displayOrder)
+                .thenComparing(AttachmentLinkBO::attachmentId))
+                .forEach(link -> mediaAttachmentMapper.insertLink(targetType.getCode(), targetId,
+                        link.attachmentId(), link.displayOrder()));
+    }
+
+    @Override
+    public List<AttachmentTargetBO> listAttachmentTargets(Long attachmentId) {
+        if (attachmentId == null || attachmentId <= 0) return List.of();
+        return mediaAttachmentMapper.selectTargets(attachmentId);
     }
 
     /**
@@ -293,6 +407,18 @@ public class MediaServiceImpl implements MediaService {
             throw new BusinessException(ResultCode.INVALID_OPERATION, "objectKey 不属于当前用户或业务类型");
         }
         return cosService.buildPublicUrl(normalizedKey);
+    }
+
+    @Override
+    public ProfileMediaSnapshotBO prepareProfileSnapshot(String objectKey) {
+        Long userId = requireUserId();
+        resolveOwnedUploadUrl(TargetType.USER, objectKey);
+        uploadRecordService.assertPendingProfileUpload(userId, objectKey);
+        String snapshotKey = "profile-effective/" + userId + "/" + UUID.randomUUID().toString().replace("-", "");
+        // Register before COS: a lost copy response still leaves a durable cleanup candidate.
+        uploadRecordService.recordPending(userId, TargetType.USER, List.of(snapshotKey), LocalDateTime.now().plusDays(1));
+        cosService.copyObject(objectKey, snapshotKey);
+        return new ProfileMediaSnapshotBO(snapshotKey, cosService.buildPublicUrl(snapshotKey));
     }
 
     @Override
@@ -470,7 +596,7 @@ public class MediaServiceImpl implements MediaService {
             try {
                 cosService.deleteObject(objectKey);
                 uploadRecordService.removeRecord(objectKey);
-                log.info("[MediaService.deleteObject][完成] targetType={}, targetId={}, objectKey={}",
+                log.debug("[MediaService.deleteObject][完成] targetType={}, targetId={}, objectKey={}",
                         targetType, targetId, objectKey);
             } catch (RuntimeException ex) {
                 uploadRecordService.scheduleDeletionRetry(objectKey, ex);

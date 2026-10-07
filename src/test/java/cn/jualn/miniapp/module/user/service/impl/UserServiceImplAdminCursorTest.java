@@ -51,7 +51,7 @@ class UserServiceImplAdminCursorTest {
                 userConverter,
                 eventPublisher,
                 mediaService,
-                adminOperationLogService);
+                adminOperationLogService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.audit.service.ProfileSafetyCheckService.class), org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
         String cursor = AdminIdCursorCodec.encode("latest-login", 200L);
         AdminUserListRow row = new AdminUserListRow();
         row.setId(101L);

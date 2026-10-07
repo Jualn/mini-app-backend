@@ -30,9 +30,15 @@ public class UserProfile {
 
     private String avatarObjectKey;
 
+    private String avatarSnapshotKey;
+
     private String backgroundUrl;
 
     private String backgroundObjectKey;
+
+    private String backgroundSnapshotKey;
+
+    private Long profileRevision;
 
     private String bio;
 

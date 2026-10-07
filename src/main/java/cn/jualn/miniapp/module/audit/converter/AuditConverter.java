@@ -11,8 +11,6 @@ import cn.jualn.miniapp.module.audit.dto.inner.AuditMediaCheckDTO;
 import cn.jualn.miniapp.module.audit.dto.inner.AuditTextCheckDTO;
 import cn.jualn.miniapp.module.audit.dto.request.AuditMediaCheckRequest;
 import cn.jualn.miniapp.module.audit.dto.request.AuditTextCheckRequest;
-import cn.jualn.miniapp.module.audit.payload.AuditMediaPayload;
-import cn.jualn.miniapp.module.audit.payload.AuditTextPayload;
 import cn.jualn.miniapp.module.audit.vo.AuditCheckResultVO;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
@@ -20,7 +18,7 @@ import org.mapstruct.Mapping;
 /**
  * 审核数据转换器（MapStruct）。
  *
- * <p>负责在 Request、BO、DTO、VO、Payload 等多层对象之间的转换，使用 MapStruct 自动生成实现。
+ * <p>负责在 Request、BO、DTO、VO 等多层对象之间的转换，使用 MapStruct 自动生成实现。
  * 支持同一个源类型到多个目标类型的转换（重载方法）。</p>
  */
 @Mapper(componentModel = "spring", uses = {EnumConverter.class})
@@ -35,26 +33,12 @@ public interface AuditConverter {
     AuditTextCheckBO toTextCheckBO(AuditTextCheckRequest request);
 
     /**
-     * 将文本审核 Payload 转换为 BO 对象。
-     * @param dto 队列消息 payload
-     * @return 业务对象
-     */
-    AuditTextCheckBO toTextCheckBO(AuditTextPayload dto);
-
-    /**
      * 将多媒体审核请求转换为 BO 对象。
      * @param request 前端 API 请求
      * @return 业务对象
      */
     @Mapping(target = "auditLogId", ignore = true)
     AuditMediaCheckBO toMediaCheckBO(AuditMediaCheckRequest request);
-
-    /**
-     * 将多媒体审核 Payload 转换为 BO 对象。
-     * @param payload 队列消息 payload
-     * @return 业务对象
-     */
-    AuditMediaCheckBO toMediaCheckBO(AuditMediaPayload payload);
 
     /**
      * 将审核结果 BO 转换为前端 VO 对象。

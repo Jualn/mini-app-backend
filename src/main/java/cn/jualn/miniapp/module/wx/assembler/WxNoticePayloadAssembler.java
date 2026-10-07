@@ -14,10 +14,10 @@ import java.util.Objects;
 /**
  * 把 NotifyPayload 转换成微信通知 {@code Map<String, Object>} 的组件。
  * <p>
- * 主要用于 WxNoticeProducer 构造发送数据。
+ * 主要用于兼容旧版 {@link NotifyPayload} 的微信发送数据构造。
  * <p>
  * 注意：
- * 1. 这里不允许查业务表，业务相关的数据放到 NotifyPlanNoticeDataFactory 里查好放到 payload 的 wxData 里。
+ * 1. 这里不允许查业务表；业务 Factory 必须在创建通知时把稳定字段冻结到 payload 的 wxData 中。
  * 2. 这里不负责处理复杂的业务逻辑，只负责简单的数据转换和必要的校验。
  * 3. 这里不负责查用户表，用户相关的数据放到 consumer 里查并放到 payload 的 wxData 里。
  */

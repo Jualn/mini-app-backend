@@ -6,10 +6,9 @@ import cn.jualn.miniapp.common.enums.MediaType;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.enums.UserRole;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.infrastructure.queue.contract.QueueProducer;
 import cn.jualn.miniapp.module.audit.enums.AuditStatus;
-import cn.jualn.miniapp.module.audit.payload.AuditMediaBatchPayload;
-import cn.jualn.miniapp.module.audit.payload.AuditTextPayload;
+import cn.jualn.miniapp.module.audit.bo.AuditReserveResultBO;
+import cn.jualn.miniapp.module.audit.service.AuditReservationService;
 import cn.jualn.miniapp.module.interact.service.InteractService;
 import cn.jualn.miniapp.module.media.bo.AttachmentItemBO;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentSimpleBO;
@@ -28,6 +27,7 @@ import cn.jualn.miniapp.module.user.bo.UserAuthBO;
 import cn.jualn.miniapp.module.user.bo.UserSimpleBO;
 import cn.jualn.miniapp.module.user.service.UserService;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -46,6 +46,13 @@ import static org.mockito.Mockito.doAnswer;
 @ExtendWith(MockitoExtension.class)
 class PostServiceImplTest {
 
+    @BeforeAll
+    static void initMybatisMetadata() {
+        var assistant = new org.apache.ibatis.builder.MapperBuilderAssistant(
+                new com.baomidou.mybatisplus.core.MybatisConfiguration(), "");
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(assistant, Post.class);
+    }
+
     @Mock
     private PostMapper postMapper;
     @Mock
@@ -57,11 +64,9 @@ class PostServiceImplTest {
     @Mock
     private RedisService redisService;
     @Mock
-    private QueueProducer queueProducer;
-    @Mock
     private InteractService interactService;
     @Mock
-    private SearchService searchService;
+    private AuditReservationService auditReservationService;
 
     @AfterEach
     void tearDown() {
@@ -70,7 +75,7 @@ class PostServiceImplTest {
 
     @Test
     void pagePost_shouldDefaultToPublishedAndReturnCursor() {
-        PostServiceImpl service = new PostServiceImpl(postMapper, postConverter, mediaService, userService, redisService, queueProducer, interactService, searchService);
+        PostServiceImpl service = new PostServiceImpl(postMapper, postConverter, mediaService, userService, redisService, interactService, auditReservationService);
         Post first = Post.builder().id(20L).userId(7L).status(PostStatus.PUBLISHED.getCode()).auditStatus(AuditStatus.PASS.getCode()).build();
         Post second = Post.builder().id(10L).userId(8L).status(PostStatus.PUBLISHED.getCode()).auditStatus(AuditStatus.PASS.getCode()).build();
         when(postMapper.selectList(any())).thenReturn(List.of(first, second));
@@ -102,7 +107,7 @@ class PostServiceImplTest {
 
     @Test
     void getPostDetail_shouldLoadAndCacheWhenMiss() {
-        PostServiceImpl service = new PostServiceImpl(postMapper, postConverter, mediaService, userService, redisService, queueProducer, interactService, searchService);
+        PostServiceImpl service = new PostServiceImpl(postMapper, postConverter, mediaService, userService, redisService, interactService, auditReservationService);
         Post post = Post.builder().id(88L).userId(11L).status(PostStatus.PUBLISHED.getCode()).auditStatus(AuditStatus.PASS.getCode()).build();
         PostDetailBO detailBO = PostDetailBO.builder().id(88L).build();
         when(redisService.get(RedisKeyConstant.postDetail(88L), PostDetailBO.class)).thenReturn(null);
@@ -121,7 +126,7 @@ class PostServiceImplTest {
     @Test
     void removePost_shouldRequireOperatorOrAdminWhenNotOwner() {
         UserContext.setUserId(99L);
-        PostServiceImpl service = new PostServiceImpl(postMapper, postConverter, mediaService, userService, redisService, queueProducer, interactService, searchService);
+        PostServiceImpl service = new PostServiceImpl(postMapper, postConverter, mediaService, userService, redisService, interactService, auditReservationService);
         when(postMapper.selectUserIdById(88L)).thenReturn(11L);
         when(userService.getUserAuthInfo(99L)).thenReturn(UserAuthBO.builder().id(99L).role(UserRole.ADMIN).build());
 
@@ -129,13 +134,12 @@ class PostServiceImplTest {
 
         verify(postMapper).update(any());
         verify(redisService).delete(RedisKeyConstant.postDetail(88L));
-        verify(searchService).removeByTarget(TargetType.POST, 88L);
     }
 
     @Test
     void createPost_shouldReturnListBOAndEnqueueBatchAudit() {
         UserContext.setUserId(7L);
-        PostServiceImpl service = new PostServiceImpl(postMapper, postConverter, mediaService, userService, redisService, queueProducer, interactService, searchService);
+        PostServiceImpl service = new PostServiceImpl(postMapper, postConverter, mediaService, userService, redisService, interactService, auditReservationService);
 
         PostCreateBO command = PostCreateBO.builder()
                 .title("t")
@@ -152,12 +156,13 @@ class PostServiceImplTest {
             return 1;
         }).when(postMapper).insert(any(Post.class));
         when(userService.getSimpleInfo(7L)).thenReturn(UserSimpleBO.builder().id(7L).nickname("u7").build());
+        when(auditReservationService.reserveAuditLogs(any())).thenReturn(
+                AuditReserveResultBO.builder().textAuditLogId(9L).build());
 
         PostListBO created = service.createPost(command);
 
         assertEquals(100L, created.getId());
         verify(mediaService).replaceAttachments(any());
-        verify(queueProducer).send(any(AuditMediaBatchPayload.class));
-        verify(queueProducer).send(any(AuditTextPayload.class));
+        verify(auditReservationService).reserveAuditLogs(any());
     }
 }

@@ -37,7 +37,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public LoginVO login(String code) {
         long start = System.currentTimeMillis();
-        log.info("[AuthService.login][开始] codeLength={}", code.length());
+        log.debug("[AuthService.login][开始] codeLength={}", code.length());
 
         // WxClient 内部负责与微信服务交互以及失败场景处理，这里只关心 openid。
         String openid = wxClient.getMiniSession(code).getOpenid();
@@ -58,7 +58,7 @@ public class AuthServiceImpl implements AuthService {
         // 将当前用户角色写入会话，供后续鉴权扩展使用。
         StpUtil.getSession().set("role", UserRole.fromCode(userInfo.getRole()));
 
-        log.info("[AuthService.login][完成] userId={}, costMs={}", userId, System.currentTimeMillis() - start);
+        log.debug("[AuthService.login][完成] userId={}, costMs={}", userId, System.currentTimeMillis() - start);
 
         return LoginVO.builder()
                 .token(StpUtil.getTokenValue())

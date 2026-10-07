@@ -22,6 +22,9 @@ import java.util.List;
 public interface UserConverter {
 
     @Mapping(target = "id", ignore = true)
+    @Mapping(target = "profileRevision", ignore = true)
+    @Mapping(target = "avatarSnapshotKey", ignore = true)
+    @Mapping(target = "backgroundSnapshotKey", ignore = true)
     @Mapping(target = "openid", ignore = true)
     @Mapping(target = "mpOpenid", ignore = true)
     @Mapping(target = "unionid", ignore = true)

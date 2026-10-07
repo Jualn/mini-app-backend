@@ -15,6 +15,25 @@ import java.util.List;
  */
 @Data
 public class ExamCreateRequest {
+    private Integer startPrecision;
+    private Integer endPrecision;
+    private String timeDescription;
+    private Integer registrationStartPrecision;
+    private Integer registrationEndPrecision;
+    private java.time.LocalDateTime startTime;
+    private java.time.LocalDateTime endTime;
+
+    @jakarta.validation.constraints.Size(max=300) private String summary;
+    @jakarta.validation.constraints.Min(0) @jakarta.validation.constraints.Max(3) private Integer eventType;
+    @jakarta.validation.constraints.Size(max=128) private String editionLabel;
+
+    @jakarta.validation.Valid
+    @jakarta.validation.constraints.Size(max=30)
+    private java.util.List<EventSectionRequest> sections;
+    @jakarta.validation.Valid
+    @jakarta.validation.constraints.Size(max=20)
+    private java.util.List<EventActionRequest> actions;
+
 
     /** 考试标题 */
     @NotBlank(message = "考试标题不能为空")
@@ -26,7 +45,6 @@ public class ExamCreateRequest {
     private Integer category;
 
     /** 考试详情 */
-    @NotBlank(message = "考试详情不能为空")
     @Size(max = 5000, message = "考试详情不能超过5000字")
     private String content;
 

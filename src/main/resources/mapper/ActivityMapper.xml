@@ -5,17 +5,12 @@
 <mapper namespace="cn.jualn.miniapp.module.activity.mapper.ActivityMapper">
 
     <select id="selectByIdNotDeleted" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
-        SELECT id, user_id,title,content,location,category,organizer,audience_scope,contact_info,
-            join_method,qrcode_url,start_time,end_time,enroll_deadline,max_participants,comment_count,
-            like_count,view_count,published_at,
-            <![CDATA[
-            CASE
-                WHEN status IN (0, 1, 5, 6, 7) THEN status
-                WHEN NOW() >= end_time THEN 4
-                WHEN NOW() >= start_time THEN 3
-                ELSE 2
-            END AS status
-            ]]>
+        SELECT contract_version, lifecycle_status, form_version, audience_department_ids, contacts_json,
+               form_schema, cancelled_at, cancel_reason, publish_status, summary,
+               audience_summary, registration_mode, participant_mode, capacity, capacity_unit,
+               cover_attachment_id, id, user_id, title, location, category, organizer, audience_scope,
+               comment_count, like_count, view_count, published_at,
+               created_at, updated_at, deleted_at
         FROM activity
         WHERE id = #{activityId}
           AND deleted_at IS NULL
@@ -30,29 +25,31 @@
     </select>
 
     <select id="selectPageActivities" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
-        SELECT id, title, category, organizer, audience_scope, enroll_deadline, published_at,
-            location,max_participants,
-            <![CDATA[
-                CASE
-                    WHEN status IN (0, 1, 5, 6, 7) THEN status
-                    WHEN NOW() >= end_time THEN 4
-                    WHEN NOW() >= start_time THEN 3
-                    ELSE 2
-                END AS status
-            ]]>
+        SELECT audience_department_ids, contract_version, lifecycle_status, form_version, form_schema,
+               cancelled_at, cancel_reason, publish_status, summary, audience_summary, registration_mode,
+               participant_mode, capacity, capacity_unit, cover_attachment_id, id, title, category,
+               organizer, audience_scope, published_at, location
         FROM activity
-        WHERE status = #{status}
+        WHERE publish_status = 1
           AND deleted_at IS NULL
         <if test="category != null">
             AND category = #{category}
         </if>
+        <if test="lifecycleStatus != null">
+            AND lifecycle_status = #{lifecycleStatus}
+        </if>
         <if test="keyword != null and keyword != ''">
-            AND MATCH(title, content, organizer) AGAINST(#{keyword} IN BOOLEAN MODE)
+            AND (title LIKE CONCAT('%', #{keyword}, '%') OR summary LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        <if test="campusAudienceOnly">
+            AND (audience_department_ids IS NULL OR JSON_LENGTH(audience_department_ids) = 0)
+            AND (audience_scope IS NULL OR audience_scope = 0 OR (audience_scope &amp; 1) = 1)
         </if>
         <if test="lastId != null">
-            AND id &lt; #{lastId}
+            AND (published_at &lt; (SELECT published_at FROM activity WHERE id = #{lastId})
+                OR (published_at = (SELECT published_at FROM activity WHERE id = #{lastId}) AND id &lt; #{lastId}))
         </if>
-        ORDER BY id, published_at DESC
+        ORDER BY published_at DESC, id DESC
         LIMIT #{limit}
     </select>
 
@@ -64,53 +61,24 @@
 
     <select id="selectAdminActivityPage"
             resultType="cn.jualn.miniapp.module.activity.mapper.AdminActivityListRow">
-        SELECT a.id,
-               a.title,
-               LEFT(a.content, 160) AS summary,
-               a.category,
-               a.effective_status AS status,
-               a.audit_status,
-               a.organizer,
-               a.location,
-               a.audience_scope,
-               a.is_pinned AS pinned,
+          SELECT a.publish_status, a.lifecycle_status, a.id, a.title, a.summary, a.category,
+               a.organizer, a.location, a.audience_scope,
                COALESCE(enrollment.subscriber_count, 0) AS subscriber_count,
-               a.max_participants AS capacity,
-               a.start_time,
-               a.end_time,
-               a.enroll_deadline,
+               a.capacity,
                a.view_count,
                a.updated_at
         FROM (
-            SELECT id,
-                   title,
-                   content,
-                   category,
-                   audit_status,
-                   organizer,
-                   location,
-                   audience_scope,
-                   is_pinned,
-                   max_participants,
-                   start_time,
-                   end_time,
-                   enroll_deadline,
-                   view_count,
-                   updated_at,
-                   CASE
-                       WHEN status IN (0, 1, 5, 6, 7) THEN status
-                       WHEN NOW() &gt;= end_time THEN 4
-                       WHEN NOW() &gt;= start_time THEN 3
-                       ELSE 2
-                   END AS effective_status
-            FROM activity
+              SELECT publish_status, lifecycle_status, id, title, summary, category,
+                     organizer, location, audience_scope, capacity,
+                     view_count, updated_at
+              FROM activity
             WHERE deleted_at IS NULL
             <if test="keyword != null and keyword != ''">
                 AND (
                     <if test="keywordId != null">
                         id = #{keywordId} OR
                     </if>
-                    MATCH(title, content, organizer) AGAINST(#{keyword} IN BOOLEAN MODE)
+                    MATCH(title, summary, organizer) AGAINST(#{keyword} IN BOOLEAN MODE)
                 )
             </if>
         ) a
@@ -121,174 +89,73 @@
             GROUP BY activity_id
         ) enrollment ON enrollment.activity_id = a.id
         WHERE 1 = 1
-        <if test="status != null">
-            AND a.effective_status = #{status}
-        </if>
-        <if test="category != null">
-            AND a.category = #{category}
-        </if>
-        <if test="audienceMask != null">
-            AND (a.audience_scope &amp; #{audienceMask}) != 0
-        </if>
-        <if test="lastId != null and sort == 'latest'">
-            AND (
-                a.updated_at &lt; (SELECT updated_at FROM activity WHERE id = #{lastId})
-                OR (a.updated_at = (SELECT updated_at FROM activity WHERE id = #{lastId}) AND a.id &lt; #{lastId})
-            )
-        </if>
-        <if test="lastId != null and sort == 'soonest'">
-            AND (
-                a.start_time &gt; (SELECT start_time FROM activity WHERE id = #{lastId})
-                OR (a.start_time = (SELECT start_time FROM activity WHERE id = #{lastId}) AND a.id &gt; #{lastId})
-            )
-        </if>
-        <if test="lastId != null and sort == 'most-subscribed'">
-            AND (
-                COALESCE(enrollment.subscriber_count, 0) &lt; (
-                    SELECT COUNT(*) FROM activity_enrollment WHERE activity_id = #{lastId} AND status = 1
-                )
-                OR (
-                    COALESCE(enrollment.subscriber_count, 0) = (
-                        SELECT COUNT(*) FROM activity_enrollment WHERE activity_id = #{lastId} AND status = 1
-                    )
-                    AND a.id &lt; #{lastId}
-                )
-            )
-        </if>
-        <choose>
-            <when test="sort == 'soonest'">
-                ORDER BY a.start_time ASC, a.id ASC
-            </when>
-            <when test="sort == 'most-subscribed'">
-                ORDER BY subscriber_count DESC, a.id DESC
-            </when>
-            <otherwise>
-                ORDER BY a.updated_at DESC, a.id DESC
-            </otherwise>
-        </choose>
-        LIMIT #{limit}
-    </select>
+          <if test="publishStatus != null">
+              AND a.publish_status = #{publishStatus}
+          </if>
+          <if test="lifecycleStatus != null">
+              AND a.lifecycle_status = #{lifecycleStatus}
+          </if>
+          ORDER BY a.updated_at DESC, a.id DESC
+          LIMIT #{offset}, #{limit}
+      </select>
+
+      <select id="countAdminActivities" resultType="java.lang.Long">
+          SELECT COUNT(*)
+          FROM activity
+          WHERE deleted_at IS NULL
+          <if test="publishStatus != null">
+              AND publish_status = #{publishStatus}
+          </if>
+          <if test="lifecycleStatus != null">
+              AND lifecycle_status = #{lifecycleStatus}
+          </if>
+          <if test="keyword != null and keyword != ''">
+              AND (
+                  <if test="keywordId != null">
+                      id = #{keywordId} OR
+                  </if>
+                  MATCH(title, summary, organizer) AGAINST(#{keyword} IN BOOLEAN MODE)
+              )
+          </if>
+      </select>
 
     <select id="selectAdminActivitySummary"
             resultType="cn.jualn.miniapp.module.activity.mapper.AdminActivitySummaryRow">
-        SELECT COALESCE(SUM(effective_status = 2), 0) AS enrolling,
-               COALESCE(SUM(effective_status = 3), 0) AS ongoing,
-               COALESCE(SUM(effective_status = 1), 0) AS reviewing,
-               COALESCE(SUM(effective_status = 2
-                   AND start_time &gt; NOW()
-                   AND start_time &lt;= DATE_ADD(NOW(), INTERVAL 7 DAY)), 0) AS starting_soon
-        FROM (
-            SELECT start_time,
-                   CASE
-                       WHEN status IN (0, 1, 5, 6, 7) THEN status
-                       WHEN NOW() &gt;= end_time THEN 4
-                       WHEN NOW() &gt;= start_time THEN 3
-                       ELSE 2
-                   END AS effective_status
-            FROM activity
-            WHERE deleted_at IS NULL
-        ) activity_summary
+        SELECT COALESCE(SUM(publish_status = 1 AND lifecycle_status = 0), 0) AS enrolling,
+               COALESCE(SUM(lifecycle_status = 1), 0) AS ongoing,
+               COALESCE(SUM(publish_status = 0), 0) AS reviewing,
+               0 AS starting_soon
+        FROM activity
+        WHERE deleted_at IS NULL
     </select>
 
     <select id="selectAdminActivityById"
             resultType="cn.jualn.miniapp.module.activity.entity.Activity">
-        SELECT id,
-               user_id,
-               title,
-               content,
-               location,
-               category,
-               organizer,
-               audience_scope,
-               contact_info,
-               join_method,
-               qrcode_url,
-               start_time,
-               end_time,
-               enroll_deadline,
-               max_participants,
-               CASE
-                   WHEN status IN (0, 1, 5, 6, 7) THEN status
-                   WHEN NOW() &gt;= end_time THEN 4
-                   WHEN NOW() &gt;= start_time THEN 3
-                   ELSE 2
-               END AS status,
-               audit_status,
-               reject_reason,
-               is_pinned,
-               comment_count,
-               like_count,
-               view_count,
-               published_at,
-               created_at,
-               updated_at
+        SELECT contract_version, lifecycle_status, form_version, audience_department_ids, contacts_json,
+               form_schema, cancelled_at, cancel_reason, publish_status, summary,
+               audience_summary, registration_mode, participant_mode, capacity, capacity_unit,
+               cover_attachment_id, id, user_id, title, location, category, organizer, audience_scope,
+               comment_count, like_count, view_count,
+               published_at, created_at, updated_at
         FROM activity
         WHERE id = #{activityId}
           AND deleted_at IS NULL
     </select>
 
-    <update id="submitAdminReview">
-        UPDATE activity
-        SET status = 1,
-            audit_status = 0,
-            reject_reason = NULL,
-            is_pinned = FALSE
-        WHERE id = #{activityId}
-          AND status IN (0, 6)
-          AND deleted_at IS NULL
-    </update>
-
-    <update id="updateAdminPinned">
-        UPDATE activity
-        SET is_pinned = #{pinned}
-        WHERE id = #{activityId}
-          AND status IN (2, 3)
-          AND NOW() &lt; end_time
-          AND deleted_at IS NULL
-    </update>
-
     <update id="cancelAdminActivity">
         UPDATE activity
-        SET status = 5,
-            is_pinned = FALSE
+        SET publish_status = 1, cancelled_at = NOW(), cancel_reason = #{reason},
+            lifecycle_status = 2, contract_version = contract_version + 1
         WHERE id = #{activityId}
-          AND status = 2
-          AND NOW() &lt; start_time
+          AND publish_status = 1 AND lifecycle_status = 0
           AND deleted_at IS NULL
     </update>
 
     <update id="endAdminActivityEarly">
         UPDATE activity
-        SET status = 4,
-            end_time = NOW(),
-            is_pinned = FALSE
+        SET lifecycle_status = 1, contract_version = contract_version + 1
         WHERE id = #{activityId}
-          AND status IN (2, 3)
-          AND NOW() &gt;= start_time
-          AND NOW() &lt; end_time
-          AND deleted_at IS NULL
-    </update>
-
-    <update id="approveAdminReview">
-        UPDATE activity
-        SET status = 2,
-            audit_status = 1,
-            reject_reason = NULL,
-            published_at = COALESCE(published_at, NOW())
-        WHERE id = #{activityId}
-          AND status IN (1, 6)
-          AND audit_status IN (0, 2)
-          AND deleted_at IS NULL
-    </update>
-
-    <update id="rejectAdminReview">
-        UPDATE activity
-        SET status = 6,
-            audit_status = 2,
-            reject_reason = #{reason}
-        WHERE id = #{activityId}
-          AND status IN (1, 6)
-          AND audit_status IN (0, 2)
+          AND publish_status = 1 AND lifecycle_status = 0
           AND deleted_at IS NULL
     </update>
 
@@ -308,4 +175,49 @@
         SET view_count = COALESCE(view_count, 0) + #{delta}
         WHERE id = #{id}
     </update>
+
+    <select id="selectForUpdate" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
+        SELECT contract_version, lifecycle_status, form_version, audience_department_ids, contacts_json,
+               form_schema, cancelled_at, cancel_reason, publish_status, summary, audience_summary,
+               registration_mode, participant_mode, capacity_unit, capacity, cover_attachment_id,
+               id, user_id, title, location, category, organizer, audience_scope,
+               comment_count, like_count, view_count, published_at,
+               created_at, updated_at, deleted_at
+        FROM activity WHERE id = #{id} AND deleted_at IS NULL FOR UPDATE
+    </select>
+    <update id="publishDirectly">
+        UPDATE activity SET publish_status = 1,
+            contract_version = contract_version + 1,
+            form_version = COALESCE(form_version, #{formVersion}),
+            published_at = COALESCE(published_at, NOW())
+        WHERE id = #{id} AND publish_status IN (0, 2) AND deleted_at IS NULL
+    </update>
+    <update id="initializeFormVersionIfAbsent">
+        UPDATE activity
+        SET form_version = #{formVersion}
+        WHERE id = #{id} AND form_version IS NULL AND deleted_at IS NULL
+    </update>
+    <update id="takeDownDirectly">
+        UPDATE activity SET publish_status = 2, contract_version = contract_version + 1
+        WHERE id = #{id} AND publish_status = 1 AND deleted_at IS NULL
+    </update>
+    <update id="transitionContract">
+        UPDATE activity
+        SET publish_status = #{publishStatus}, lifecycle_status = #{lifecycleStatus},
+            contract_version = contract_version + 1,
+            form_version = COALESCE(form_version, #{formVersion}),
+            published_at = CASE WHEN #{publish} THEN COALESCE(published_at, NOW()) ELSE published_at END,
+            cancelled_at = CASE WHEN #{lifecycleStatus} = 2 THEN COALESCE(cancelled_at, NOW()) ELSE cancelled_at END
+        WHERE id = #{id} AND contract_version = #{version} AND deleted_at IS NULL
+    </update>
+    <select id="selectRegistrationActivity" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
+        SELECT id, contract_version, lifecycle_status, form_version, form_schema, capacity,
+               capacity_unit, registration_mode, participant_mode, publish_status, deleted_at
+        FROM activity WHERE id = #{id}
+    </select>
+    <select id="lockRegistrationActivity" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
+        SELECT id, contract_version, lifecycle_status, form_version, form_schema, capacity,
+               capacity_unit, registration_mode, participant_mode, publish_status, deleted_at
+        FROM activity WHERE id = #{id} FOR UPDATE
+    </select>
 </mapper>

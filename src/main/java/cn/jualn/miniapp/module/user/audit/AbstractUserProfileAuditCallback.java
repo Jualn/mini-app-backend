@@ -3,9 +3,9 @@ package cn.jualn.miniapp.module.user.audit;
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.enums.NotifyType;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.infrastructure.queue.contract.QueueProducer;
 import cn.jualn.miniapp.module.audit.service.AuditResultCallback;
 import cn.jualn.miniapp.module.notify.payload.NotifyPayload;
+import cn.jualn.miniapp.module.notify.service.NotifyService;
 import cn.jualn.miniapp.module.user.mapper.UserProfileMapper;
 import cn.jualn.miniapp.module.wx.notice.data.AuditResultNoticeData;
 import lombok.RequiredArgsConstructor;
@@ -23,11 +23,11 @@ public abstract class AbstractUserProfileAuditCallback implements AuditResultCal
 
     protected final UserProfileMapper userProfileMapper;
     protected final RedisService redisService;
-    protected final QueueProducer queueProducer;
+    protected final NotifyService notifyService;
 
     @Override
-    public void onPass(Long userId) {
-        // 轻量方案：资料已乐观写入，通过不用处理
+    public void onPass(Long userId, Long auditLogId) {
+        // Audit facts only. Neither a late pass nor a rejection may publish or revert a profile.
     }
 
     protected void evictUserProfileCache(Long userId) {
@@ -43,15 +43,16 @@ public abstract class AbstractUserProfileAuditCallback implements AuditResultCal
      * @param content 站内通知内容
      * @param reason 审核未通过原因
      */
-    protected void sendRejectNotify(Long userId, String auditObject, String content, String reason) {
+    protected void sendRejectNotify(Long userId, Long auditLogId, String auditObject, String content, String reason) {
         String actualReason = StringUtils.hasText(reason) ? reason : content;
 
-        queueProducer.send(NotifyPayload.builder()
+        notifyService.processNotificationPayload(NotifyPayload.builder()
                 .receiverId(userId)
                 .senderId(null)
                 .type(NotifyType.AUDIT_RESULT)
                 .title("资料修改未通过审核")
                 .content(content)
+                .sourceKey("audit-log:" + auditLogId + ":profile-reject")
                 .wxData(new AuditResultNoticeData(
                         truncate(auditObject, 20),
                         "未通过",

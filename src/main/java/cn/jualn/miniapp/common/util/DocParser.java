@@ -8,45 +8,60 @@ import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
-/**
- * 文档解析工具类，支持 PDF、DOCX、DOC 格式的文本提取
- */
-public class DocParser {
+/** Shared PDF/DOCX/DOC body-text extraction. It deliberately does not perform OCR. */
+public final class DocParser {
+    public enum Format {
+        PDF("PDF_TEXT_LAYER"), DOCX("DOCX_BODY_PARAGRAPHS"), DOC("DOC_BODY_TEXT");
 
-    /**
-     * 从上传的文件中提取文本内容
-     * 支持 PDF、DOCX、DOC 格式
-     * @param file 上传的文件
-     * @return 提取的文本内容
-     * @throws IOException 如果文件读取失败或格式不受支持
-     */
-    public static String extract(MultipartFile file) throws IOException {
-        String name = file.getOriginalFilename() != null
-                ? file.getOriginalFilename().toLowerCase() : "";
+        private final String extractionScope;
 
-        if (name.endsWith(".pdf")) {
-            try (PDDocument doc = Loader.loadPDF(file.getBytes())) {
-                return new PDFTextStripper().getText(doc).trim();
-            }
+        Format(String extractionScope) {
+            this.extractionScope = extractionScope;
         }
 
-        if (name.endsWith(".docx")) {
-            try (XWPFDocument doc = new XWPFDocument(file.getInputStream())) {
-                return doc.getParagraphs().stream()
+        public String extractionScope() {
+            return extractionScope;
+        }
+    }
+
+    private DocParser() {
+    }
+
+    public static String extract(MultipartFile file) throws IOException {
+        return extract(file.getBytes(), formatFromFilename(file.getOriginalFilename()));
+    }
+
+    public static String extract(byte[] bytes, Format format) throws IOException {
+        if (format == Format.PDF) {
+            try (PDDocument document = Loader.loadPDF(bytes)) {
+                return new PDFTextStripper().getText(document).trim();
+            }
+        }
+        if (format == Format.DOCX) {
+            try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(bytes))) {
+                return document.getParagraphs().stream()
                         .map(XWPFParagraph::getText)
                         .collect(Collectors.joining("\n")).trim();
             }
         }
-
-        if (name.endsWith(".doc")) {
-            try (HWPFDocument doc = new HWPFDocument(file.getInputStream())) {
-                return doc.getRange().text().trim();
+        if (format == Format.DOC) {
+            try (HWPFDocument document = new HWPFDocument(new ByteArrayInputStream(bytes))) {
+                return document.getRange().text().trim();
             }
         }
+        throw new IllegalArgumentException("仅支持 PDF / DOCX / DOC 格式");
+    }
 
+    public static Format formatFromFilename(String filename) {
+        String name = filename == null ? "" : filename.toLowerCase(Locale.ROOT);
+        if (name.endsWith(".pdf")) return Format.PDF;
+        if (name.endsWith(".docx")) return Format.DOCX;
+        if (name.endsWith(".doc")) return Format.DOC;
         throw new IllegalArgumentException("仅支持 PDF / DOCX / DOC 格式");
     }
 }

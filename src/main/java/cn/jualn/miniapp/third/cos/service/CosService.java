@@ -83,6 +83,10 @@ public class CosService {
         return cosClient.buildPublicUrl(objectKey);
     }
 
+    public void copyObject(String sourceKey, String destinationKey) {
+        cosClient.copyObject(sourceKey, destinationKey);
+    }
+
     /** 删除一个已不再被业务数据引用的 COS 对象。 */
     public void deleteObject(String objectKey) {
         if (objectKey == null || objectKey.isBlank() || objectKey.contains("..")) {

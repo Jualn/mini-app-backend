@@ -6,7 +6,6 @@ import cn.jualn.miniapp.common.enums.AuditScene;
 import cn.jualn.miniapp.common.enums.NotifyType;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.infrastructure.queue.contract.QueueProducer;
 import cn.jualn.miniapp.module.activity.entity.Activity;
 import cn.jualn.miniapp.module.activity.mapper.ActivityMapper;
 import cn.jualn.miniapp.module.activity.service.ActivityService;
@@ -21,6 +20,7 @@ import cn.jualn.miniapp.module.exam.entity.ExamInfo;
 import cn.jualn.miniapp.module.exam.mapper.ExamInfoMapper;
 import cn.jualn.miniapp.module.exam.service.ExamService;
 import cn.jualn.miniapp.module.notify.payload.NotifyPayload;
+import cn.jualn.miniapp.module.notify.service.NotifyService;
 import cn.jualn.miniapp.module.post.entity.Post;
 import cn.jualn.miniapp.module.post.mapper.PostMapper;
 import cn.jualn.miniapp.module.user.service.UserService;
@@ -44,7 +44,7 @@ public class CommentAuditCallback implements AuditResultCallback {
 
     private final CommentMapper commentMapper;
     private final ContentAuditLogMapper contentAuditLogMapper;
-    private final QueueProducer queueProducer;
+    private final NotifyService notifyService;
     private final PostMapper postMapper;
     private final ActivityMapper activityMapper;
     private final ExamInfoMapper examInfoMapper;
@@ -54,7 +54,7 @@ public class CommentAuditCallback implements AuditResultCallback {
     private final RedisService redisService;
 
     @Override
-    public void onPass(Long commentId) {
+    public void onPass(Long commentId, Long auditLogId) {
         long total = contentAuditLogMapper.selectCount(
                 new LambdaQueryWrapper<ContentAuditLog>()
                         .eq(ContentAuditLog::getTargetId, commentId)
@@ -91,7 +91,7 @@ public class CommentAuditCallback implements AuditResultCallback {
     }
 
     @Override
-    public void onReject(Long commentId, String reason) {
+    public void onReject(Long commentId, Long auditLogId, String reason) {
         int rows = commentMapper.update(
                 new LambdaUpdateWrapper<Comment>()
                         .set(Comment::getAuditStatus, AuditStatus.PENDING.getCode())
@@ -104,7 +104,7 @@ public class CommentAuditCallback implements AuditResultCallback {
             return;
         }
 
-        log.info("[CommentAudit] 机器风险内容已转人工复核，commentId={}, reason={}", commentId, reason);
+        log.info("[CommentAudit] 机器风险内容已转人工复核，commentId={}", commentId);
     }
 
     public void activateCommentAfterAuditPass(Long commentId) {
@@ -160,16 +160,10 @@ public class CommentAuditCallback implements AuditResultCallback {
     }
 
     private void sendCommentNotification(Comment comment, Comment parent, Long senderId) {
-        try {
-            if (parent != null) {
-                // 回复：通知父评论作者
-                sendReplyNotification(comment, parent, senderId);
-            } else {
-                // 顶级评论：通知内容作者
-                sendTopLevelCommentNotification(comment, senderId);
-            }
-        } catch (Exception e) {
-            log.warn("[CommentService] 通知发送失败，commentId={}", comment.getId(), e);
+        if (parent != null) {
+            sendReplyNotification(comment, parent, senderId);
+        } else {
+            sendTopLevelCommentNotification(comment, senderId);
         }
     }
 
@@ -181,16 +175,19 @@ public class CommentAuditCallback implements AuditResultCallback {
             return;
         }
 
-        String senderName = resolveNickname(senderId);
+        var actor = resolveActor(senderId);
+        String senderName = actor == null ? "" : actor.nickname();
 
         NotifyPayload payload = NotifyPayload.builder()
                 .receiverId(content.getOwnerId())
                 .senderId(senderId)
-                .type(NotifyType.COMMENTED_ME)
+                .type(targetType == TargetType.POST ? NotifyType.POST_COMMENTED : NotifyType.COMMENTED_ME)
                 .title("有人评论了你")
                 .content(truncate(comment.getContent(), 50))
                 .targetType(targetType)
                 .targetId(comment.getTargetId())
+                .sourceKey("comment:" + comment.getId() + ":receiver:" + content.getOwnerId() + ":approved")
+                .snapshot(commentSnapshot(comment, actor, content.getTitle(), false, content.getTitle(), null))
                 .wxData(new CommentNoticeData(
                         comment.getTargetId(),
                         comment.getId(),
@@ -200,7 +197,7 @@ public class CommentAuditCallback implements AuditResultCallback {
                         LocalDateTime.now()))
                 .build();
 
-        queueProducer.send(payload);
+        notifyService.processNotificationPayload(payload);
     }
 
     private void sendReplyNotification(Comment comment, Comment parent, Long senderId) {
@@ -208,16 +205,21 @@ public class CommentAuditCallback implements AuditResultCallback {
         if (receiverId.equals(senderId)) return;
 
         TargetType targetType = TargetType.fromCode(comment.getTargetType());
-        String senderName = resolveNickname(senderId);
+        var actor = resolveActor(senderId);
+        String senderName = actor == null ? "" : actor.nickname();
+        var subject = getContentSummary(targetType, comment.getTargetId());
 
         NotifyPayload payload = NotifyPayload.builder()
                 .receiverId(receiverId)
                 .senderId(senderId)
-                .type(NotifyType.REPLIED_ME)
+                .type(NotifyType.COMMENT_REPLIED)
                 .title("有人回复了你")
                 .content(truncate(comment.getContent(), 50))
                 .targetType(targetType)
                 .targetId(comment.getTargetId())
+                .sourceKey("reply:" + comment.getId() + ":receiver:" + receiverId + ":approved")
+                .snapshot(commentSnapshot(comment, actor, truncate(parent.getContent(), 50), true,
+                        subject == null ? null : subject.getTitle(), parent.getContent() == null ? null : truncate(parent.getContent(), 50)))
                 .wxData(new ReplyNoticeData(
                         truncate(parent.getContent(), 20),
                         truncate(comment.getContent(), 20),
@@ -225,15 +227,43 @@ public class CommentAuditCallback implements AuditResultCallback {
                         LocalDateTime.now()))
                 .build();
 
-        queueProducer.send(payload);
+        notifyService.processNotificationPayload(payload);
     }
 
-    private String resolveNickname(Long userId) {
+    private cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot commentSnapshot(
+            Comment comment, cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Actor actor, String context,
+            boolean reply, String subjectTitle, String quote) {
+        String resourceId = comment.getTargetId().toString();
+        TargetType targetType = TargetType.fromCode(comment.getTargetType());
+        cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Target target = null;
+        if (targetType == TargetType.POST) {
+            target = cn.jualn.miniapp.module.notify.service.NotificationSnapshotProjection.post(resourceId, comment.getId().toString());
+        } else if (targetType == TargetType.ACTIVITY) {
+            target = new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Target("ACTIVITY_DETAIL", null, null, resourceId, null);
+        } else if (targetType == TargetType.EXAM) {
+            target = new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Target("PUBLIC_EVENT_DETAIL", null, null, null, resourceId);
+        }
+        // Non-post replies have no newly promised semantic navigation in this Contract.
+        if (reply && targetType != TargetType.POST) { target = null; }
+        var subject = new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Subject(
+                reply ? "COMMENT" : targetType == TargetType.EXAM ? "PUBLIC_EVENT" : targetType.name(),
+                reply ? comment.getParentId().toString() : resourceId);
+        return new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot(
+                new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Presentation(
+                        reply ? "有人回复了你" : "有人评论了你", truncate(comment.getContent(), 50), context, null, null, subjectTitle, quote),
+                actor,
+                subject, target);
+    }
+
+    private cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Actor resolveActor(Long userId) {
         try {
             var user = userService.getSimpleInfo(userId);
-            return user != null && user.getNickname() != null ? user.getNickname() : "";
+            if (user == null || user.getNickname() == null || user.getNickname().isBlank()) return null;
+            String avatar = user.getAvatarUrl();
+            return new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Actor(userId.toString(), user.getNickname(),
+                    avatar == null || avatar.isBlank() ? null : avatar);
         } catch (Exception e) {
-            return "";
+            return null;
         }
     }
 

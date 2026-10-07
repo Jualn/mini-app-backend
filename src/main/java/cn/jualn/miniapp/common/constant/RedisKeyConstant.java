@@ -33,7 +33,7 @@ public final class RedisKeyConstant {
     public static final Duration USER_SETTING_TTL = Duration.ofMinutes(30);
 
     // 无 TTL：主动维护（收到通知+1，已读清零），不依赖过期
-    public static final String USER_UNREAD_COUNT_PREFIX = PREFIX + "user:unread:";
+    public static final String USER_UNREAD_COUNT_PREFIX = PREFIX + "user:unread:v2:";
 
     // ── 内容详情 ──────────────────────────────────────────
     public static final String POST_DETAIL_PREFIX = PREFIX + "post:detail:";
@@ -76,10 +76,6 @@ public final class RedisKeyConstant {
     public static final String EXAM_SUBSCRIPTION_PREFIX = PREFIX + "exam:subscription:";
     public static final Duration EXAM_SUBSCRIPTION_TTL = Duration.ofMinutes(30);
 
-    // noticeDelay
-    // 在延迟消息体存储 中区分是来自 noticeQueue中的延迟信息
-    public static final String NOTICE_QUEUE_PREFIX = PREFIX + "notice:queue:";
-
     // ── 搜素 ──────────────────────────────────────────
     public static final String SEARCH_COUNT_PREFIX = PREFIX + "search:count:";
     public static final Duration SEARCH_COUNT_TTL = Duration.ofMinutes(5);
@@ -89,15 +85,7 @@ public final class RedisKeyConstant {
     public static final Duration SEARCH_HOT_DEDUP_TTL = Duration.ofMinutes(10);
 
     // ── 微信 ──────────────────────────────────────────────
-    public static final String WX_MINI_ACCESS_TOKEN = PREFIX + "wx:mini:access_token";
-    public static final Duration WX_MINI_ACCESS_TOKEN_TTL = Duration.ofSeconds(7000); // 微信 7200s，留 200s 余量
-
-    public static final String WX_MP_ACCESS_TOKEN = PREFIX + "wx:mp:access_token";
-    public static final Duration WX_MP_ACCESS_TOKEN_TTL = Duration.ofSeconds(7000);
-
-    // 用于 JS-SDK 签名缓存，避免频繁调用微信接口
-    public static final String WX_MP_JSAPI_TICKET = PREFIX + "wx:mp:jsapi_ticket:";
-    public static final Duration WX_MP_JSAPI_TICKET_TTL = Duration.ofSeconds(7000);
+    private static final String WX_CREDENTIAL_PREFIX = PREFIX + "wx:credential:";
 
     // 用于 OAuth 防伪和定位 userId
     public static final String WX_MP_OAUTH_STATUS_PREFIX = PREFIX + "wx:mp:oauth:status";
@@ -115,15 +103,6 @@ public final class RedisKeyConstant {
 
     public static final String WX_SUBSCRIBE_STATUS_PREFIX = PREFIX + "wx:subscribe:";
     public static final Duration WX_SUBSCRIBE_STATUS_TTL = Duration.ofHours(1);
-
-    // ── 队列 ──────────────────────────────────────────────
-    public static final String NOTIFY_DELAY_ZSET = PREFIX + "notify:delay:zset";
-    // 延迟消息体存储（member -> json 映射）
-    public static final String DELAY_MSG_BODY_PREFIX = PREFIX + "delay:msg:";
-    // 无 TTL：持久 ZSET，成员消费后手动 ZREM
-    public static final String QUEUE_MAIN = PREFIX + "queue:main";
-    // 无 TTL：同上
-    public static final String QUEUE_DEAD = PREFIX + "queue:dead";
 
     // ── Key 构造方法 ───────────────────────────────────────
     public static String userToken(Long userId) {
@@ -218,15 +197,29 @@ public final class RedisKeyConstant {
         return WX_MP_OAUTH_STATUS_PREFIX + state;
     }
 
+    public static String wxMpOauthClaim(String state) {
+        return wxMpOauthState(state) + ":claim";
+    }
+
     public static String wxMpSubscribeState(String state) {
         return WX_MP_SUBSCRIBE_STATUS_PREFIX + state;
     }
 
-    public static String noticeQueue(Long planId) {
-        return NOTICE_QUEUE_PREFIX + planId;
+    public static String wxAccessToken(String accountType, String appId) {
+        return WX_CREDENTIAL_PREFIX + accountType + ":" + appId + ":access-token";
     }
 
-    public static String delayMsgBody(String memberKey) {
-        return DELAY_MSG_BODY_PREFIX + memberKey;
+    public static String adminQrSession(String id) { return "jualn:admin:qr-login:v2:session:" + id; }
+    public static String adminQrScene(String hash) { return "jualn:admin:qr-login:v2:scene:" + hash; }
+    public static String adminQrImage(String id) { return "jualn:admin:qr-login:v2:image:" + id; }
+    public static String adminQrActivation(String id) { return "jualn:admin:qr-login:v2:activation:" + id; }
+    public static String adminQrRate(String operation, String hash) {
+        return "jualn:admin:auth:rate:v2:" + operation + ":" + hash;
     }
+    public static String adminRevokedToken(String hash) { return "jualn:admin:auth:revoked:" + hash; }
+
+    public static String wxJsApiTicket(String appId) {
+        return WX_CREDENTIAL_PREFIX + "mp:" + appId + ":jsapi-ticket";
+    }
+
 }

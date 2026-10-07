@@ -14,6 +14,26 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @TableName("activity")
 public class Activity {
+    private Long contractVersion;
+    private Integer lifecycleStatus;
+    private String formVersion;
+    private String audienceDepartmentIds;
+    private String contactsJson;
+    private String formSchema;
+    private java.time.LocalDateTime cancelledAt;
+    private String cancelReason;
+
+    private Integer publishStatus;
+
+    private String summary;
+    private String audienceSummary;
+    private Integer registrationMode;
+    private Integer participantMode;
+    private Integer capacityUnit;
+    private Integer capacity;
+    private Long coverAttachmentId;
+
+
 
     @TableId(type = IdType.AUTO)
     private Long id;
@@ -22,8 +42,6 @@ public class Activity {
 
     private String title;
 
-    private String content;
-
     private String location;
 
     private Integer category;
@@ -31,28 +49,6 @@ public class Activity {
     private String organizer;
 
     private Integer audienceScope;
-
-    private String contactInfo;
-
-    private String joinMethod;
-
-    private String qrcodeUrl;
-
-    private LocalDateTime startTime;
-
-    private LocalDateTime endTime;
-
-    private LocalDateTime enrollDeadline;
-
-    private Integer maxParticipants;
-
-    private Integer status;
-
-    private Integer auditStatus;
-
-    private String rejectReason;
-
-    private Boolean isPinned;
 
     private Integer commentCount;
 

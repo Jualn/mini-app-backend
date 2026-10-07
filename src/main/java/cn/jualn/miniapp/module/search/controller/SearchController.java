@@ -2,7 +2,7 @@ package cn.jualn.miniapp.module.search.controller;
 
 import cn.jualn.miniapp.common.result.PageResult;
 import cn.jualn.miniapp.common.result.Result;
-import cn.jualn.miniapp.module.activity.bo.ActivityListBO;
+import cn.jualn.miniapp.module.search.vo.SearchActivityVO;
 import cn.jualn.miniapp.module.post.bo.PostListBO;
 import cn.jualn.miniapp.module.search.bo.SearchPageBO;
 import cn.jualn.miniapp.module.search.bo.SearchResultBO;
@@ -38,8 +38,9 @@ public class SearchController {
     }
 
     @GetMapping("/activities")
-    public Result<PageResult<ActivityListBO>> searchActivities(@Valid SearchQuery query) {
-        return Result.ok(searchService.searchActivities(query));
+    public Result<PageResult<SearchActivityVO>> searchActivities(@Valid SearchQuery query) {
+        var page = searchService.searchActivities(query);
+        return Result.ok(PageResult.of(searchConverter.toActivityVOList(page.getList()), page.getHasMore(), page.getNextCursor()));
     }
 
     @GetMapping

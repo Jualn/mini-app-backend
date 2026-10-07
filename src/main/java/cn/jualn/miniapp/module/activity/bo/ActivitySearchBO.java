@@ -1,6 +1,5 @@
 package cn.jualn.miniapp.module.activity.bo;
 
-import cn.jualn.miniapp.common.enums.ActivityStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -17,11 +16,13 @@ public class ActivitySearchBO {
 
     private String title;
 
-    private String content;
+    private String summary;
 
     private String location;
 
-    private ActivityStatus status;
+    private Integer publishStatus;
+
+    private Integer lifecycleStatus;
 
     private LocalDateTime publishedAt;
 }

@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
-import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -56,27 +55,6 @@ public class XssHttpServletRequestWrapper extends HttpServletRequestWrapper {
             sanitized.put(entry.getKey(), sanitizedValues);
         }
         return Collections.unmodifiableMap(sanitized);
-    }
-
-    @Override
-    public String getHeader(String name) {
-        return sanitize(super.getHeader(name));
-    }
-
-    @Override
-    public Enumeration<String> getHeaders(String name) {
-        Enumeration<String> headers = super.getHeaders(name);
-        return new Enumeration<>() {
-            @Override
-            public boolean hasMoreElements() {
-                return headers.hasMoreElements();
-            }
-
-            @Override
-            public String nextElement() {
-                return sanitize(headers.nextElement());
-            }
-        };
     }
 
     @Override

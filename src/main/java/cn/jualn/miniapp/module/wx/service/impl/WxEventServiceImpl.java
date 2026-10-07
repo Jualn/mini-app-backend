@@ -1,6 +1,7 @@
 package cn.jualn.miniapp.module.wx.service.impl;
 
 import cn.jualn.miniapp.module.wx.dto.WxBaseMessage;
+import cn.jualn.miniapp.module.wx.dto.WxaMediaCheckMessage;
 import cn.jualn.miniapp.module.wx.handler.WxEventHandler;
 import cn.jualn.miniapp.module.wx.service.WxEventService;
 import cn.jualn.miniapp.third.wx.config.WxAccountType;
@@ -36,18 +37,16 @@ public class WxEventServiceImpl implements WxEventService {
         WxBaseMessage message;
         try {
             message = xmlMapper.readValue(xmlBody, WxBaseMessage.class);
-            message.setRawXml(xmlBody);
         } catch (Exception e) {
-            log.error("微信事件解析失败", e);
-            return "success";
+            throw new IllegalArgumentException("微信事件 XML 无法解析", e);
         }
 
-        log.info("接收微信事件：accountType={}, msgType={}, message={}, fromUserName={}, eventKey={}",
-                accountType, message.getMsgType(), message.getEvent(), message.getFromUserName(), message.getEventKey());
+        log.debug("接收微信事件：accountType={}, msgType={}, event={}",
+                accountType, message.getMsgType(), message.getEvent());
 
-        String handlerKey = resolveKey(message);
+        String handlerKey = resolveKey(accountType, message);
         if (!StringUtils.hasText(handlerKey)) {
-            log.warn("未识别的微信事件，accountType={}, msgType={}, message={}",
+            log.warn("未识别的微信事件，accountType={}, msgType={}, event={}",
                     accountType, message.getMsgType(), message.getEvent());
             return "success";
         }
@@ -58,14 +57,14 @@ public class WxEventServiceImpl implements WxEventService {
             return "success";
         }
 
-        try {
-            handler.handle(message);
-            return "success";
-        } catch (Exception e) {
-            log.error("微信事件处理失败，handlerKey={}, fromUserName={}",
-                    handlerKey, message.getFromUserName(), e);
+        if (accountType == WxAccountType.MA && "ma:event:wxa_media_check".equals(handlerKey)) {
+            try {
+                message = xmlMapper.readValue(xmlBody, WxaMediaCheckMessage.class);
+            } catch (Exception e) {
+                throw new IllegalArgumentException("微信内容安全回调无法解析", e);
+            }
         }
-
+        handler.handle(message);
         return "success";
     }
 
@@ -75,7 +74,7 @@ public class WxEventServiceImpl implements WxEventService {
      * @param message 微信事件消息
      * @return 处理器键（如 event:subscribe、msg:text），无法识别时返回 null
      */
-    private String resolveKey(WxBaseMessage message) {
+    private String resolveKey(WxAccountType accountType, WxBaseMessage message) {
         if (message == null || !StringUtils.hasText(message.getMsgType())) {
             return null;
         }
@@ -84,9 +83,11 @@ public class WxEventServiceImpl implements WxEventService {
             if (!StringUtils.hasText(message.getEvent())) {
                 return null;
             }
-            return "event:" + message.getEvent().toLowerCase(Locale.ROOT);
+            return accountType.name().toLowerCase(Locale.ROOT) + ":event:"
+                    + message.getEvent().toLowerCase(Locale.ROOT);
         }
 
-        return "msg:" + message.getMsgType().toLowerCase(Locale.ROOT);
+        return accountType.name().toLowerCase(Locale.ROOT) + ":msg:"
+                + message.getMsgType().toLowerCase(Locale.ROOT);
     }
 }

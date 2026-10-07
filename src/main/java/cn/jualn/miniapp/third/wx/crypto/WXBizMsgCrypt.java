@@ -152,7 +152,6 @@ public class WXBizMsgCrypt {
 
 			return base64Encrypted;
 		} catch (Exception e) {
-			e.printStackTrace();
 			throw new AesException(AesException.EncryptAESError);
 		}
 	}
@@ -179,7 +178,6 @@ public class WXBizMsgCrypt {
 			// 解密
 			original = cipher.doFinal(encrypted);
 		} catch (Exception e) {
-			e.printStackTrace();
 			throw new AesException(AesException.DecryptAESError);
 		}
 
@@ -197,7 +195,6 @@ public class WXBizMsgCrypt {
 			from_appid = new String(Arrays.copyOfRange(bytes, 20 + xmlLength, bytes.length),
 					CHARSET);
 		} catch (Exception e) {
-			e.printStackTrace();
 			throw new AesException(AesException.IllegalBuffer);
 		}
 
@@ -235,7 +232,6 @@ public class WXBizMsgCrypt {
 
 		String signature = SHA1.getSHA1(token, timeStamp, nonce, encrypt);
 
-		// System.out.println("发送给平台的签名是: " + signature[1].toString());
 		// 生成发送的xml
 		String result = XMLParse.generate(encrypt, signature, timeStamp, nonce);
 		return result;
@@ -268,8 +264,6 @@ public class WXBizMsgCrypt {
 		String signature = SHA1.getSHA1(token, timeStamp, nonce, encrypt[1].toString());
 
 		// 和URL中的签名比较是否相等
-		// System.out.println("第三方收到URL中的签名：" + msg_sign);
-		// System.out.println("第三方校验签名：" + signature);
 		if (!signature.equals(msgSignature)) {
 			throw new AesException(AesException.ValidateSignatureError);
 		}

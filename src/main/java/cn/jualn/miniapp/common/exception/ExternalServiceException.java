@@ -14,17 +14,28 @@ public class ExternalServiceException extends RuntimeException {
 
     private final ResultCode resultCode;
     private final String provider;
+    private final String providerCode;
 
     public ExternalServiceException(ResultCode resultCode, String provider, String internalMsg) {
         super(internalMsg);
         this.resultCode = resultCode;
         this.provider = provider;
+        this.providerCode = null;
     }
 
     public ExternalServiceException(ResultCode resultCode, String provider, String internalMsg, Throwable cause) {
         super(internalMsg, cause);
         this.resultCode = resultCode;
         this.provider = provider;
+        this.providerCode = null;
+    }
+
+    public ExternalServiceException(ResultCode resultCode, String provider, String providerCode,
+                                    String internalMsg) {
+        super(internalMsg);
+        this.resultCode = resultCode;
+        this.provider = provider;
+        this.providerCode = providerCode;
     }
 
     public Integer getCode() {

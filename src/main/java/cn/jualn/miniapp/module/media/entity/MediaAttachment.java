@@ -24,6 +24,12 @@ public class MediaAttachment {
 
     private Integer type;
 
+    private String kind;
+
+    private Boolean registered;
+
+    private Long registeredBy;
+
     private String objectKey;
 
     private String url;

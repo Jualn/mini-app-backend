@@ -28,7 +28,7 @@ public class PostAuditCallback implements AuditResultCallback {
     private final RedisService redisService;
 
     @Override
-    public void onPass(Long postId) {
+    public void onPass(Long postId, Long auditLogId) {
         long total = contentAuditLogMapper.selectCount(
                 new LambdaQueryWrapper<ContentAuditLog>()
                         .eq(ContentAuditLog::getTargetId, postId)
@@ -71,7 +71,7 @@ public class PostAuditCallback implements AuditResultCallback {
     }
 
     @Override
-    public void onReject(Long postId, String reason) {
+    public void onReject(Long postId, Long auditLogId, String reason) {
         int rows = postMapper.update(
                 new LambdaUpdateWrapper<Post>()
                         .set(Post::getStatus, PostStatus.AUDITING.getCode())
@@ -86,6 +86,6 @@ public class PostAuditCallback implements AuditResultCallback {
         }
 
         redisService.delete(RedisKeyConstant.postDetail(postId));
-        log.info("[PostAudit] 机器风险内容已转人工复核，postId={}, reason={}", postId, reason);
+        log.info("[PostAudit] 机器风险内容已转人工复核，postId={}", postId);
     }
 }

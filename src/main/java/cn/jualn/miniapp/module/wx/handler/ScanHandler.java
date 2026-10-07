@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.wx.handler;
 
 import cn.jualn.miniapp.module.wx.dto.WxBaseMessage;
-import cn.jualn.miniapp.third.wx.service.WxSubscribeService;
+import cn.jualn.miniapp.module.wx.service.WxSubscribeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
  * 已关注用户扫码事件处理器。
  */
 @Slf4j
-@Component("event:scan")
+@Component("mp:event:scan")
 @RequiredArgsConstructor
 public class ScanHandler implements WxEventHandler {
 
@@ -23,8 +23,8 @@ public class ScanHandler implements WxEventHandler {
      */
     @Override
     public void handle(WxBaseMessage event) {
-        log.info("处理微信 scan 事件，fromUserName={}, eventKey={}", event.getFromUserName(), event.getEventKey());
-//        wxSubscribeService.onScan(event);
+        log.debug("处理微信 scan 事件");
+        wxSubscribeService.onScan(event);
     }
 }
 

@@ -6,11 +6,18 @@ import cn.jualn.miniapp.module.user.entity.UserProfile;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
+import java.util.Collection;
 
 
 public interface UserProfileMapper extends BaseMapper<UserProfile> {
+
+    UserProfile selectProfileForUpdate(@Param("userId") Long userId);
+
+    int updateCheckedProfile(@Param("userId") Long userId, @Param("revision") long revision,
+                             @Param("profile") UserProfile profile);
 
     @Select("SELECT openid FROM user_profile WHERE id = #{id} AND deleted_at IS NULL")
     String selectMiniOpenid(Long id);
@@ -18,10 +25,19 @@ public interface UserProfileMapper extends BaseMapper<UserProfile> {
     @Select("SELECT mp_openid FROM user_profile WHERE id = #{id} AND deleted_at IS NULL")
     String selectMpOpenIdById(Long id);
 
+    List<Long> selectOfficialAccountUserIds(@Param("ids") Collection<Long> ids);
+
+    @Select("SELECT id FROM user_profile WHERE mp_openid = #{mpOpenid} AND deleted_at IS NULL ORDER BY id LIMIT 2")
+    List<Long> selectIdsByMpOpenid(String mpOpenid);
+
+    @Update("UPDATE user_profile SET mp_openid = #{mpOpenid} " +
+            "WHERE id = #{userId} AND deleted_at IS NULL AND (mp_openid IS NULL OR mp_openid = #{mpOpenid})")
+    int bindMpOpenidIfUnchanged(@Param("userId") Long userId, @Param("mpOpenid") String mpOpenid);
+
     @Select("SELECT status FROM user_profile WHERE id = #{id} AND deleted_at IS NULL")
     Integer selectStatusById(Long id);
 
-    @Select("SELECT id, nickname, avatar_url " +
+    @Select("SELECT id, nickname, avatar_url, (role IN (2, 3)) AS platform_operator " +
             "FROM user_profile WHERE id = #{userId} AND deleted_at IS NULL")
     UserSimpleBO selectUserSimpleBOById(Long userId);
 

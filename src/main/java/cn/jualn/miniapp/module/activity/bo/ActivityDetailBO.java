@@ -1,7 +1,6 @@
 package cn.jualn.miniapp.module.activity.bo;
 
 import cn.jualn.miniapp.common.enums.ActivityCategory;
-import cn.jualn.miniapp.common.enums.ActivityStatus;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
 import cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO;
 import cn.jualn.miniapp.module.user.bo.UserSimpleBO;
@@ -24,23 +23,41 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ActivityDetailBO {
+    private TimelineItemDTO cardTimeline;
+    private Boolean liked;
+    private Boolean enrolled;
+    private Integer lifecycleStatus;
+    private String contactsJson;
+    private String audienceDepartmentIds;
+    private java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventContactBO> contacts;
+    private ActivityFormBO registrationForm;
+    private String participationState;
+    private Long submittedCount;
+    private java.time.LocalDateTime evaluatedAt;
+    private String activityPhase;
+    private String registrationStatus;
+
+    private Integer publishStatus;
+
+    private String summary;
+    private String audienceSummary;
+    private Integer registrationMode;
+    private Integer participantMode;
+    private Integer capacityUnit;
+    private Integer capacity;
+    private Long coverAttachmentId;
+
+    private java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO> sections;
+    private java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventActionBO> actions;
+
 
     private Long id;
     private Long userId;
     private String title;
-    private String content;
     private String location;
-    private ActivityStatus status;
     private ActivityCategory category;
     private String organizer;
     private Integer audienceScope;
-    private String contactInfo;
-    private String joinMethod;
-    private String qrcodeUrl;
-    private LocalDateTime startTime;
-    private LocalDateTime endTime;
-    private LocalDateTime enrollDeadline;
-    private Integer maxParticipants;
     private Integer commentCount;
     private Integer likeCount;
     private Integer viewCount;

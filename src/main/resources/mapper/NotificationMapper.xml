@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.notify.mapper.NotificationMapper">
+    <sql id="canonicalVisibility">
+        n.user_id = #{userId}
+        AND n.inbox_seq IS NOT NULL
+    </sql>
+
+    <select id="selectCanonicalInbox" resultType="cn.jualn.miniapp.module.notify.entity.Notification">
+        SELECT n.id, n.user_id, n.type, n.title, n.content, n.content_schema_version,
+               n.content_payload, n.target_type, n.target_id, n.sender_id, n.source_key,
+               n.read_at, n.inbox_seq, (n.read_at IS NOT NULL) AS is_read, n.created_at
+        FROM notification n
+        WHERE <include refid="canonicalVisibility"/>
+        <if test="typeCodes != null and !typeCodes.isEmpty()">
+            AND n.type IN
+            <foreach collection="typeCodes" item="typeCode" open="(" separator="," close=")">
+                #{typeCode}
+            </foreach>
+        </if>
+        <if test="isRead != null">
+            AND n.read_at IS <choose><when test="isRead">NOT NULL</when><otherwise>NULL</otherwise></choose>
+        </if>
+        <if test="cursorCreatedAt != null and cursorId != null">
+            AND (n.created_at &lt; #{cursorCreatedAt}
+                 OR (n.created_at = #{cursorCreatedAt} AND n.id &lt; #{cursorId}))
+        </if>
+        ORDER BY n.created_at DESC, n.id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectLegacyInbox" resultType="cn.jualn.miniapp.module.notify.entity.Notification">
+        SELECT n.id, n.user_id, n.type, n.title, n.content, n.content_schema_version,
+               n.content_payload, n.target_type, n.target_id, n.sender_id, n.source_key,
+               n.read_at, n.inbox_seq, (n.read_at IS NOT NULL) AS is_read, n.created_at
+        FROM notification n
+        WHERE <include refid="canonicalVisibility"/>
+        <if test="typeCode != null">
+            <choose>
+                <when test="typeCode == 1">AND n.type IN (1,19)</when>
+                <when test="typeCode == 2">AND n.type IN (2,20)</when>
+                <when test="typeCode == 3">AND n.type IN (3,21,22)</when>
+                <otherwise>AND n.type = #{typeCode}</otherwise>
+            </choose>
+        </if>
+        <if test="isRead != null">AND (n.read_at IS NOT NULL) = #{isRead}</if>
+        <if test="lastId != null">AND n.id &lt; #{lastId}</if>
+        ORDER BY n.id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="countCanonicalUnread" resultType="long">
+        SELECT COUNT(*) FROM notification n
+        WHERE <include refid="canonicalVisibility"/>
+          AND n.read_at IS NULL
+    </select>
+
+    <select id="selectCanonicalReadState" resultType="int">
+        SELECT (n.read_at IS NOT NULL) FROM notification n
+        WHERE <include refid="canonicalVisibility"/>
+          AND n.id = #{id}
+    </select>
+
+    <update id="markCanonicalRead">
+        UPDATE notification n
+        SET read_at = CURRENT_TIMESTAMP(6), is_read = 1
+        WHERE <include refid="canonicalVisibility"/>
+          AND n.id = #{id}
+          AND n.read_at IS NULL
+    </update>
+
+    <update id="markAllCanonicalRead">
+        UPDATE notification n
+        SET read_at = CURRENT_TIMESTAMP(6), is_read = 1
+        WHERE <include refid="canonicalVisibility"/>
+          AND n.read_at IS NULL
+    </update>
+
+    <insert id="ensureInboxCounter">
+        INSERT INTO notification_inbox_counter (user_id, head_seq) VALUES (#{userId}, 0)
+        ON DUPLICATE KEY UPDATE user_id = #{userId}
+    </insert>
+    <select id="lockInboxHead" resultType="long">
+        SELECT head_seq FROM notification_inbox_counter WHERE user_id = #{userId} FOR UPDATE
+    </select>
+    <select id="selectInboxHead" resultType="long">
+        SELECT COALESCE((SELECT head_seq FROM notification_inbox_counter WHERE user_id = #{userId}), 0)
+    </select>
+    <select id="selectUnreadProjectionVersion" resultType="string">
+        SELECT COALESCE((SELECT CONCAT(head_seq, ':', read_version) FROM notification_inbox_counter WHERE user_id = #{userId}), '0:0')
+    </select>
+    <update id="advanceReadVersion">
+        UPDATE notification_inbox_counter SET read_version = read_version + 1 WHERE user_id = #{userId}
+    </update>
+    <select id="selectHistoricalStartOccurrence" resultType="long">
+        SELECT n.id FROM notification n
+        WHERE n.user_id = #{userId} AND n.type = 8 AND n.target_type = #{targetType} AND n.target_id = #{targetId}
+          AND n.source_key LIKE 'plan:%'
+          AND JSON_UNQUOTE(JSON_EXTRACT(n.content_payload, '$.startTime')) = #{anchor}
+        ORDER BY n.id LIMIT 1
+    </select>
+    <select id="selectInboxSequence" resultType="long">
+        SELECT inbox_seq FROM notification WHERE id = #{id} AND user_id = #{userId} FOR UPDATE
+    </select>
+    <update id="assignInboxSequence">
+        UPDATE notification SET inbox_seq = #{sequence}
+        WHERE id = #{id} AND user_id = #{userId} AND inbox_seq IS NULL
+    </update>
+    <update id="advanceInboxHead">
+        UPDATE notification_inbox_counter SET head_seq = #{next}
+        WHERE user_id = #{userId} AND head_seq = #{previous}
+    </update>
+    <sql id="rowColumns">
+        n.id, n.user_id, n.type, n.title, n.content, n.content_schema_version, n.content_payload,
+        n.target_type, n.target_id, n.sender_id, n.source_key, n.inbox_generation,
+        n.read_at, n.inbox_seq, (n.read_at IS NOT NULL) AS is_read, n.created_at
+    </sql>
+    <select id="selectOwned" resultType="cn.jualn.miniapp.module.notify.entity.Notification">
+        SELECT <include refid="rowColumns"/> FROM notification n WHERE n.id = #{id} AND n.user_id = #{userId}
+    </select>
+    <select id="lockOwnedIds" resultType="long">
+        SELECT id FROM notification WHERE user_id = #{userId} AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY id FOR UPDATE
+    </select>
+    <update id="markOwnedRead">
+        UPDATE notification SET read_at = CURRENT_TIMESTAMP(6), is_read = 1
+        WHERE user_id = #{userId} AND read_at IS NULL AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </update>
+    <update id="markReadThrough">
+        UPDATE notification SET read_at = CURRENT_TIMESTAMP(6), is_read = 1
+        WHERE user_id = #{userId} AND inbox_seq &lt;= #{boundary} AND read_at IS NULL
+    </update>
+    <select id="selectStructuredInbox" resultType="cn.jualn.miniapp.module.notify.entity.Notification">
+        SELECT <include refid="rowColumns"/> FROM notification n
+        WHERE <include refid="canonicalVisibility"/> AND n.inbox_seq &lt;= #{head}
+        <if test="before != null">AND n.inbox_seq &lt; #{before}</if>
+        <if test="typeCodes != null and !typeCodes.isEmpty()">
+            AND n.type IN <foreach collection="typeCodes" item="type" open="(" separator="," close=")">#{type}</foreach>
+        </if>
+        <if test="systemCategory">AND n.type NOT IN (1,2,3,4,5,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22)</if>
+        <if test="isRead != null">
+            AND n.read_at IS <choose><when test="isRead">NOT NULL</when><otherwise>NULL</otherwise></choose>
+        </if>
+        ORDER BY n.inbox_seq DESC LIMIT #{limit}
+    </select>
+    <select id="countUnreadThrough" resultType="long">
+        SELECT COUNT(*) FROM notification WHERE user_id = #{userId} AND read_at IS NULL AND inbox_seq &lt;= #{head}
+    </select>
+    <select id="countNewThrough" resultType="long">
+        SELECT COUNT(*) FROM notification WHERE user_id = #{userId} AND inbox_seq &gt; #{after} AND inbox_seq &lt;= #{head}
+    </select>
+    <select id="selectLatestThrough" resultType="cn.jualn.miniapp.module.notify.entity.Notification">
+        SELECT n.id, n.type, n.title, n.content, n.content_payload, n.target_type, n.target_id, n.created_at
+        FROM notification n WHERE n.user_id = #{userId} AND n.inbox_seq &gt; #{after} AND n.inbox_seq &lt;= #{head}
+        ORDER BY n.inbox_seq DESC LIMIT 1
+    </select>
+</mapper>

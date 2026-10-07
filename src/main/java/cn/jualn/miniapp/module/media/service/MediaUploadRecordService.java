@@ -30,6 +30,18 @@ public class MediaUploadRecordService {
     private final MediaUploadRecordMapper recordMapper;
     private final CosService cosService;
 
+    /** Preflight only; the short commit transaction repeats eligibility when binding. */
+    public void assertPendingProfileUpload(Long userId, String objectKey) {
+        if (!recordMapper.exists(new LambdaQueryWrapper<MediaUploadRecord>()
+                .eq(MediaUploadRecord::getObjectKey, objectKey)
+                .eq(MediaUploadRecord::getUserId, userId)
+                .eq(MediaUploadRecord::getTargetType, TargetType.USER.getCode())
+                .eq(MediaUploadRecord::getStatus, PENDING)
+                .gt(MediaUploadRecord::getCleanupAfter, LocalDateTime.now()))) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "上传引用不可用");
+        }
+    }
+
     public void recordPending(
             Long userId,
             TargetType targetType,

@@ -23,6 +23,25 @@ import java.util.List;
  */
 @Mapper(componentModel = "spring", uses = {TimelineConverter.class, MediaConverter.class, cn.jualn.miniapp.common.mapper.EnumConverter.class})
 public interface ExamConverter {
+    @BeanMapping(ignoreByDefault = true)
+    @Mapping(target="title", source="title")
+    @Mapping(target="summary", source="summary")
+    @Mapping(target="eventType", source="eventType")
+    @Mapping(target="sourceName", source="sourceName")
+    @Mapping(target="sourceUrl", source="sourceUrl")
+    @Mapping(target="officialUrl", source="officialUrl")
+    @Mapping(target="coverAttachmentId", source="coverAttachmentId")
+    @Mapping(target="contactsJson", source="contactsJson")
+    ExamInfo toOperationsEntity(AdminPublicEventSaveBO command);
+
+    cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO toEventSectionBO(cn.jualn.miniapp.module.exam.dto.request.EventSectionRequest request);
+    cn.jualn.miniapp.module.exam.vo.EventSectionVO toEventSectionVO(cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO bo);
+    java.util.List<cn.jualn.miniapp.module.exam.vo.EventSectionVO> toEventSectionVOs(java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO> bo);
+
+    cn.jualn.miniapp.module.eventcontent.bo.EventActionBO toEventActionBO(cn.jualn.miniapp.module.exam.dto.request.EventActionRequest request);
+    cn.jualn.miniapp.module.exam.vo.EventActionVO toEventActionVO(cn.jualn.miniapp.module.eventcontent.bo.EventActionBO bo);
+    java.util.List<cn.jualn.miniapp.module.exam.vo.EventActionVO> toEventActionVOs(java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventActionBO> bo);
+
 
     List<ExamSimpleVO> toSimpleVOList(List<ExamSimpleBO> simpleBOs);
 
@@ -36,13 +55,14 @@ public interface ExamConverter {
 
     @Mapping(target = "attachmentItems", ignore = true)
     @Mapping(target = "timelineItems", ignore = true)
+    @Mapping(target = "cardTimeline", ignore = true)
     List<ExamDetailBO> toDetailList(List<ExamInfo> list);
 
+    @Mapping(target="coverAttachmentId", ignore=true)
+    @Mapping(target="cancelledAt", ignore=true)
+    @Mapping(target="cancelReason", ignore=true)
     @Mapping(target = "userId", ignore = true)
-    @Mapping(target = "status", ignore = true)
-    @Mapping(target = "auditStatus", ignore = true)
-    @Mapping(target = "rejectReason", ignore = true)
-    @Mapping(target = "isPinned", ignore = true)
+    @Mapping(target = "publishStatus", ignore = true)
     @Mapping(target = "commentCount", ignore = true)
     @Mapping(target = "likeCount", ignore = true)
     @Mapping(target = "viewCount", ignore = true)
@@ -54,11 +74,11 @@ public interface ExamConverter {
     void updateEntityFromUpdateBO(@MappingTarget ExamInfo entity, ExamUpdateBO updateBO);
 
     @Mapping(target = "id", ignore = true)
+    @Mapping(target="coverAttachmentId", ignore=true)
+    @Mapping(target="cancelledAt", ignore=true)
+    @Mapping(target="cancelReason", ignore=true)
     @Mapping(target = "userId", ignore = true)
-    @Mapping(target = "status", ignore = true)
-    @Mapping(target = "auditStatus", ignore = true)
-    @Mapping(target = "rejectReason", ignore = true)
-    @Mapping(target = "isPinned", ignore = true)
+    @Mapping(target = "publishStatus", ignore = true)
     @Mapping(target = "commentCount", ignore = true)
     @Mapping(target = "likeCount", ignore = true)
     @Mapping(target = "viewCount", ignore = true)
@@ -68,13 +88,17 @@ public interface ExamConverter {
     @Mapping(target = "deletedAt", ignore = true)
     ExamInfo toEntity(ExamCreateBO request);
 
+    @Mapping(target="liked", ignore=true)
+    @Mapping(target="subscribed", ignore=true)
     @Mapping(target = "author", ignore = true)
     @Mapping(target = "attachmentItems", ignore = true)
     @Mapping(target = "timelineItems", ignore = true)
+    @Mapping(target = "sections", ignore = true)
+    @Mapping(target = "actions", ignore = true)
+    @Mapping(target = "contacts", ignore = true)
+    @Mapping(target = "cardTimeline", ignore = true)
     ExamDetailBO toDetailBO(ExamInfo examInfo);
 
-    @Mapping(target = "liked", ignore = true)
-    @Mapping(target = "subscribed", ignore = true)
     ExamDetailVO toDetailVO(ExamDetailBO examDetailBO);
 
     ExamVO toVO(ExamDetailBO examDetailBO);

@@ -8,10 +8,9 @@ import lombok.Data;
 public class AdminActivityQueryBO {
 
     private String keyword;
-    private Integer status;
-    private Integer category;
-    private Integer audienceMask;
+    private Integer publishStatus;
+    private Integer lifecycleStatus;
     private String sort;
-    private String cursor;
+    private Integer page;
     private Integer pageSize;
 }

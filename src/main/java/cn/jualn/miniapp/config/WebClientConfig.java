@@ -3,12 +3,15 @@ package cn.jualn.miniapp.config;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
+import cn.jualn.miniapp.module.documentimport.DocumentImportProperties;
 import io.netty.channel.ChannelOption;
 import io.netty.handler.timeout.ReadTimeoutHandler;
 import io.netty.handler.timeout.WriteTimeoutHandler;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
@@ -21,6 +24,7 @@ import reactor.netty.http.client.HttpClient;
 import java.net.URI;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import javax.xml.stream.XMLInputFactory;
 
 
 /**
@@ -34,15 +38,24 @@ import java.util.concurrent.TimeUnit;
 public class WebClientConfig {
 
     @Bean
-    public WebClient webClient(ObjectMapper objectMapper) {
+    @Primary
+    public WebClient webClient(@Qualifier("objectMapper") ObjectMapper objectMapper) {
+        return build(objectMapper, Duration.ofSeconds(10));
+    }
+
+    @Bean("aiWebClient")
+    public WebClient aiWebClient(@Qualifier("objectMapper") ObjectMapper objectMapper,
+                                 DocumentImportProperties properties) {
+        return build(objectMapper, properties.getAiReadIdleTimeout());
+    }
+
+    private WebClient build(ObjectMapper objectMapper, Duration readIdleTimeout) {
         HttpClient httpClient = HttpClient.create()
-                // 连接超时：5秒
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5_000)
-                // 响应超时：10秒
-                .responseTimeout(Duration.ofSeconds(10))
+                .responseTimeout(readIdleTimeout)
                 .doOnConnected(conn -> conn
-                        .addHandlerLast(new ReadTimeoutHandler(10, TimeUnit.SECONDS))
-                        .addHandlerLast(new WriteTimeoutHandler(10, TimeUnit.SECONDS))
+                        .addHandlerLast(new ReadTimeoutHandler(readIdleTimeout.toMillis(), TimeUnit.MILLISECONDS))
+                        .addHandlerLast(new WriteTimeoutHandler(readIdleTimeout.toMillis(), TimeUnit.MILLISECONDS))
                 );
         MediaType customJson = MediaType.parseMediaType("application/json;encoding=utf-8");
         return WebClient.builder()
@@ -70,6 +83,9 @@ public class WebClientConfig {
     @Bean
     public XmlMapper xmlMapper() {
         XmlMapper xmlMapper = new XmlMapper();
+        XMLInputFactory inputFactory = xmlMapper.getFactory().getXMLInputFactory();
+        inputFactory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+        inputFactory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
         // 未知字段不报错，微信 XML 字段可能随版本增加
         xmlMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         return xmlMapper;
@@ -77,18 +93,11 @@ public class WebClientConfig {
 
     private ExchangeFilterFunction logFilter() {
         return (request, next) -> {
-            long startTime = System.currentTimeMillis();
             String safeUrl = sanitizeUrl(request.url());
             log.debug("[WebClient] 请求: {} {}", request.method(), safeUrl);
 
             return next.exchange(request)
-                    .doOnNext(response -> log.debug("[WebClient] 响应: {}", response.statusCode()))
-                    .doOnError(throwable -> log.error("[WebClient] 请求异常: {}", throwable.getMessage()))
-                    .doFinally(signalType -> {
-                        long duration = System.currentTimeMillis() - startTime;
-                        log.info("[WebClient] 请求结束 [{} {}], 耗时: {} ms, 信号类型: {}",
-                                request.method(), safeUrl, duration, signalType);
-                    });
+                    .doOnNext(response -> log.debug("[WebClient] 响应: {}", response.statusCode()));
         };
     }
 

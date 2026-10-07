@@ -2,7 +2,8 @@ package cn.jualn.miniapp.module.wx.constant;
 
 public final class WxNoticeKeys {
 
-    private WxNoticeKeys() {}
+    private WxNoticeKeys() {
+    }
 
     public static final String TITLE = "title";
     public static final String CONTENT = "content";

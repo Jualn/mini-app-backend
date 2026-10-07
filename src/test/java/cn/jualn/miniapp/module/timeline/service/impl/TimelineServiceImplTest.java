@@ -34,36 +34,34 @@ class TimelineServiceImplTest {
     private TargetValidator targetValidator;
 
     @Test
-    void replaceTimelines_shouldDeleteAndInsertConvertedList() {
+    void replaceTimelines_shouldInsertNewNodesWithoutDeletingOtherTargets() {
         TimelineServiceImpl service = new TimelineServiceImpl(timelineMapper, timelineConverter, targetValidator);
         TimelineSaveBO saveBO = TimelineSaveBO.builder()
                 .targetType(TargetType.ACTIVITY)
                 .targetId(11L)
                 .timelines(List.of(TimelineItemBO.builder().label("L1").sortOrder(1).build()))
                 .build();
-        when(timelineConverter.toTimelineList(saveBO)).thenReturn(List.of(Timeline.builder().id(1L).build()));
+        when(timelineConverter.toTimelineList(saveBO)).thenReturn(List.of(Timeline.builder().label("L1").sortOrder(1).build()));
 
+        when(timelineMapper.insert(any(Timeline.class))).thenReturn(1);
         service.replaceTimelines(saveBO);
 
         verify(targetValidator).assertExists(TargetType.ACTIVITY, 11L);
-        verify(timelineMapper).delete(any());
-        verify(timelineMapper).insert(List.of(Timeline.builder().id(1L).build()));
+        verify(timelineMapper, org.mockito.Mockito.never()).delete(any());
+        verify(timelineMapper).insert(any(Timeline.class));
     }
 
     @Test
-    void updateTimeline_shouldThrowWhenUpdateFails() {
+    void updateTimeline_shouldRequireOwningAggregate() {
         TimelineServiceImpl service = new TimelineServiceImpl(timelineMapper, timelineConverter, targetValidator);
         TimelineUpdateBO updateBO = TimelineUpdateBO.builder().id(1L).label("x").build();
-        when(timelineConverter.toEntity(updateBO)).thenReturn(Timeline.builder().id(1L).build());
-        when(timelineMapper.updateById(any(Timeline.class))).thenReturn(0);
 
         assertThrows(BusinessException.class, () -> service.updateTimeline(updateBO));
     }
 
     @Test
-    void deleteTimeline_shouldThrowWhenNothingDeleted() {
+    void deleteTimeline_shouldRequireOwningAggregate() {
         TimelineServiceImpl service = new TimelineServiceImpl(timelineMapper, timelineConverter, targetValidator);
-        when(timelineMapper.deleteById(1L)).thenReturn(0);
 
         assertThrows(BusinessException.class, () -> service.deleteTimeline(1L));
     }

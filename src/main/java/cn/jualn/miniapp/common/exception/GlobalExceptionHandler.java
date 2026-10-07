@@ -3,245 +3,319 @@ package cn.jualn.miniapp.common.exception;
 import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.exception.NotRoleException;
-import cn.jualn.miniapp.common.result.Result;
 import cn.jualn.miniapp.common.result.ResultCode;
-import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
+import org.springframework.core.MethodParameter;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.ObjectError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.reactive.function.client.WebClientException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
+import java.net.URI;
+import java.util.List;
 import java.util.Objects;
 
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    @ExceptionHandler(cn.jualn.miniapp.infrastructure.cache.AdminQrLoginStore.RateLimited.class)
+    public ResponseEntity<ProblemDetail> handleQrRate(cn.jualn.miniapp.infrastructure.cache.AdminQrLoginStore.RateLimited exception) {
+        ResponseEntity<ProblemDetail> response = problem(HttpStatus.TOO_MANY_REQUESTS, "/problems/rate-limited",
+                "Rate limited", "Please wait before retrying");
+        return ResponseEntity.status(response.getStatusCode()).headers(response.getHeaders())
+                .header("Retry-After", Long.toString(exception.retryAfter())).body(response.getBody());
+    }
+    @ExceptionHandler(ContractProblemException.class)
+    public ResponseEntity<ProblemDetail> handleContractProblem(ContractProblemException exception) {
+        ResponseEntity<ProblemDetail> response = problem(exception.getStatus(), exception.getType(),
+                exception.getStatus().getReasonPhrase(), exception.getMessage());
+        if (!exception.getErrors().isEmpty()) response.getBody().setProperty("errors", exception.getErrors());
+        if ("/problems/notification-preferences-unavailable".equals(exception.getType())) {
+            return ResponseEntity.status(response.getStatusCode())
+                    .headers(response.getHeaders())
+                    .header(org.springframework.http.HttpHeaders.CACHE_CONTROL, "no-store")
+                    .body(response.getBody());
+        }
+        return response;
+    }
 
-    // ========== 参数校验类 ==========  -->  400
-
-    // @Valid @Validated 校验失败（RequestBody）
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Result<?>> handleValidation(MethodArgumentNotValidException e) {
-        String msg = firstBindingMessage(e);
-        log.warn("参数校验失败: {}", msg);
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Result.fail(ResultCode.BAD_REQUEST, msg));
+    public ResponseEntity<ProblemDetail> handleValidation(MethodArgumentNotValidException exception) {
+        List<ValidationProblem> errors = bindingErrors("body", exception);
+        return validationProblem(errors);
     }
 
-    // @Valid 校验失败（Query/Form 参数对象）
     @ExceptionHandler(BindException.class)
-    public ResponseEntity<Result<?>> handleBind(BindException e) {
-        String msg = firstBindingMessage(e);
-        log.warn("参数绑定校验失败: {}", msg);
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Result.fail(ResultCode.BAD_REQUEST, msg));
+    public ResponseEntity<ProblemDetail> handleBind(BindException exception) {
+        List<ValidationProblem> errors = bindingErrors("query", exception);
+        return validationProblem(errors);
     }
 
-    // @Validated 校验失败（RequestParam / PathVariable）
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ProblemDetail> handleMethodValidation(HandlerMethodValidationException exception) {
+        List<ValidationProblem> errors = exception.getParameterValidationResults().stream()
+                .flatMap(result -> result.getResolvableErrors().stream().map(error -> new ValidationProblem(
+                        parameterLocation(result.getMethodParameter()),
+                        Objects.requireNonNullElse(result.getMethodParameter().getParameterName(), "parameter"),
+                        validationCode(firstCode(error.getCodes())),
+                        Objects.requireNonNullElse(error.getDefaultMessage(), "参数错误"))))
+                .toList();
+        return validationProblem(errors);
+    }
+
     @ExceptionHandler(ConstraintViolationException.class)
-    public ResponseEntity<Result<?>> handleConstraintViolation(ConstraintViolationException e) {
-        String msg = e.getConstraintViolations().stream()
-                .map(ConstraintViolation::getMessage)
-                .findFirst()
-                .orElse("参数错误");
-        log.warn("约束校验失败: {}", msg);
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Result.fail(ResultCode.BAD_REQUEST, msg));
+    public ResponseEntity<ProblemDetail> handleConstraintViolation(ConstraintViolationException exception) {
+        List<ValidationProblem> errors = exception.getConstraintViolations().stream()
+                .map(violation -> new ValidationProblem(
+                        "query",
+                        violation.getPropertyPath().toString(),
+                        validationCode(violation.getConstraintDescriptor().getAnnotation().annotationType().getSimpleName()),
+                        violation.getMessage()))
+                .toList();
+        return validationProblem(errors);
     }
 
-    // 参数绑定失败（类型不匹配，如传了字母给 Integer）
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<Result<?>> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
-        log.warn("参数类型错误: {} 期望类型 {}", e.getName(), e.getRequiredType());
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Result.fail(ResultCode.BAD_REQUEST, "参数类型错误：" + e.getName()));
+    public ResponseEntity<ProblemDetail> handleTypeMismatch(MethodArgumentTypeMismatchException exception) {
+        return validationProblem(List.of(new ValidationProblem(
+                "query", exception.getName(), "TYPE_MISMATCH", "参数类型错误")));
     }
 
-    // 必传参数缺失（@RequestParam 没传）
     @ExceptionHandler(MissingServletRequestParameterException.class)
-    public ResponseEntity<Result<?>> handleMissingParam(MissingServletRequestParameterException e) {
-        log.warn("缺少必要参数: {}", e.getParameterName());
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Result.fail(ResultCode.BAD_REQUEST, "缺少必要参数：" + e.getParameterName()));
+    public ResponseEntity<ProblemDetail> handleMissingParam(MissingServletRequestParameterException exception) {
+        return validationProblem(List.of(new ValidationProblem(
+                "query", exception.getParameterName(), "REQUIRED", "缺少必要参数")));
     }
 
-    // 请求体解析失败（JSON 格式错误）
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<Result<?>> handleNotReadable(HttpMessageNotReadableException e) {
-        log.warn("请求体解析失败: {}", e.getMessage());
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Result.fail(ResultCode.BAD_REQUEST, "请求体格式错误"));
+    public ResponseEntity<ProblemDetail> handleNotReadable(HttpMessageNotReadableException exception) {
+        return validationProblem(List.of(new ValidationProblem(
+                "body", "/", "MALFORMED", "请求体格式错误")));
     }
 
-    // 文件上传超过 multipart 限制
     @ExceptionHandler(MaxUploadSizeExceededException.class)
-    public ResponseEntity<Result<?>> handleMaxUploadSize(MaxUploadSizeExceededException e) {
-        log.warn("文件大小超限: {}", e.getMessage());
-        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
-                .body(Result.fail(HttpStatus.PAYLOAD_TOO_LARGE.value(), "文件大小超限"));
+    public ResponseEntity<ProblemDetail> handleMaxUploadSize(
+            MaxUploadSizeExceededException exception, HttpServletRequest request) {
+        if ("/v1/admin/document-imports".equals(request.getRequestURI())) {
+            return problem(HttpStatus.PAYLOAD_TOO_LARGE, "/problems/document-import-too-large",
+                    "Payload too large", "导入文件或 multipart 请求大小超限");
+        }
+        return problem(HttpStatus.PAYLOAD_TOO_LARGE, "/problems/payload-too-large",
+                "Payload too large", "文件大小超限");
     }
 
-    // ========== SaToken 认证类 ==========
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ProblemDetail> handleMissingPart(MissingServletRequestPartException exception) {
+        return validationProblem(List.of(new ValidationProblem(
+                "body", exception.getRequestPartName(), "REQUIRED", "缺少必要字段")));
+    }
 
-    // 未登录
     @ExceptionHandler(NotLoginException.class)
-    public ResponseEntity<Result<?>> handleNotLogin(NotLoginException e) {
-        log.warn("未登录访问: {}", e.getMessage());
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(Result.fail(ResultCode.UNAUTHORIZED, "未登录，请先登录"));
+    public ResponseEntity<ProblemDetail> handleNotLogin(NotLoginException exception) {
+        return problem(HttpStatus.UNAUTHORIZED, "/problems/unauthorized",
+                "Authentication required", "缺少有效的用户身份凭证");
     }
 
-    // 无权限
     @ExceptionHandler(NotPermissionException.class)
-    public ResponseEntity<Result<?>> handleNotPermission(NotPermissionException e) {
-        log.warn("无权限访问: {}", e.getMessage());
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(Result.fail(ResultCode.FORBIDDEN, "无权限访问"));
+    public ResponseEntity<ProblemDetail> handleNotPermission(NotPermissionException exception) {
+        return forbidden("无权限访问");
     }
 
-    // 角色不足
     @ExceptionHandler(NotRoleException.class)
-    public ResponseEntity<Result<?>> handleNotRole(NotRoleException e) {
-        log.warn("角色权限不足: {}", e.getMessage());
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(Result.fail(ResultCode.FORBIDDEN, "角色权限不足"));
+    public ResponseEntity<ProblemDetail> handleNotRole(NotRoleException exception) {
+        return forbidden("角色权限不足");
     }
 
-    // ========== 请求方式类 ==========
-
-    // 请求方法不支持（POST 接口用 GET 请求）
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<Result<?>> handleMethodNotSupported(HttpRequestMethodNotSupportedException e) {
-        log.warn("请求方式不支持: {}", e.getMethod());
-        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
-                .body(Result.fail(ResultCode.METHOD_NOT_ALLOWED, "不支持 " + e.getMethod() + " 请求"));
+    public ResponseEntity<ProblemDetail> handleMethodNotSupported(HttpRequestMethodNotSupportedException exception) {
+        return problem(HttpStatus.METHOD_NOT_ALLOWED, "/problems/method-not-allowed",
+                "Method not allowed", "当前资源不支持该请求方法");
     }
 
-    // 媒体类型不支持（接口要 JSON，传了 form-data）
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
-    public ResponseEntity<Result<?>> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException e) {
-        log.warn("媒体类型不支持: {}", e.getContentType());
-        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
-                .body(Result.fail(ResultCode.UNSUPPORTED_MEDIA_TYPE, "不支持的媒体类型"));
+    public ResponseEntity<ProblemDetail> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException exception) {
+        return problem(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "/problems/unsupported-media-type",
+                "Unsupported media type", "不支持的媒体类型");
     }
 
-    // ========== 业务异常类 ==========
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<ProblemDetail> handleMediaTypeNotAcceptable(
+            HttpMediaTypeNotAcceptableException exception) {
+        return problem(HttpStatus.NOT_ACCEPTABLE, "about:blank",
+                "Not acceptable", "请求的响应媒体类型不可用");
+    }
 
-    // 1. 业务异常：HTTP 协议码对齐状态；领域业务码保持 200 + 业务 code
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<Result<?>> handleBusiness(BusinessException e) {
-        log.warn("业务异常: code={}, msg={}", e.getCode(), e.getMessage());
-        return ResponseEntity.status(resolveBusinessStatus(e.getCode()))
-                .body(Result.fail(e.getCode(), e.getMessage()));
+    public ResponseEntity<ProblemDetail> handleBusiness(BusinessException exception) {
+        ResultCode resultCode = exception.getResultCode();
+        ApiProblemCatalog.Definition definition = ApiProblemCatalog.forResultCode(resultCode);
+        return problem(definition.status(), definition.type(), definition.title(), exception.getMessage());
     }
 
-    // 2. 系统异常 → HTTP 500，msg 对外固定，细节只打日志
     @ExceptionHandler(SystemException.class)
-    public ResponseEntity<Result<?>> handleSystem(SystemException e) {
-        log.error("系统异常: {}", e.getMessage(), e);   // 内部细节只在日志里
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(Result.fail(ResultCode.SERVER_ERROR));
+    public ResponseEntity<ProblemDetail> handleSystem(SystemException exception) {
+        log.error("result=failure errorCategory=internal exceptionType={}",
+                exception.getClass().getSimpleName(), exception);
+        return internalError();
     }
 
-    // 3. 外部服务异常 → HTTP 502，对外不透传供应商细节
     @ExceptionHandler(ExternalServiceException.class)
-    public ResponseEntity<Result<?>> handleExternalService(ExternalServiceException e) {
-        log.error("外部服务异常: provider={}, code={}, msg={}",
-                e.getProvider(), e.getCode(), e.getMessage(), e);
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                .body(Result.fail(e.getCode(), e.getClientMessage()));
+    public ResponseEntity<ProblemDetail> handleExternalService(ExternalServiceException exception) {
+        ApiProblemCatalog.Definition definition = ApiProblemCatalog.forResultCode(exception.getResultCode());
+        log.error("result=failure errorCategory=remote provider={} code={} exceptionType={}",
+                exception.getProvider(), exception.getCode(), exception.getClass().getSimpleName());
+        return problem(definition.status(), definition.type(),
+                definition.title(), exception.getClientMessage());
     }
 
-    // WebClient 网络/协议异常兜底，避免第三方调用失败落到未知 500
     @ExceptionHandler(WebClientException.class)
-    public ResponseEntity<Result<?>> handleWebClient(WebClientException e) {
-        log.error("外部 HTTP 调用异常: {}", e.getMessage(), e);
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                .body(Result.fail(ResultCode.EXTERNAL_SERVICE_ERROR));
+    public ResponseEntity<ProblemDetail> handleWebClient(WebClientException exception) {
+        log.error("result=failure errorCategory=remote exceptionType={}",
+                exception.getClass().getSimpleName());
+        return problem(HttpStatus.BAD_GATEWAY, "/problems/external-service-error",
+                "External service unavailable", "外部服务暂不可用，请稍后再试");
     }
 
-    // 4. 静态资源不存在 / 无效路径 -> 404 例如 /wp-admin/install.php、/.well-known/ucp
-    @ExceptionHandler(NoResourceFoundException.class)
-    public ResponseEntity<Result<?>> handleNoResourceFound(NoResourceFoundException e) {
-        // 公网扫描请求很多，不能打 error 堆栈
-        log.debug("资源不存在: {}", e.getResourcePath());
-
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(Result.fail(ResultCode.NOT_FOUND));
+    @ExceptionHandler({NoResourceFoundException.class, org.springframework.web.servlet.NoHandlerFoundException.class})
+    public ResponseEntity<ProblemDetail> handleNoResourceFound(Exception exception) {
+        return problem(HttpStatus.NOT_FOUND, "/problems/resource-not-found",
+                "Resource not found", "资源不存在");
     }
 
-    // 5. 数据唯一约束、外键约束等冲突
     @ExceptionHandler(DataIntegrityViolationException.class)
-    public ResponseEntity<Result<?>> handleDataIntegrity(DataIntegrityViolationException e) {
-        log.warn("数据约束冲突: {}", e.getMostSpecificCause().getMessage());
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(Result.fail(ResultCode.DATA_CONFLICT));
+    public ResponseEntity<ProblemDetail> handleDataIntegrity(DataIntegrityViolationException exception) {
+        return problem(HttpStatus.CONFLICT, "/problems/data-conflict",
+                "Data conflict", "数据状态冲突");
     }
 
-    // 6. 兜底 Exception → 同样 500，但要完整打堆栈
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Result<?>> handleException(Exception e) {
-        log.error("未知异常", e); // ⚠️ 注意：这里要打完整堆栈，不能只打 message
-        return ResponseEntity
-                .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(Result.fail(ResultCode.SERVER_ERROR));
+    public ResponseEntity<ProblemDetail> handleException(Exception exception) {
+        log.error("result=failure errorCategory=internal exceptionType={}",
+                exception.getClass().getSimpleName(), exception);
+        return internalError();
     }
 
-    private String firstBindingMessage(BindException e) {
-        return e.getBindingResult().getAllErrors().stream()
-                .map(this::resolveErrorMessage)
-                .filter(Objects::nonNull)
-                .findFirst()
-                .orElse("参数错误");
+    private ResponseEntity<ProblemDetail> validationProblem(List<ValidationProblem> errors) {
+        ProblemDetail body = createProblem(HttpStatus.BAD_REQUEST, "/problems/validation-error",
+                "Request validation failed", firstDetail(errors));
+        body.setProperty("errors", errors);
+        return response(body, HttpStatus.BAD_REQUEST);
     }
 
-    private String resolveErrorMessage(ObjectError error) {
-        if (error instanceof FieldError fieldError) {
-            return fieldError.getDefaultMessage();
-        }
-        return error.getDefaultMessage();
+    private ResponseEntity<ProblemDetail> forbidden(String detail) {
+        return problem(HttpStatus.FORBIDDEN, "/problems/forbidden", "Access forbidden", detail);
     }
 
-    private HttpStatus resolveBusinessStatus(Integer code) {
-        if (code == null) {
-            return HttpStatus.OK;
+    private ResponseEntity<ProblemDetail> internalError() {
+        return problem(HttpStatus.INTERNAL_SERVER_ERROR, "/problems/internal-error",
+                "Internal server error", "服务器内部错误");
+    }
+
+    private ResponseEntity<ProblemDetail> problem(
+            HttpStatus status, String type, String title, String detail) {
+        return response(createProblem(status, type, title, detail), status);
+    }
+
+    private ProblemDetail createProblem(HttpStatus status, String type, String title, String detail) {
+        ProblemDetail body = ProblemDetail.forStatusAndDetail(status, detail);
+        body.setType(URI.create(type));
+        body.setTitle(title);
+        String traceId = MDC.get("traceId");
+        if (traceId != null) {
+            body.setProperty("traceId", traceId);
         }
-        if (code == ResultCode.BAD_REQUEST.getCode()) {
-            return HttpStatus.BAD_REQUEST;
+        return body;
+    }
+
+    private ResponseEntity<ProblemDetail> response(ProblemDetail body, HttpStatus status) {
+        return ResponseEntity.status(status)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(body);
+    }
+
+    private List<ValidationProblem> bindingErrors(String location, BindException exception) {
+        return exception.getBindingResult().getAllErrors().stream()
+                .map(error -> toValidationProblem(location, error))
+                .toList();
+    }
+
+    private ValidationProblem toValidationProblem(String location, ObjectError error) {
+        String pointer = error instanceof FieldError fieldError
+                ? fieldPointer(location, fieldError.getField())
+                : "/";
+        return new ValidationProblem(
+                location,
+                pointer,
+                validationCode(error.getCode()),
+                Objects.requireNonNullElse(error.getDefaultMessage(), "参数错误"));
+    }
+
+    private String fieldPointer(String location, String field) {
+        if (!"body".equals(location)) {
+            return field;
         }
-        if (code == ResultCode.UNAUTHORIZED.getCode()) {
-            return HttpStatus.UNAUTHORIZED;
+        return "/" + field.replace("~", "~0").replace("/", "~1").replace('.', '/');
+    }
+
+    private String parameterLocation(MethodParameter parameter) {
+        if (parameter.hasParameterAnnotation(PathVariable.class)) {
+            return "path";
         }
-        if (code == ResultCode.FORBIDDEN.getCode()) {
-            return HttpStatus.FORBIDDEN;
+        if (parameter.hasParameterAnnotation(RequestHeader.class)) {
+            return "header";
         }
-        if (code == ResultCode.NOT_FOUND.getCode()) {
-            return HttpStatus.NOT_FOUND;
+        if (parameter.hasParameterAnnotation(RequestParam.class)) {
+            return "query";
         }
-        if (code == ResultCode.SERVER_ERROR.getCode()) {
-            return HttpStatus.INTERNAL_SERVER_ERROR;
+        return "request";
+    }
+
+    private String validationCode(String code) {
+        if (code == null || code.isBlank()) {
+            return "INVALID";
         }
-        if (code == ResultCode.TOO_MANY_REQUESTS.getCode()) {
-            return HttpStatus.TOO_MANY_REQUESTS;
-        }
-        if (code == ResultCode.DATA_CONFLICT.getCode()) {
-            return HttpStatus.CONFLICT;
-        }
-        return HttpStatus.OK;
+        return switch (code) {
+            case "NotNull", "NotBlank", "NotEmpty" -> "REQUIRED";
+            case "Size" -> "SIZE";
+            case "Min", "DecimalMin", "Positive", "PositiveOrZero" -> "MINIMUM";
+            case "Max", "DecimalMax", "Negative", "NegativeOrZero" -> "MAXIMUM";
+            case "Pattern", "Email" -> "FORMAT";
+            default -> "INVALID";
+        };
+    }
+
+    private String firstCode(String[] codes) {
+        return codes == null || codes.length == 0 ? null : codes[0];
+    }
+
+    private String firstDetail(List<ValidationProblem> errors) {
+        return errors.isEmpty() ? "请求参数错误" : errors.get(0).detail();
+    }
+
+    public record ValidationProblem(String in, String pointer, String code, String detail) {
     }
 }

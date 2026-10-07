@@ -2,21 +2,16 @@ package cn.jualn.miniapp.module.user.audit;
 
 import cn.jualn.miniapp.common.enums.AuditScene;
 import cn.jualn.miniapp.common.enums.MediaType;
-import cn.jualn.miniapp.infrastructure.queue.contract.QueueProducer;
 import cn.jualn.miniapp.module.audit.bo.AuditReserveBO;
 import cn.jualn.miniapp.module.audit.bo.AuditReserveResultBO;
-import cn.jualn.miniapp.module.audit.payload.AuditMediaBatchPayload;
-import cn.jualn.miniapp.module.audit.payload.AuditTextPayload;
 import cn.jualn.miniapp.module.audit.service.AuditReservationService;
 import cn.jualn.miniapp.module.user.bo.UserProfileUpdateBO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
-import java.util.Objects;
 
 /**
  * 用户资料审核提交器。
@@ -32,7 +27,6 @@ public class UserProfileAuditSubmitter {
     private static final Integer MEDIA_TYPE_IMAGE_CODE = 2;
 
     private final AuditReservationService auditReservationService;
-    private final QueueProducer queueProducer;
 
     public void submit(Long userId, UserProfileUpdateBO bo) {
         if (userId == null || bo == null) {
@@ -50,7 +44,7 @@ public class UserProfileAuditSubmitter {
             return;
         }
 
-        AuditReserveResultBO reserveResult = auditReservationService.reserveAuditLogs(
+        auditReservationService.reserveAuditLogs(
                 AuditReserveBO.builder()
                         .auditScene(auditScene)
                         .targetId(userId)
@@ -58,20 +52,6 @@ public class UserProfileAuditSubmitter {
                         .build()
         );
 
-        if (reserveResult == null || reserveResult.getTextAuditLogId() == null) {
-            return;
-        }
-
-        queueProducer.send(AuditTextPayload.builder()
-                .auditLogId(reserveResult.getTextAuditLogId())
-                .auditScene(auditScene)
-                .targetId(userId)
-                .content(content)
-                .scene(WX_SCENE_PROFILE)
-                .build());
-
-        log.info("[UserProfileAuditSubmitter] 用户资料文本审核已投递，userId={}, auditScene={}",
-                userId, auditScene);
     }
 
     private void submitMedia(Long userId, AuditScene auditScene, String mediaUrl) {
@@ -79,7 +59,7 @@ public class UserProfileAuditSubmitter {
             return;
         }
 
-        AuditReserveResultBO reserveResult = auditReservationService.reserveAuditLogs(
+        auditReservationService.reserveAuditLogs(
                 AuditReserveBO.builder()
                         .auditScene(auditScene)
                         .targetId(userId)
@@ -92,31 +72,5 @@ public class UserProfileAuditSubmitter {
                         .build()
         );
 
-        if (reserveResult == null || CollectionUtils.isEmpty(reserveResult.getMediaItems())) {
-            return;
-        }
-
-        List<AuditMediaBatchPayload.AuditMediaItem> items = reserveResult.getMediaItems().stream()
-                .filter(Objects::nonNull)
-                .map(item -> AuditMediaBatchPayload.AuditMediaItem.builder()
-                        .auditLogId(item.getAuditLogId())
-                        .mediaUrl(item.getMediaUrl())
-                        .mediaType(item.getMediaType())
-                        .build())
-                .toList();
-
-        if (items.isEmpty()) {
-            return;
-        }
-
-        queueProducer.send(AuditMediaBatchPayload.builder()
-                .auditScene(auditScene)
-                .targetId(userId)
-                .scene(WX_SCENE_PROFILE)
-                .items(items)
-                .build());
-
-        log.info("[UserProfileAuditSubmitter] 用户资料媒体审核已投递，userId={}, auditScene={}",
-                userId, auditScene);
     }
 }

@@ -20,17 +20,13 @@ public class UserProfileAuditListener {
 
     private final UserProfileAuditSubmitter auditSubmitter;
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
     public void onUserProfileUpdated(UserProfileUpdatedEvent event) {
         if (event == null || event.getUserId() == null || event.getUpdateBO() == null) {
             return;
         }
 
-        try {
-            auditSubmitter.submit(event.getUserId(), event.getUpdateBO());
-        } catch (Exception e) {
-            log.error("[UserProfileAuditListener] 用户资料审核提交失败，userId={}",
-                    event.getUserId(), e);
-        }
+        // Retained event compatibility only. Profile candidates are now checked before commit.
+        // Do not reserve a second, post-write audit protocol for any legacy producer.
     }
 }

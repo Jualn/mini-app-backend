@@ -28,8 +28,54 @@ public interface ActivityEnrollmentMapper extends BaseMapper<ActivityEnrollment>
      * @param userId 用户ID
      * @return 报名记录，如果不存在则返回null
      */
-    @Select("SELECT * FROM activity_enrollment WHERE activity_id = #{activityId} AND user_id = #{userId} AND deleted_at IS NULL")
+    @Select("SELECT * FROM activity_enrollment WHERE activity_id = #{activityId} AND user_id = #{userId}")
     ActivityEnrollment selectByActivityIdAndUserId(@Param("activityId") Long activityId, @Param("userId") Long userId);
+
+    @Select("""
+            SELECT ae.user_id
+            FROM activity_enrollment ae
+            LEFT JOIN activity_registration ar
+              ON ar.activity_id = ae.activity_id
+             AND ar.user_id = ae.user_id
+             AND ar.status = 1
+            WHERE ae.activity_id = #{activityId}
+              AND ae.status = 1
+              AND ae.notify_enable = 1
+              AND ar.id IS NULL
+              AND ae.user_id > #{lastUserId}
+            ORDER BY ae.user_id
+            LIMIT #{limit}
+            """)
+    List<Long> selectNotifyEnabledUnregisteredUserIds(@Param("activityId") Long activityId,
+                                                       @Param("lastUserId") long lastUserId,
+                                                       @Param("limit") int limit);
+
+    @Select("""
+            SELECT user_id FROM (
+              SELECT user_id FROM activity_enrollment
+              WHERE activity_id=#{activityId} AND status=1 AND notify_enable=1
+              UNION
+              SELECT user_id FROM activity_registration
+              WHERE activity_id=#{activityId} AND status=1
+            ) recipients
+            WHERE user_id &gt; #{lastUserId} AND user_id &lt;= #{upperUserId}
+            ORDER BY user_id LIMIT #{limit}
+            """)
+    List<Long> selectSubscriberOrRegisteredUserIds(@Param("activityId") Long activityId,
+                                                    @Param("lastUserId") long lastUserId,
+                                                    @Param("upperUserId") long upperUserId,
+                                                    @Param("limit") int limit);
+
+    @Select("""
+            SELECT COALESCE(MAX(user_id), 0) FROM (
+              SELECT user_id FROM activity_enrollment
+              WHERE activity_id=#{activityId} AND status=1 AND notify_enable=1
+              UNION
+              SELECT user_id FROM activity_registration
+              WHERE activity_id=#{activityId} AND status=1
+            ) recipients
+            """)
+    long selectSubscriberOrRegisteredUpperBound(@Param("activityId") Long activityId);
 
         @Select("""
                         <script>
@@ -37,7 +83,6 @@ public interface ActivityEnrollmentMapper extends BaseMapper<ActivityEnrollment>
                         FROM activity_enrollment
                         WHERE user_id = #{userId}
                             AND status = 1
-                            AND deleted_at IS NULL
                             AND activity_id IN
                             <foreach collection='activityIds' item='activityId' open='(' separator=',' close=')'>
                                 #{activityId}

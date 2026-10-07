@@ -21,4 +21,7 @@ public class UserSimpleBO {
 
     /** 头像 URL。 */
     private String avatarUrl;
+
+    /** Public display fact for future author contracts; never an authorization grant. */
+    private boolean platformOperator;
 }

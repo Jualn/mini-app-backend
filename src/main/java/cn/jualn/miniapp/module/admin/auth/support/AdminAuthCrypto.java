@@ -33,4 +33,9 @@ public final class AdminAuthCrypto {
             throw new SystemException("当前运行环境不支持 SHA-256", e);
         }
     }
+
+    public static boolean sameDigest(String left, String right) {
+        return left != null && right != null && left.length() == 64 && right.length() == 64
+                && MessageDigest.isEqual(left.getBytes(StandardCharsets.US_ASCII), right.getBytes(StandardCharsets.US_ASCII));
+    }
 }

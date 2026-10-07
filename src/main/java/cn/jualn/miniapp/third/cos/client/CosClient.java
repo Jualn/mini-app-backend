@@ -101,4 +101,15 @@ public class CosClient {
                     "failed to delete cos object", e);
         }
     }
+
+    /** Copy to a new server-only key; never grant client credentials for this prefix. */
+    public void copyObject(String sourceKey, String destinationKey) {
+        try {
+            cosSdkClient.copyObject(new com.qcloud.cos.model.CopyObjectRequest(
+                    cosProperties.getBucket(), sourceKey, cosProperties.getBucket(), destinationKey));
+        } catch (RuntimeException failure) {
+            throw new ExternalServiceException(ResultCode.EXTERNAL_SERVICE_ERROR, "cos",
+                    "failed to copy profile media", failure);
+        }
+    }
 }

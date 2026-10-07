@@ -4,54 +4,134 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.jualn.miniapp.module.exam.mapper.ExamInfoMapper">
 
-    <select id="selectSimpleExams" resultType="cn.jualn.miniapp.module.exam.bo.ExamSimpleBO">
-        SELECT id,
-               title,
-               exam_date AS examDate
-        FROM exam_info
-        WHERE deleted_at IS NULL
-        ORDER BY exam_date DESC, id DESC
+    <select id="selectHomePublicMatterReminders"
+            resultType="cn.jualn.miniapp.module.exam.bo.HomePublicMatterReminderRow">
+        WITH future_nodes AS (
+            SELECT event.id AS publicMatterId,
+                   event.title AS name,
+                   node.id AS timeNodeId,
+                   node.label AS nodeName,
+                   node.start_time AS reminderAt
+            FROM public_event event
+            INNER JOIN timeline node
+                    ON node.target_type = 3
+                   AND node.target_id = event.id
+                   AND node.start_time &gt; #{evaluatedAt}
+                   AND node.start_precision = 2
+                   AND node.end_time IS NULL
+                   AND node.end_precision = 0
+            WHERE event.publish_status = 1
+              AND event.lifecycle_status = 0
+              AND event.cancelled_at IS NULL
+              AND event.deleted_at IS NULL
+        ),
+        ranked_nodes AS (
+            SELECT node.publicMatterId,
+                   node.name,
+                   node.timeNodeId,
+                   node.nodeName,
+                   node.reminderAt,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY node.publicMatterId
+                       ORDER BY node.reminderAt ASC, COALESCE(node.timeNodeId, 0) ASC
+                   ) AS nodeRank
+            FROM future_nodes node
+        ),
+        eligible_nodes AS (
+            SELECT node.publicMatterId,
+                   node.name,
+                   node.timeNodeId,
+                   node.nodeName,
+                   node.reminderAt
+            FROM ranked_nodes node
+            WHERE node.nodeRank = 1
+        ),
+        subscribed_nodes AS (
+            SELECT node.publicMatterId,
+                   node.name,
+                   node.timeNodeId,
+                   node.nodeName,
+                   node.reminderAt
+            FROM eligible_nodes node
+            WHERE EXISTS (
+                SELECT 1
+                FROM exam_subscription subscription
+                WHERE subscription.exam_info_id = node.publicMatterId
+                  AND subscription.user_id = #{userId}
+                  AND subscription.status = 1
+                  AND subscription.notify_enable = 1
+            )
+        ),
+        chosen_nodes AS (
+            SELECT subscribed.publicMatterId,
+                   subscribed.name,
+                   subscribed.timeNodeId,
+                   subscribed.nodeName,
+                   subscribed.reminderAt,
+                   'SUBSCRIPTIONS' AS source
+            FROM subscribed_nodes subscribed
+
+            UNION ALL
+
+            SELECT node.publicMatterId,
+                   node.name,
+                   node.timeNodeId,
+                   node.nodeName,
+                   node.reminderAt,
+                   'DEFAULT' AS source
+            FROM eligible_nodes node
+            WHERE NOT EXISTS (SELECT 1 FROM subscribed_nodes)
+        )
+        SELECT candidate.publicMatterId,
+               candidate.name,
+               candidate.timeNodeId,
+               candidate.nodeName,
+               candidate.reminderAt,
+               candidate.source
+        FROM chosen_nodes candidate
+        ORDER BY candidate.reminderAt ASC,
+                 candidate.publicMatterId ASC,
+                 COALESCE(candidate.timeNodeId, 0) ASC
+        LIMIT #{limit}
     </select>
 
     <select id="selectByIdNotDeleted" resultType="cn.jualn.miniapp.module.exam.entity.ExamInfo">
         SELECT *
-        FROM exam_info
+        FROM public_event
         WHERE id = #{examId}
           AND deleted_at IS NULL
     </select>
 
     <select id="countByIdNotDeleted" resultType="java.lang.Long">
         SELECT COUNT(1)
-        FROM exam_info
+        FROM public_event
         WHERE id = #{examId}
           AND deleted_at IS NULL
     </select>
 
     <select id="selectPageExams" resultType="cn.jualn.miniapp.module.exam.entity.ExamInfo">
-        SELECT *
-        FROM exam_info
-        WHERE status = #{status}
+        SELECT id, contract_version, lifecycle_status, source_name, source_url, title, summary,
+               event_type, edition_label, cover_attachment_id, publish_status, official_url,
+               comment_count, like_count, view_count, published_at
+        FROM public_event
+        WHERE publish_status = 1
           AND deleted_at IS NULL
-        <if test="category != null">
-            AND category = #{category}
-        </if>
+        <if test="eventType != null">AND event_type = #{eventType}</if>
+        <if test="lifecycleStatus != null">AND lifecycle_status = #{lifecycleStatus}</if>
         <if test="keyword != null and keyword != ''">
-            AND (
-                title LIKE CONCAT('%', #{keyword}, '%')
-                OR content LIKE CONCAT('%', #{keyword}, '%')
-                OR official_url LIKE CONCAT('%', #{keyword}, '%')
-            )
+            AND (title LIKE CONCAT('%', #{keyword}, '%') OR summary LIKE CONCAT('%', #{keyword}, '%'))
         </if>
         <if test="lastId != null">
-            AND id &lt; #{lastId}
+            AND (published_at &lt; (SELECT published_at FROM public_event WHERE id = #{lastId})
+                OR (published_at = (SELECT published_at FROM public_event WHERE id = #{lastId}) AND id &lt; #{lastId}))
         </if>
-        ORDER BY is_pinned DESC, published_at DESC, id DESC
+        ORDER BY published_at DESC, id DESC
         LIMIT #{limit}
     </select>
 
     <select id="selectViewCountById" resultType="java.lang.Long">
         SELECT COALESCE(view_count, 0)
-        FROM exam_info
+        FROM public_event
         WHERE id = #{id}
     </select>
 
@@ -59,7 +139,7 @@
         SELECT
         id AS targetId,
         COALESCE(view_count, 0) AS count
-        FROM exam_info
+        FROM public_event
         WHERE id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">
             #{id}
@@ -67,8 +147,55 @@
     </select>
 
     <update id="incrementViewCount">
-        UPDATE exam_info
+        UPDATE public_event
         SET view_count = COALESCE(view_count, 0) + #{delta}
         WHERE id = #{id}
+    </update>
+
+    <select id="selectForUpdate" resultType="cn.jualn.miniapp.module.exam.entity.ExamInfo">
+        SELECT contract_version, lifecycle_status, source_name, source_url, contacts_json,
+               cover_attachment_id, cancelled_at, cancel_reason, publish_status, summary,
+               event_type, edition_label, id, user_id, title, official_url, comment_count,
+               like_count, view_count, published_at, created_at, updated_at, deleted_at
+        FROM public_event WHERE id = #{id} AND deleted_at IS NULL FOR UPDATE
+    </select>
+    <select id="selectOperationsPage" resultType="cn.jualn.miniapp.module.exam.bo.AdminPublicEventListBO">
+        SELECT id, title, publish_status, lifecycle_status, updated_at
+        FROM public_event WHERE deleted_at IS NULL
+        <if test="query.keyword != null and query.keyword != ''">
+            AND title LIKE CONCAT('%', #{query.keyword}, '%')
+        </if>
+        <if test="query.publishStatus != null">AND publish_status = #{query.publishStatus}</if>
+        <if test="query.lifecycleStatus != null">AND lifecycle_status = #{query.lifecycleStatus}</if>
+        ORDER BY updated_at DESC, id DESC LIMIT #{limit} OFFSET #{offset}
+    </select>
+    <select id="countOperationsPage" resultType="long">
+        SELECT COUNT(*) FROM public_event WHERE deleted_at IS NULL
+        <if test="query.keyword != null and query.keyword != ''">
+            AND title LIKE CONCAT('%', #{query.keyword}, '%')
+        </if>
+        <if test="query.publishStatus != null">AND publish_status = #{query.publishStatus}</if>
+        <if test="query.lifecycleStatus != null">AND lifecycle_status = #{query.lifecycleStatus}</if>
+    </select>
+    <update id="saveOperationsFields">
+        UPDATE public_event SET
+            title = #{event.title},
+            summary = #{event.summary},
+            event_type = #{event.eventType},
+            source_name = #{event.sourceName},
+            source_url = #{event.sourceUrl},
+            official_url = #{event.officialUrl},
+            contacts_json = #{event.contactsJson},
+            cover_attachment_id = #{event.coverAttachmentId},
+            contract_version = contract_version + 1
+        WHERE id = #{event.id} AND deleted_at IS NULL
+    </update>
+    <update id="transitionContract">
+        UPDATE public_event
+        SET publish_status = #{publishStatus}, lifecycle_status = #{lifecycleStatus},
+            contract_version = contract_version + 1,
+            published_at = CASE WHEN #{publish} THEN NOW() ELSE published_at END,
+            cancelled_at = CASE WHEN #{lifecycleStatus} = 2 THEN COALESCE(cancelled_at, NOW()) ELSE cancelled_at END
+        WHERE id = #{id} AND contract_version = #{version} AND deleted_at IS NULL
     </update>
 </mapper>

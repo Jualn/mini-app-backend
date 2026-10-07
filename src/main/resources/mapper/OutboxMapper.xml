@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.infrastructure.async.outbox.OutboxMapper">
+  <resultMap id="event" type="cn.jualn.miniapp.infrastructure.async.outbox.OutboxEvent">
+    <id property="id" column="id"/><result property="messageId" column="message_id"/>
+    <result property="topic" column="topic"/><result property="schemaVersion" column="schema_version"/>
+    <result property="operationId" column="operation_id"/><result property="aggregateType" column="aggregate_type"/>
+    <result property="aggregateId" column="aggregate_id"/><result property="payload" column="payload"/>
+    <result property="status" column="status"/><result property="attempt" column="attempt"/>
+    <result property="nextAttemptAt" column="next_attempt_at"/><result property="leaseOwner" column="lease_owner"/>
+    <result property="leaseUntil" column="lease_until"/><result property="lastErrorCategory" column="last_error_category"/>
+    <result property="lastError" column="last_error"/><result property="createdAt" column="created_at"/>
+    <result property="publishedAt" column="published_at"/><result property="deadAt" column="dead_at"/>
+  </resultMap>
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO outbox_event(message_id,topic,schema_version,operation_id,aggregate_type,aggregate_id,payload,status,next_attempt_at)
+    VALUES(#{messageId},#{topic},#{schemaVersion},#{operationId},#{aggregateType},#{aggregateId},CAST(#{payload} AS JSON),'PENDING',#{nextAttemptAt})
+  </insert>
+  <select id="selectDueForUpdate" resultMap="event">
+    SELECT * FROM outbox_event WHERE status='PENDING' AND next_attempt_at &lt;= #{now}
+      AND (lease_until IS NULL OR lease_until &lt; #{now}) ORDER BY next_attempt_at,id LIMIT #{limit} FOR UPDATE SKIP LOCKED
+  </select>
+  <update id="claim">UPDATE outbox_event SET attempt=attempt+1,lease_owner=#{owner},lease_until=#{leaseUntil} WHERE id=#{id} AND status='PENDING' AND (lease_until IS NULL OR lease_until &lt; NOW(3))</update>
+  <update id="markPublished">UPDATE outbox_event SET status='PUBLISHED',published_at=#{now},lease_owner=NULL,lease_until=NULL,last_error_category=NULL,last_error=NULL WHERE id=#{id} AND status='PENDING' AND lease_owner=#{owner}</update>
+  <update id="markRetry">UPDATE outbox_event SET next_attempt_at=#{next},lease_owner=NULL,lease_until=NULL,last_error_category=#{category},last_error=#{error} WHERE id=#{id} AND status='PENDING' AND lease_owner=#{owner}</update>
+  <update id="markDead">UPDATE outbox_event SET status='DEAD',dead_at=#{now},lease_owner=NULL,lease_until=NULL,last_error_category=#{category},last_error=#{error} WHERE id=#{id} AND status='PENDING' AND lease_owner=#{owner}</update>
+  <select id="selectStateSnapshot" resultType="cn.jualn.miniapp.infrastructure.async.OutboxStateSnapshot">
+    SELECT COUNT(*) AS pending,
+           COALESCE(TIMESTAMPDIFF(SECOND, MIN(created_at), #{now}), 0) AS oldestPendingAgeSeconds
+    FROM outbox_event WHERE status='PENDING'
+  </select>
+  <delete id="deletePublishedBefore">
+    DELETE FROM outbox_event WHERE status='PUBLISHED' AND published_at &lt; #{cutoff}
+    ORDER BY published_at,id LIMIT #{limit}
+  </delete>
+  <delete id="deleteDeadBefore">
+    DELETE FROM outbox_event WHERE status='DEAD' AND dead_at &lt; #{cutoff}
+    ORDER BY dead_at,id LIMIT #{limit}
+  </delete>
+  <select id="selectById" resultMap="event">SELECT * FROM outbox_event WHERE id=#{id}</select>
+  <select id="selectDead" resultMap="event">
+    SELECT * FROM outbox_event WHERE status='DEAD' ORDER BY dead_at,id LIMIT #{limit}
+  </select>
+  <update id="retryDead">
+    UPDATE outbox_event SET status='PENDING',attempt=0,next_attempt_at=#{next},lease_owner=NULL,lease_until=NULL,
+      dead_at=NULL,last_error_category='manual_retry'
+    WHERE id=#{id} AND status='DEAD'
+  </update>
+</mapper>

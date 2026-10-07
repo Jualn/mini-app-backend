@@ -4,15 +4,26 @@ import cn.jualn.miniapp.common.result.PageResult;
 import cn.jualn.miniapp.module.exam.bo.ExamCreateBO;
 import cn.jualn.miniapp.module.exam.bo.ExamDetailBO;
 import cn.jualn.miniapp.module.exam.bo.ExamPageBO;
-import cn.jualn.miniapp.module.exam.bo.ExamSimpleBO;
 import cn.jualn.miniapp.module.exam.bo.ExamUpdateBO;
 
-import java.util.List;
 
 /**
  * 考试信息业务接口。
  */
 public interface ExamService {
+    /** Public contract detail with complete contact representation. */
+    ExamDetailBO getPublicEventResource(Long id);
+    cn.jualn.miniapp.module.exam.bo.PublicEventResourcePageBO pagePublicEventResources(ExamPageBO query);
+
+    /** Authoritative public visibility without loading content or personal state. */
+    boolean isPubliclyVisible(Long id);
+
+    cn.jualn.miniapp.module.exam.bo.AdminPublicEventPageBO pageAdminPublicEvents(cn.jualn.miniapp.module.exam.bo.AdminPublicEventQueryBO query);
+    ExamDetailBO getAdminPublicEvent(Long id);
+    ExamDetailBO createAdminPublicEvent(cn.jualn.miniapp.module.exam.bo.AdminPublicEventSaveBO command);
+    ExamDetailBO replaceAdminPublicEvent(cn.jualn.miniapp.module.exam.bo.AdminPublicEventSaveBO command, String ifMatch);
+    ExamDetailBO transitionAdminPublicEvent(Long id, Long operatorId, String ifMatch, String action);
+
 
 	/**
 	 * 创建考试信息。
@@ -41,8 +52,6 @@ public interface ExamService {
 	 *
 	 * @return 仅包含id、title、examDate字段的列表
 	 */
-	List<ExamSimpleBO> getExamSimple();
-
 	/**
 	 * 获取考试详情。
 	 *

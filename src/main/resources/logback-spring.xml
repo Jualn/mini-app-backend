@@ -4,15 +4,15 @@
     <!-- ========== 公共属性 ========== -->
     <property name="APP_NAME" value="${APP_NAME:-mini-app}"/>
     <property name="LOG_DIR" value="${LOG_DIR:-/app/mini-app/logs}"/>
-    <property name="MAX_HISTORY" value="30"/>
-    <property name="TOTAL_SIZE" value="2GB"/>
+    <property name="MAX_HISTORY" value="14"/>
+    <property name="MAX_FILE_SIZE" value="50MB"/>
+    <property name="TOTAL_SIZE" value="1GB"/>
 
-    <!-- 日志格式 -->
-    <!-- %d 时间  [%t] 线程  %-5level 级别  %logger{36} 类名缩写  %X{traceId} MDC  %msg 消息 -->
+    <!-- Correlation fields are explicit key/value pairs so plain-text logs remain machine searchable. -->
     <property name="FILE_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} [%X{traceId}] - %msg%n"/>
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} traceId=%X{traceId:-} operationId=%X{operationId:-} messageId=%X{messageId:-} jobId=%X{jobId:-} attempt=%X{attempt:-} - %msg%n"/>
     <property name="CONSOLE_PATTERN"
-              value="%d{HH:mm:ss.SSS} [%t] %highlight(%-5level) %cyan(%logger{36}:%line) [%yellow(%X{traceId})] - %msg%n"/>
+              value="%d{HH:mm:ss.SSS} [%t] %highlight(%-5level) %cyan(%logger{36}:%line) traceId=%yellow(%X{traceId:-}) operationId=%X{operationId:-} messageId=%X{messageId:-} jobId=%X{jobId:-} attempt=%X{attempt:-} - %msg%n"/>
 
     <!-- ========== dev 环境 ========== -->
     <springProfile name="dev">
@@ -35,8 +35,8 @@
             <appender-ref ref="CONSOLE"/>
         </logger>
 
-        <!-- 队列相关 DEBUG -->
-        <logger name="cn.jualn.miniapp.infrastructure.queue" level="DEBUG" additivity="false">
+        <!-- 异步处理相关 DEBUG -->
+        <logger name="cn.jualn.miniapp.infrastructure.async" level="DEBUG" additivity="false">
             <appender-ref ref="CONSOLE"/>
         </logger>
 
@@ -64,41 +64,11 @@
                 <pattern>${FILE_PATTERN}</pattern>
                 <charset>UTF-8</charset>
             </encoder>
-            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-                <fileNamePattern>${LOG_DIR}/${APP_NAME}.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+                <fileNamePattern>${LOG_DIR}/${APP_NAME}.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+                <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
                 <maxHistory>${MAX_HISTORY}</maxHistory>
                 <totalSizeCap>${TOTAL_SIZE}</totalSizeCap>
-            </rollingPolicy>
-        </appender>
-
-        <!-- ERROR 单独文件，方便快速排查 -->
-        <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-            <file>${LOG_DIR}/${APP_NAME}-error.log</file>
-            <filter class="ch.qos.logback.classic.filter.LevelFilter">
-                <level>ERROR</level>
-                <onMatch>ACCEPT</onMatch>
-                <onMismatch>DENY</onMismatch>
-            </filter>
-            <encoder>
-                <pattern>${FILE_PATTERN}</pattern>
-                <charset>UTF-8</charset>
-            </encoder>
-            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-                <fileNamePattern>${LOG_DIR}/${APP_NAME}-error.%d{yyyy-MM-dd}.log</fileNamePattern>
-                <maxHistory>${MAX_HISTORY}</maxHistory>
-            </rollingPolicy>
-        </appender>
-
-        <!-- 队列消费日志单独文件，方便排查队列问题 -->
-        <appender name="QUEUE_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-            <file>${LOG_DIR}/${APP_NAME}-queue.log</file>
-            <encoder>
-                <pattern>${FILE_PATTERN}</pattern>
-                <charset>UTF-8</charset>
-            </encoder>
-            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-                <fileNamePattern>${LOG_DIR}/${APP_NAME}-queue.%d{yyyy-MM-dd}.log</fileNamePattern>
-                <maxHistory>15</maxHistory>   <!-- 队列日志保留15天够了 -->
             </rollingPolicy>
         </appender>
 
@@ -113,41 +83,18 @@
             <appender-ref ref="APP_FILE"/>
         </appender>
 
-        <!-- ERROR_FILE 异步化 -->
-        <appender name="ASYNC_ERROR_FILE" class="ch.qos.logback.classic.AsyncAppender">
-            <queueSize>256</queueSize>
-            <discardingThreshold>0</discardingThreshold>
-            <maxFlushTime>5000</maxFlushTime>
-            <appender-ref ref="ERROR_FILE"/>
-        </appender>
-
-        <!-- QUEUE_FILE 异步化 -->
-        <appender name="ASYNC_QUEUE_FILE" class="ch.qos.logback.classic.AsyncAppender">
-            <queueSize>256</queueSize>
-            <discardingThreshold>0</discardingThreshold>
-            <maxFlushTime>5000</maxFlushTime>
-            <appender-ref ref="QUEUE_FILE"/>
-        </appender>
-
-
         <!-- 业务代码 INFO -->
         <logger name="cn.jualn.miniapp" level="INFO" additivity="false">
             <appender-ref ref="ASYNC_APP_FILE"/>
-            <appender-ref ref="ASYNC_ERROR_FILE"/>
         </logger>
 
-        <!-- 队列消费单独输出到 queue 文件，同时也进 app 文件 -->
-        <logger name="cn.jualn.miniapp.infrastructure.queue" level="INFO" additivity="false">
-            <appender-ref ref="ASYNC_QUEUE_FILE"/>
+        <!-- 异步处理通过固定关联字段在同一受限文件中检索，避免重复长期存储。 -->
+        <logger name="cn.jualn.miniapp.infrastructure.async" level="INFO" additivity="false">
             <appender-ref ref="ASYNC_APP_FILE"/>
-            <appender-ref ref="ASYNC_ERROR_FILE"/>
         </logger>
 
-        <!-- 定时任务日志也进 queue 文件，方便一起排查 -->
         <logger name="cn.jualn.miniapp.module.notify.task" level="INFO" additivity="false">
-            <appender-ref ref="ASYNC_QUEUE_FILE"/>
             <appender-ref ref="ASYNC_APP_FILE"/>
-            <appender-ref ref="ASYNC_ERROR_FILE"/>
         </logger>
 
         <!-- 第三方库 WARN -->
@@ -166,7 +113,6 @@
 
         <root level="WARN">
             <appender-ref ref="ASYNC_APP_FILE"/>
-            <appender-ref ref="ASYNC_ERROR_FILE"/>
         </root>
 
     </springProfile>

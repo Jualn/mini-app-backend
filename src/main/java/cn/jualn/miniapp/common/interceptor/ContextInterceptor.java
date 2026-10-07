@@ -23,8 +23,9 @@ import org.springframework.web.servlet.HandlerInterceptor;
  * 请求结束后务必清理 ThreadLocal，避免线程复用导致上下文串号。
  */
 @Component
+@lombok.RequiredArgsConstructor
 public class ContextInterceptor implements AsyncHandlerInterceptor {
-
+    private final cn.jualn.miniapp.module.admin.auth.service.AdminTokenService adminTokenService;
 
     @Override
     public boolean preHandle(@NonNull HttpServletRequest request,
@@ -36,10 +37,13 @@ public class ContextInterceptor implements AsyncHandlerInterceptor {
                 || DispatcherType.ERROR.equals(request.getDispatcherType())) {
             return true;
         }
+        if (cn.jualn.miniapp.module.admin.auth.support.AdminQrLoginRoutes.resource(
+                request.getRequestURI().substring(request.getContextPath().length()))) return true;
 
         if (StpUtil.isLogin()) {
             setUserId(StpUtil.getLoginId());
         } else if (AdminStpUtil.STP_LOGIC.isLogin()) {
+            adminTokenService.requireValidLogin();
             setUserId(AdminStpUtil.STP_LOGIC.getLoginId());
         }
         return true;

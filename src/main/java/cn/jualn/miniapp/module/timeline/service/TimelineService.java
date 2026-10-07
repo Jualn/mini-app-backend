@@ -6,6 +6,7 @@ import cn.jualn.miniapp.module.timeline.bo.TimelineUpdateBO;
 import cn.jualn.miniapp.module.timeline.bo.TimelineSaveBO;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 时间线服务接口
@@ -35,4 +36,6 @@ public interface TimelineService {
      * @return 时间线列表
      */
     List<TimelineItemDTO> listTimelinesByTarget(TargetType targetType, Long targetId);
+
+    Map<Long, List<TimelineItemDTO>> listTimelinesByTargets(TargetType targetType, List<Long> targetIds);
 }

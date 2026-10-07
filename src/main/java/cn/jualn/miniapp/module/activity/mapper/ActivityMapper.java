@@ -20,6 +20,15 @@ import java.util.List;
  */
 @Mapper
 public interface ActivityMapper extends BaseMapper<Activity> {
+    @org.apache.ibatis.annotations.Select("SELECT id, publish_status, lifecycle_status, contract_version " +
+            "FROM activity WHERE id = #{id} AND deleted_at IS NULL")
+    Activity selectReminderStatus(@Param("id") Long id);
+    @org.apache.ibatis.annotations.Select("SELECT COUNT(*) > 0 FROM activity WHERE id = #{id} AND deleted_at IS NULL AND publish_status = 1")
+    boolean existsPublicById(@org.apache.ibatis.annotations.Param("id") Long id);
+
+    Activity selectRegistrationActivity(@Param("id") Long id);
+    Activity lockRegistrationActivity(@Param("id") Long id);
+    Activity selectForUpdate(@org.apache.ibatis.annotations.Param("id") Long id);
 
     /**
      * 根据ID查询活动（不包括已删除的活动）。
@@ -56,35 +65,43 @@ public interface ActivityMapper extends BaseMapper<Activity> {
      */
     List<Activity> selectPageActivities(@Param("status") Integer status,
                                         @Param("category") Integer category,
+                                        @Param("lifecycleStatus") Integer lifecycleStatus,
                                         @Param("keyword") String keyword,
                                         @Param("lastId") Long lastId,
+                                        @Param("campusAudienceOnly") boolean campusAudienceOnly,
                                         @Param("limit") Integer limit);
 
     List<AdminActivityListRow> selectAdminActivityPage(
-            @Param("status") Integer status,
-            @Param("category") Integer category,
-            @Param("audienceMask") Integer audienceMask,
+            @Param("publishStatus") Integer publishStatus,
+            @Param("lifecycleStatus") Integer lifecycleStatus,
             @Param("keyword") String keyword,
             @Param("keywordId") Long keywordId,
-            @Param("sort") String sort,
-            @Param("lastId") Long lastId,
+            @Param("offset") Integer offset,
             @Param("limit") Integer limit);
+
+    long countAdminActivities(
+            @Param("publishStatus") Integer publishStatus,
+            @Param("lifecycleStatus") Integer lifecycleStatus,
+            @Param("keyword") String keyword,
+            @Param("keywordId") Long keywordId);
 
     AdminActivitySummaryRow selectAdminActivitySummary();
 
     Activity selectAdminActivityById(@Param("activityId") Long activityId);
 
-    int submitAdminReview(@Param("activityId") Long activityId);
+    int cancelAdminActivity(@Param("activityId") Long activityId, @Param("reason") String reason);
 
-    int updateAdminPinned(@Param("activityId") Long activityId, @Param("pinned") boolean pinned);
+    int publishDirectly(@Param("id") Long id, @Param("formVersion") String formVersion);
 
-    int cancelAdminActivity(@Param("activityId") Long activityId);
+    int initializeFormVersionIfAbsent(@Param("id") Long id, @Param("formVersion") String formVersion);
+
+    int takeDownDirectly(@Param("id") Long id);
+    int transitionContract(@Param("id") Long id, @Param("version") long version,
+            @Param("publishStatus") Integer publishStatus, @Param("lifecycleStatus") Integer lifecycleStatus,
+            @Param("publish") boolean publish,
+            @Param("formVersion") String formVersion);
 
     int endAdminActivityEarly(@Param("activityId") Long activityId);
-
-    int approveAdminReview(@Param("activityId") Long activityId);
-
-    int rejectAdminReview(@Param("activityId") Long activityId, @Param("reason") String reason);
 
     /**
      * 增加活动点赞数。

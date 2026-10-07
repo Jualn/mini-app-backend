@@ -25,7 +25,7 @@ public interface NotifyPlanMapper extends BaseMapper<NotifyPlan> {
 	 * @param sourceId 内容 ID
 	 * @return 计划 ID 列表
 	 */
-	@Select("SELECT id FROM notify_plan WHERE source_type = #{sourceType} AND source_id = #{sourceId}")
+	@Select("SELECT id FROM notify_plan WHERE source_type = #{sourceType} AND source_id = #{sourceId} AND status IN (0,3)")
 	List<Long> selectIdsBySource(Integer sourceType, Long sourceId);
 
 	/**
@@ -35,6 +35,22 @@ public interface NotifyPlanMapper extends BaseMapper<NotifyPlan> {
 	 * @param sourceId 内容 ID
 	 * @return 受影响的行数
 	 */
-	@Update("UPDATE notify_plan SET status = 2 WHERE source_type = #{sourceType} AND source_id = #{sourceId} AND status = 0")
+	@Update("UPDATE notify_plan SET status = 2, cancelled_at = CURRENT_TIMESTAMP(3) " +
+			"WHERE source_type = #{sourceType} AND source_id = #{sourceId} AND status IN (0,3)")
 	int cancelBySource(Integer sourceType, Long sourceId);
+
+	@Update("UPDATE notify_plan SET status = 3 WHERE id = #{id} AND status = 0")
+	int startFanOut(Long id);
+
+	@Update("UPDATE notify_plan SET status = 1, completed_at = CURRENT_TIMESTAMP(3) " +
+			"WHERE id = #{id} AND status = 3")
+	int completeFanOut(Long id);
+
+	@Select("SELECT * FROM notify_plan WHERE source_type = #{sourceType} AND source_id = #{sourceId} " +
+			"AND status IN (0,3) ORDER BY id")
+	List<NotifyPlan> selectActiveBySource(Integer sourceType, Long sourceId);
+
+	@Update("UPDATE notify_plan SET status = 2, cancelled_at = CURRENT_TIMESTAMP(3) " +
+			"WHERE id = #{id} AND status IN (0,3)")
+	int cancelPlan(Long id);
 }

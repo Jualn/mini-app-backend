@@ -4,6 +4,11 @@ package cn.jualn.miniapp.module.exam.service;
  * 考试订阅业务接口。
  */
 public interface ExamSubscriptionService {
+    /** Read the caller's persisted relationship even when its subject is no longer public. */
+    cn.jualn.miniapp.module.exam.bo.PublicEventSubscriptionBO getSubscriptionState(Long examId);
+
+    cn.jualn.miniapp.module.exam.bo.PublicEventSubscriptionBO subscribeWithState(Long examId);
+
 
     /**
      * 订阅考试信息。
@@ -20,6 +25,7 @@ public interface ExamSubscriptionService {
     void unsubscribeExam(Long examId);
 
     boolean isSubscribed(Long examId);
+    cn.jualn.miniapp.module.exam.entity.ExamSubscription getSubscription(Long examId);
 
     /**
      * 分页获取指定考试的订阅用户 ID 列表（用于广播）。
@@ -30,6 +36,10 @@ public interface ExamSubscriptionService {
      * @return 用户 ID 列表
      */
     java.util.List<Long> listSubscriberUserIds(Long examId, long lastId, int limit);
+
+    java.util.List<Long> listSubscriberUserIds(Long examId, long lastId, long upperUserId, int limit);
+
+    long subscriberUpperBound(Long examId);
 }
 
 

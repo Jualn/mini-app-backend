@@ -8,7 +8,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -20,15 +19,33 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ExamDetailBO {
+    private TimelineItemDTO cardTimeline;
+    private String contactsJson;
+    private java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventContactBO> contacts;
+    private Long contractVersion;
+    private Integer lifecycleStatus;
+    private String sourceName;
+    private String sourceUrl;
+    private Boolean liked;
+    private Boolean subscribed;
+    private LocalDateTime updatedAt;
+    private LocalDateTime createdAt;
+    private Long coverAttachmentId;
+    private java.time.LocalDateTime cancelledAt;
+    private String cancelReason;
+
+    private Integer publishStatus;
+
+    private String summary;
+    private Integer eventType;
+    private String editionLabel;
+
+    private java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO> sections;
+    private java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventActionBO> actions;
+
 
     private Long id;
     private String title;
-    private Integer category;
-    private String content;
-    private LocalDateTime registrationStart;
-    private LocalDateTime registrationEnd;
-    private LocalDate examDate;
-    private LocalDate examDateEnd;
     private String officialUrl;
     private Integer commentCount;
     private Integer likeCount;
