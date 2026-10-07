@@ -14,9 +14,12 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class MediaAttachmentBO {
+    private Integer targetType;
+    private Long targetId;
 
     private Long id;
     private MediaType type;
+    private String kind;
     private String objectKey;
     private String url;
     private String originalName;

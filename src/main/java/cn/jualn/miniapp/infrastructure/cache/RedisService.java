@@ -4,11 +4,11 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.connection.RedisStringCommands;
 import org.springframework.data.redis.core.*;
 import org.springframework.data.redis.core.types.Expiration;
 import org.springframework.data.redis.serializer.RedisSerializer;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Redis 基础设施封装。
@@ -45,14 +46,15 @@ import java.util.concurrent.TimeUnit;
  * <h2>各数据结构对应业务</h2>
  * <pre>
  *   String  → 缓存（用户信息、内容详情、Token、状态标记、计数器）
- *   ZSet    → 延迟队列（NOTIFY_DELAY_ZSET，score = 推送时间戳）
- *   List    → 普通任务队列（QUEUE_MAIN，FIFO）
+ *   ZSet    → 排名、按分值范围检索等有序集合场景
  * </pre>
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RedisService {
+    private static final long FAILURE_LOG_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(30);
+    private final AtomicLong lastFailureLogAt = new AtomicLong();
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
@@ -76,7 +78,7 @@ public class RedisService {
         try {
             redisTemplate.opsForValue().set(key, value);
         } catch (Exception e) {
-            log.error("[Redis] set 失败，key={}", key, e);
+            logFailure("set", e);
         }
     }
 
@@ -95,7 +97,7 @@ public class RedisService {
         try {
             redisTemplate.opsForValue().set(key, value, timeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (Exception e) {
-            log.error("[Redis] set 失败，key={}", key, e);
+            logFailure("set", e);
         }
     }
 
@@ -223,7 +225,7 @@ public class RedisService {
             }
             return result;
         } catch (Exception e) {
-            log.error("[Redis] multiGet 失败，keys={}", keys, e);
+            logFailure("multiGet", e);
             return Map.of(); // 全量降级，调用方走 DB
         }
     }
@@ -251,7 +253,7 @@ public class RedisService {
 
             return result;
         } catch (Exception e) {
-            log.error("[Redis] multiGetLong 失败，keys={}", keys, e);
+            logFailure("multiGetLong", e);
             return Map.of();
         }
     }
@@ -316,7 +318,7 @@ public class RedisService {
                 return null; // pipeline 模式下 callback 必须返回 null
             });
         } catch (Exception e) {
-            log.error("[Redis] mset 失败", e);
+            logFailure("multiSet", e);
         }
     }
 
@@ -376,7 +378,7 @@ public class RedisService {
         try {
             return redisTemplate.opsForValue().increment(key, delta);
         } catch (Exception e) {
-            log.error("[Redis] increment 失败，key={}, delta={}", key, delta, e);
+            logFailure("increment", e);
             return null;
         }
     }
@@ -409,7 +411,7 @@ public class RedisService {
             // results[0] = incr 结果
             return !results.isEmpty() ? (Long) results.get(0) : null;
         } catch (Exception e) {
-            log.error("[Redis] incrementAndRefresh 失败，key={}", key, e);
+            logFailure("incrementAndRefresh", e);
             return null;
         }
     }
@@ -443,7 +445,7 @@ public class RedisService {
 
             return !results.isEmpty() ? (Long) results.get(0) : null;
         } catch (Exception e) {
-            log.error("[Redis] incrementByAndRefresh 失败，key={}, delta={}", key, delta, e);
+            logFailure("incrementByAndRefresh", e);
             return null;
         }
     }
@@ -482,7 +484,7 @@ public class RedisService {
             });
             return !results.isEmpty() ? (Long) results.get(0) : null;
         } catch (Exception e) {
-            log.error("[Redis] decrementAndRefresh 失败，key={}", key, e);
+            logFailure("decrementAndRefresh", e);
             return null;
         }
     }
@@ -505,7 +507,7 @@ public class RedisService {
             Object value = redisTemplate.opsForValue().getAndDelete(key);
             return toLong(key, value);
         } catch (Exception e) {
-            log.error("[Redis] getAndDeleteLong 失败，key={}", key, e);
+            logFailure("getAndDeleteLong", e);
             return null;
         }
     }
@@ -529,7 +531,7 @@ public class RedisService {
         try {
             return redisTemplate.delete(key);
         } catch (Exception e) {
-            log.error("[Redis] delete 失败，key={}", key, e);
+            logFailure("delete", e);
             return false;
         }
     }
@@ -562,7 +564,7 @@ public class RedisService {
                 return keys;
             });
         } catch (Exception e) {
-            log.error("[Redis] scanKeysByPrefix 失败，prefix={}", prefix, e);
+            logFailure("scanKeysByPrefix", e);
             return Set.of();
         }
     }
@@ -592,7 +594,7 @@ public class RedisService {
         try {
             return Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(key, value, timeout));
         } catch (Exception e) {
-            log.error("[Redis] setIfAbsent 失败，key={}", key, e);
+            logFailure("setIfAbsent", e);
             return false;
         }
     }
@@ -610,25 +612,19 @@ public class RedisService {
         try {
             return Boolean.TRUE.equals(redisTemplate.expire(key, timeout));
         } catch (Exception e) {
-            log.error("[Redis] expire 失败，key={}", key, e);
+            logFailure("expire", e);
             return false;
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // ZSet 操作（延迟队列：NOTIFY_DELAY_ZSET）
+    // ZSet 通用操作
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * 向有序集合添加元素（延迟队列入队）。
+     * 向有序集合添加元素。
      *
-     * <p>用于 NOTIFY_DELAY_ZSET：score 传推送时间戳（秒），member 传 "nq:{notifyQueueId}"。</p>
-     *
-     * <pre>{@code
-     * redisService.zAdd(NOTIFY_DELAY_ZSET, "nq:" + queueId, sendAt.getEpochSecond());
-     * }</pre>
-     *
-     * @param score  排序分值，延迟队列场景下传 Unix 时间戳（秒）
+     * @param score  排序分值
      * @param member 成员标识
      * @return true 表示新增成功；false 表示已存在（score 会被更新）或异常
      */
@@ -636,7 +632,7 @@ public class RedisService {
         try {
             return Boolean.TRUE.equals(redisTemplate.opsForZSet().add(key, member, score));
         } catch (Exception e) {
-            log.error("[Redis] zAdd 失败，key={}, member={}", key, member, e);
+            logFailure("zAdd", e);
             return false;
         }
     }
@@ -656,20 +652,13 @@ public class RedisService {
         try {
             return redisTemplate.opsForZSet().incrementScore(key, member, delta);
         } catch (Exception e) {
-            log.error("[Redis] zIncrementScore 失败，key={}, member={}, delta={}", key, member, delta, e);
+            logFailure("zIncrementScore", e);
             return null;
         }
     }
 
     /**
-     * 按 score 范围取有序集合元素（延迟队列消费）。
-     *
-     * <p>单线程监听轮询用法：取 score 在 [0, 当前时间戳] 内的到期任务，每次最多取 50 条。</p>
-     *
-     * <pre>{@code
-     * Set<ZSetOperations.TypedTuple<Object>> dues =
-     *         redisService.zRangeByScore(NOTIFY_DELAY_ZSET, 0, Instant.now().getEpochSecond(), 0, 50);
-     * }</pre>
+     * 按 score 范围取有序集合元素。
      *
      * @param min    score 下界（含）
      * @param max    score 上界（含）
@@ -684,15 +673,13 @@ public class RedisService {
                     redisTemplate.opsForZSet().rangeByScoreWithScores(key, min, max, offset, count);
             return result != null ? result : Set.of();
         } catch (Exception e) {
-            log.error("[Redis] zRangeByScore 失败，key={}", key, e);
+            logFailure("zRangeByScore", e);
             return Set.of();
         }
     }
 
     /**
-     * 从有序集合移除指定成员（延迟队列消费确认）。
-     *
-     * <p>任务处理成功后调用，处理失败则不移除，下次轮询自动重试。</p>
+     * 从有序集合移除指定成员。
      *
      * @param members 要移除的成员（可批量）
      * @return 实际移除的数量；异常返回 0
@@ -702,7 +689,7 @@ public class RedisService {
             Long removed = redisTemplate.opsForZSet().remove(key, members);
             return removed != null ? removed : 0L;
         } catch (Exception e) {
-            log.error("[Redis] zRemove 失败，key={}", key, e);
+            logFailure("zRemove", e);
             return 0L;
         }
     }
@@ -725,7 +712,7 @@ public class RedisService {
             Long removed = redisTemplate.opsForZSet().removeRange(key, start, end);
             return removed != null ? removed : 0L;
         } catch (Exception e) {
-            log.error("[Redis] zRemoveRange 失败，key={}", key, e);
+            logFailure("zRemoveRange", e);
             return 0L;
         }
     }
@@ -748,58 +735,8 @@ public class RedisService {
             Set<Object> result = redisTemplate.opsForZSet().reverseRange(key, start, end);
             return result != null ? result : Set.of();
         } catch (Exception e) {
-            log.error("[Redis] zReverseRange 失败，key={}", key, e);
+            logFailure("zReverseRange", e);
             return Set.of();
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // List 操作（普通任务队列：QUEUE_MAIN，FIFO）
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * 向任务队列尾部入队（生产者）。
-     *
-     * <p>与 {@link #dequeue} 配合使用，实现 FIFO 语义。
-     * 适用于 QUEUE_MAIN 的一般异步任务（审核回调、消息推送等）。</p>
-     *
-     * @return 入队后队列长度；异常返回 null
-     */
-    public Long enqueue(String key, Object value) {
-        try {
-            return redisTemplate.opsForList().rightPush(key, value);
-        } catch (Exception e) {
-            log.error("[Redis] enqueue 失败，key={}", key, e);
-            return null;
-        }
-    }
-
-    /**
-     * 从任务队列头部阻塞出队（消费者）。
-     *
-     * <p>阻塞等待直到有元素或超时，适合单线程监听循环。
-     * {@link RedisConnectionFailureException} 会向上抛出，由调用方决定是否重连。</p>
-     *
-     * <pre>{@code
-     * while (!Thread.currentThread().isInterrupted()) {
-     *     Object task = redisService.dequeue(QUEUE_MAIN, 3, TimeUnit.SECONDS);
-     *     if (task != null) dispatchExecutor.submit(() -> handle(task));
-     * }
-     * }</pre>
-     *
-     * @param timeout 阻塞超时时间（建议 2～5 秒，避免连接长期占用）
-     * @param unit    时间单位
-     * @return 队列头部元素；超时或异常返回 null
-     * @throws RedisConnectionFailureException Redis 连接断开时抛出，调用方需处理重连
-     */
-    public Object dequeue(String key, long timeout, TimeUnit unit) {
-        try {
-            return redisTemplate.opsForList().leftPop(key, timeout, unit);
-        } catch (RedisConnectionFailureException e) {
-            throw e; // 连接异常向上抛，不吞掉，由监听循环决定重连策略
-        } catch (Exception e) {
-            log.error("[Redis] dequeue 失败，key={}", key, e);
-            return null;
         }
     }
 
@@ -831,7 +768,7 @@ public class RedisService {
             Long added = redisTemplate.opsForSet().add(key, (Object[]) members);
             return added != null ? added : 0L;
         } catch (Exception e) {
-            log.error("[Redis] sAdd 失败，key={}", key, e);
+            logFailure("sAdd", e);
             return 0L;
         }
     }
@@ -874,7 +811,7 @@ public class RedisService {
             }
             return result;
         } catch (Exception e) {
-            log.error("[Redis] sMembers 失败，key={}", key, e);
+            logFailure("sMembers", e);
             return Set.of();
         }
     }
@@ -897,7 +834,7 @@ public class RedisService {
             Long removed = redisTemplate.opsForSet().remove(key, members);
             return removed != null ? removed : 0L;
         } catch (Exception e) {
-            log.error("[Redis] sRemove 失败，key={}", key, e);
+            logFailure("sRemove", e);
             return 0L;
         }
     }
@@ -915,8 +852,83 @@ public class RedisService {
         try {
             return redisTemplate.opsForValue().get(key);
         } catch (Exception e) {
-            log.error("[Redis] get 失败，key={}", key, e);
+            logFailure("get", e);
             return null;
+        }
+    }
+
+    /** Best-effort projection write with an observable result; failure never replaces the durable source. */
+    public boolean setCacheProjection(String key, Object value, Duration timeout) {
+        if (!StringUtils.hasText(key) || timeout == null || timeout.isZero() || timeout.isNegative()) {
+            throw new IllegalArgumentException("cache projection requires key and positive TTL");
+        }
+        try {
+            redisTemplate.opsForValue().set(key, value, timeout);
+            return true;
+        } catch (RuntimeException failure) {
+            logFailure("setCacheProjection", failure);
+            return false;
+        }
+    }
+
+    /**
+     * 写入不可降级的一次性协调状态。失败直接抛出，调用方不得继续返回可用链接或执行外部流程。
+     */
+    public void setRequired(String key, Object value, Duration timeout) {
+        if (!StringUtils.hasText(key) || value == null || timeout == null
+                || timeout.isZero() || timeout.isNegative()) {
+            throw new IllegalArgumentException("required Redis state needs key, value and positive TTL");
+        }
+        try {
+            redisTemplate.opsForValue().set(key, value, timeout);
+        } catch (Exception e) {
+            logFailure("setRequired", e);
+            throw new IllegalStateException("required Redis state write failed", e);
+        }
+    }
+
+    /**
+     * 原子读取并删除一次性字符串状态。Redis 异常与 key 不存在都返回 {@code null}，
+     * 调用方必须按“未取得有效状态”拒绝继续，不能降级为允许。
+     */
+    public String getAndDeleteString(String key) {
+        if (!StringUtils.hasText(key)) {
+            return null;
+        }
+        try {
+            Object value = redisTemplate.opsForValue().getAndDelete(key);
+            return value instanceof String text ? text : null;
+        } catch (Exception e) {
+            logFailure("getAndDeleteString", e);
+            return null;
+        }
+    }
+
+    /** 仅当 value 仍属于当前 owner 时删除 key，避免过期后误删新 owner 的 claim。 */
+    public boolean deleteIfValueMatches(String key, String expectedValue) {
+        if (!StringUtils.hasText(key) || expectedValue == null) {
+            return false;
+        }
+        try {
+            DefaultRedisScript<Long> script = new DefaultRedisScript<>(
+                    "if redis.call('get', KEYS[1]) == ARGV[1] then " +
+                            "return redis.call('del', KEYS[1]) else return 0 end",
+                    Long.class);
+            Long deleted = redisTemplate.execute(script, List.of(key), expectedValue);
+            return Long.valueOf(1L).equals(deleted);
+        } catch (Exception e) {
+            logFailure("deleteIfValueMatches", e);
+            return false;
+        }
+    }
+
+    private void logFailure(String operation, Exception failure) {
+        long now = System.nanoTime();
+        long previous = lastFailureLogAt.get();
+        if ((previous == 0 || now - previous >= FAILURE_LOG_INTERVAL_NANOS)
+                && lastFailureLogAt.compareAndSet(previous, now)) {
+            log.warn("result=degraded errorCategory=redis operation={} exceptionType={}",
+                    operation, failure.getClass().getSimpleName());
         }
     }
 

@@ -18,7 +18,7 @@ $tests = @('ActivityFormPolicyTest','ActivityRegistrationDatabaseTest','EventCon
     'ActivityServiceImplTest','ExamServiceImplTest','ActivityEnrollmentServiceImplTest','ExamSubscriptionServiceImplTest')
 if ($TestNames.Count -gt 0) {
     foreach ($testName in $TestNames) {
-        if ($testName -notmatch '^[A-Za-z][A-Za-z0-9_]*Test$') {
+        if ($testName -notmatch '^[A-Za-z][A-Za-z0-9_]*Tests?$') {
             throw "TestNames must contain simple Java test class names."
         }
     }

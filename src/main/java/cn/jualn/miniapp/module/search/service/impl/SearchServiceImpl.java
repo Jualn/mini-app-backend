@@ -137,7 +137,7 @@ public class SearchServiceImpl implements SearchService {
         if (activity == null || activity.getId() == null) {
             return;
         }
-        int status = isSearchableActivity(activity.getStatus()) ? 1 : 0;
+        int status = Integer.valueOf(1).equals(activity.getPublishStatus()) ? 1 : 0;
         searchDocMapper.upsert(
                 TargetType.ACTIVITY.getCode(),
                 activity.getId(),
@@ -233,20 +233,13 @@ public class SearchServiceImpl implements SearchService {
                 && Objects.equals(auditStatus, AuditStatus.PASS);
     }
 
-    private boolean isSearchableActivity(ActivityStatus status) {
-        return status != null && (Objects.equals(status, ActivityStatus.SIGNUP)
-                || Objects.equals(status, ActivityStatus.ONGOING)
-                || Objects.equals(status, ActivityStatus.ENDED)
-                || Objects.equals(status, ActivityStatus.DRAFT));
-    }
-
     private String buildPostSearchText(String content) {
         return left(content, 300);
     }
 
     private String buildActivitySearchText(ActivitySearchBO activity) {
         String location = StringUtils.hasText(activity.getLocation()) ? activity.getLocation().trim() : "";
-        String content = left(activity.getContent(), 300);
+        String content = left(activity.getSummary(), 300);
         StringBuilder builder = new StringBuilder();
         if (StringUtils.hasText(activity.getTitle())) {
             builder.append(activity.getTitle().trim());

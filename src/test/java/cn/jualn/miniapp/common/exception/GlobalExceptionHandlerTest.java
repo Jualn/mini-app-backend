@@ -1,11 +1,17 @@
 package cn.jualn.miniapp.common.exception;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import cn.jualn.miniapp.config.JacksonConfig;
 import cn.jualn.miniapp.common.result.ResultCode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
@@ -20,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.hasKey;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -28,6 +35,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class GlobalExceptionHandlerTest {
+    private final Logger handlerLogger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    private ListAppender<ILoggingEvent> logAppender;
+
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new FailureController())
             .setControllerAdvice(new GlobalExceptionHandler())
             .setMessageConverters(new MappingJackson2HttpMessageConverter(
@@ -36,7 +46,15 @@ class GlobalExceptionHandlerTest {
 
     @AfterEach
     void clearTrace() {
+        handlerLogger.detachAppender(logAppender);
         MDC.clear();
+    }
+
+    @BeforeEach
+    void captureHandlerLogs() {
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        handlerLogger.addAppender(logAppender);
     }
 
     @Test
@@ -52,6 +70,8 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.errors[0].pointer").value("/title"))
                 .andExpect(jsonPath("$.errors[0].code").value("REQUIRED"))
                 .andExpect(jsonPath("$", not(hasKey("code"))));
+
+        assertEquals(0, errorLogCount());
     }
 
     @Test
@@ -64,6 +84,8 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.title").value("Conflict"))
                 .andExpect(jsonPath("$.detail").value("本场活动名额已满"))
                 .andExpect(jsonPath("$.traceId").value("trace-123"));
+
+        assertEquals(0, errorLogCount());
     }
 
     @Test
@@ -73,6 +95,21 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.type").value("/problems/internal-error"))
                 .andExpect(jsonPath("$.detail").value("服务器内部错误"))
                 .andExpect(jsonPath("$", not(hasKey("data"))));
+
+        assertEquals(1, errorLogCount());
+    }
+
+    @Test
+    void externalFailurePreservesCatalogStatusAndDoesNotExposeProviderDetail() throws Exception {
+        mvc.perform(get("/test/external-unavailable"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.type").value("/problems/service-unavailable"))
+                .andExpect(jsonPath("$.title").value("Service unavailable"))
+                .andExpect(jsonPath("$.detail").value("服务号通知模板不可用"))
+                .andExpect(jsonPath("$", not(hasKey("provider"))))
+                .andExpect(jsonPath("$", not(hasKey("code"))));
+
+        assertEquals(1, errorLogCount());
     }
 
     @Test
@@ -89,6 +126,12 @@ class GlobalExceptionHandlerTest {
         }
     }
 
+    private long errorLogCount() {
+        return logAppender.list.stream()
+                .filter(event -> event.getLevel() == Level.ERROR)
+                .count();
+    }
+
     @RestController
     static class FailureController {
         @PostMapping("/test/validation")
@@ -103,6 +146,14 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/test/failure")
         void failure() {
             throw new IllegalStateException("internal database topology");
+        }
+
+        @GetMapping("/test/external-unavailable")
+        void externalUnavailable() {
+            throw new ExternalServiceException(
+                    ResultCode.WX_NOTICE_TEMPLATE_UNAVAILABLE,
+                    "wechat",
+                    "provider template id missing: secret-internal-detail");
         }
     }
 

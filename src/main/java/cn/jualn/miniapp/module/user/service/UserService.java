@@ -13,6 +13,10 @@ import java.util.Map;
  */
 public interface UserService {
 
+    EffectiveProfileBO getEffectiveProfile(Long userId);
+
+    EffectiveProfileBO updateEffectiveProfile(UserProfileUpdateBO command);
+
 	/**
 	 * 获取用户基本信息。
 	 *
@@ -82,6 +86,21 @@ public interface UserService {
 	 * @exception BusinessException 如果用户未绑定微信小程序账号或发生其他错误。
 	 */
 	String getMiniOpenid(Long userId);
+
+	/**
+	 * 获取用户绑定的服务号 openid；未绑定时返回 {@code null}。
+	 */
+	String getOfficialAccountOpenid(Long userId);
+
+	/**
+	 * 按服务号 openid 解析唯一用户；未绑定时返回 {@code null}，历史数据有歧义时拒绝返回任意用户。
+	 */
+	Long findUserIdByOfficialAccountOpenid(String mpOpenid);
+
+	/**
+	 * 建立服务号身份关联。重复绑定同一身份幂等；替换已有身份或争用其他用户身份时拒绝。
+	 */
+	void bindOfficialAccountIdentity(Long userId, String mpOpenid);
 
 	/**
 	 * 分页列出所有用户 ID（用于全员广播）。

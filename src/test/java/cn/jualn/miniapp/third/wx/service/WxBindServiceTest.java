@@ -2,8 +2,8 @@ package cn.jualn.miniapp.third.wx.service;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.module.user.entity.UserProfile;
-import cn.jualn.miniapp.module.user.mapper.UserProfileMapper;
+import cn.jualn.miniapp.module.user.service.UserService;
+import cn.jualn.miniapp.module.wx.service.WxBindService;
 import cn.jualn.miniapp.third.wx.client.WxClient;
 import cn.jualn.miniapp.third.wx.dto.MpQrCodeCreateResponse;
 import org.junit.jupiter.api.Test;
@@ -36,11 +36,11 @@ class WxBindServiceTest {
     private RedisService redisService;
 
     @Mock
-    private UserProfileMapper userProfileMapper;
+    private UserService userService;
 
     @Test
     void createBindQr_shouldCacheSceneAndBuildResponse() {
-        WxBindService wxBindService = new WxBindService(wxClient, redisService, userProfileMapper);
+        WxBindService wxBindService = new WxBindService(wxClient, redisService, userService);
         MpQrCodeCreateResponse qrResponse = new MpQrCodeCreateResponse();
         qrResponse.setTicket("ticket-123");
         when(wxClient.createQrSceneTicket(anyString(), eq(600))).thenReturn(qrResponse);
@@ -52,7 +52,7 @@ class WxBindServiceTest {
         ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> valueCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Duration> durationCaptor = ArgumentCaptor.forClass(Duration.class);
-        verify(redisService).set(keyCaptor.capture(), valueCaptor.capture(), durationCaptor.capture());
+        verify(redisService).setRequired(keyCaptor.capture(), valueCaptor.capture(), durationCaptor.capture());
         verify(wxClient).createQrSceneTicket(eq(qrInfo.getScene()), eq(600));
 
         assertTrue(qrInfo.getScene().matches("bind_42_[0-9a-f]{8}"));
@@ -67,32 +67,23 @@ class WxBindServiceTest {
 
     @Test
     void handleScanBind_shouldUpdateMpOpenidWhenSceneAndUserExist() {
-        WxBindService wxBindService = new WxBindService(wxClient, redisService, userProfileMapper);
+        WxBindService wxBindService = new WxBindService(wxClient, redisService, userService);
         String scene = "bind_42_a1b2c3d4";
         when(redisService.getString(RedisKeyConstant.wxBindScene(scene))).thenReturn("42");
-        UserProfile userProfile = UserProfile.builder()
-                .id(42L)
-                .mpOpenid(null)
-                .build();
-        when(userProfileMapper.selectById(42L)).thenReturn(userProfile);
-        when(userProfileMapper.updateById(any(UserProfile.class))).thenReturn(1);
-
         wxBindService.handleScanBind(scene, "mp_openid_1", "scan");
 
-        ArgumentCaptor<UserProfile> profileCaptor = ArgumentCaptor.forClass(UserProfile.class);
-        verify(userProfileMapper).updateById(profileCaptor.capture());
-        assertEquals("mp_openid_1", profileCaptor.getValue().getMpOpenid());
+        verify(userService).bindOfficialAccountIdentity(42L, "mp_openid_1");
+        verify(redisService).delete(RedisKeyConstant.wxBindScene(scene));
     }
 
     @Test
     void handleScanBind_shouldSkipWhenSceneMissing() {
-        WxBindService wxBindService = new WxBindService(wxClient, redisService, userProfileMapper);
+        WxBindService wxBindService = new WxBindService(wxClient, redisService, userService);
         when(redisService.getString(anyString())).thenReturn(null);
 
         wxBindService.handleScanBind("bind_42_missing", "mp_openid_1", "scan");
 
-        verifyNoInteractions(userProfileMapper);
+        verifyNoInteractions(userService);
         verify(redisService).getString(RedisKeyConstant.wxBindScene("bind_42_missing"));
-        verify(userProfileMapper, never()).selectById(anyLong());
     }
 }

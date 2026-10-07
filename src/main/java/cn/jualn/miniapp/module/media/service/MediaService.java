@@ -1,10 +1,14 @@
 package cn.jualn.miniapp.module.media.service;
 
+import cn.jualn.miniapp.module.media.bo.ProfileMediaSnapshotBO;
+
 import cn.jualn.miniapp.common.enums.MediaType;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentSaveBO;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentSimpleBO;
+import cn.jualn.miniapp.module.media.bo.AttachmentLinkBO;
+import cn.jualn.miniapp.module.media.bo.AttachmentTargetBO;
 import cn.jualn.miniapp.third.cos.dto.CosUploadCredentialDTO;
 
 import java.util.Collection;
@@ -17,6 +21,8 @@ import java.util.Map;
  * <p>约定：service 间只传 DTO，不直接传 Request/VO。</p>
  */
 public interface MediaService {
+
+    ProfileMediaSnapshotBO prepareProfileSnapshot(String objectKey);
 
     /**
      * 覆盖保存目标附件。
@@ -36,6 +42,16 @@ public interface MediaService {
     * @return 按展示顺序排序后的附件 BO 列表
      */
     List<MediaAttachmentBO> listAttachments(TargetType targetType, Long targetId);
+    MediaAttachmentBO getAttachment(Long attachmentId);
+
+    /** Batch lookup for already-authorized aggregate projections such as list covers. */
+    Map<Long, MediaAttachmentBO> batchGetAttachments(Collection<Long> attachmentIds);
+
+    MediaAttachmentBO registerAttachment(String kind, String name, String url, Long operatorId);
+
+    void replaceAttachmentLinks(TargetType targetType, Long targetId, List<AttachmentLinkBO> links);
+
+    List<AttachmentTargetBO> listAttachmentTargets(Long attachmentId);
 
     List<MediaAttachmentBO> listAttachments(MediaType mediaType, TargetType targetType, Long targetId);
 

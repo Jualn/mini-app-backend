@@ -6,38 +6,24 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("exam_info")
+@TableName("public_event")
 public class ExamInfo {
-    private String organizer;
-    private String location;
-    private Integer audienceScope;
-    private String audienceSummary;
-    private String contactName;
-    private String contactPhone;
-    private Integer registrationMode;
-    private Integer participantMode;
-    private Integer capacity;
-    private Integer capacityUnit;
+    private Long contractVersion;
+    private Integer lifecycleStatus;
+    private String sourceName;
+    private String sourceUrl;
+    private String contactsJson;
     private Long coverAttachmentId;
     private java.time.LocalDateTime cancelledAt;
     private String cancelReason;
 
     private Integer publishStatus;
-
-    private Integer startPrecision;
-    private Integer endPrecision;
-    private String timeDescription;
-    private Integer registrationStartPrecision;
-    private Integer registrationEndPrecision;
-    private java.time.LocalDateTime startTime;
-    private java.time.LocalDateTime endTime;
 
     private String summary;
     private Integer eventType;
@@ -51,27 +37,7 @@ public class ExamInfo {
 
     private String title;
 
-    private Integer category;
-
-    private String content;
-
-    private LocalDateTime registrationStart;
-
-    private LocalDateTime registrationEnd;
-
-    private LocalDate examDate;
-
-    private LocalDate examDateEnd;
-
     private String officialUrl;
-
-    private Integer status;
-
-    private Integer auditStatus;
-
-    private String rejectReason;
-
-    private Boolean isPinned;
 
     private Integer commentCount;
 

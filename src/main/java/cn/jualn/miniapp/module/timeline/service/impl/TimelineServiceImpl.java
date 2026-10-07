@@ -8,6 +8,7 @@ import cn.jualn.miniapp.module.timeline.bo.*;
 import cn.jualn.miniapp.module.timeline.converter.TimelineConverter;
 import cn.jualn.miniapp.module.timeline.entity.Timeline;
 import cn.jualn.miniapp.module.timeline.mapper.TimelineMapper;
+import cn.jualn.miniapp.module.timeline.model.TimelineSemantic;
 import cn.jualn.miniapp.module.timeline.service.TimelineService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -19,6 +20,8 @@ import org.springframework.util.CollectionUtils;
 
 import java.util.List;
 import java.util.Set;
+import java.util.Map;
+import java.util.LinkedHashMap;
 
 /**
  * 时间线服务实现
@@ -59,14 +62,17 @@ public class TimelineServiceImpl implements TimelineService {
                 .eq(Timeline::getTargetType, targetType.getCode())
                 .eq(Timeline::getTargetId, targetId);
         List<Timeline> existing = timelineMapper.selectList(wrapper);
-        if (requestList.size() > 20) throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线最多20项");
+        if (requestList.size() > 100) throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线最多100项");
         List<Timeline> timelines = timelineConverter.toTimelineList(saveDTO);
         java.util.Set<Long> retained = new java.util.HashSet<>();
         for (Timeline node : timelines) {
             Timeline previous = null;
+            boolean canonical = node.getNodeKey() != null;
             if (node.getId() != null) {
                 previous = existing.stream().filter(t -> node.getId().equals(t.getId())).findFirst()
                         .orElseThrow(() -> new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线ID不属于当前事项"));
+            } else if (canonical) {
+                previous = existing.stream().filter(t -> node.getNodeKey().equals(t.getNodeKey())).findFirst().orElse(null);
             } else {
                 List<Timeline> matches = existing.stream().filter(t -> java.util.Objects.equals(t.getLabel(), node.getLabel()))
                         .filter(t -> !retained.contains(t.getId())).toList();
@@ -75,22 +81,27 @@ public class TimelineServiceImpl implements TimelineService {
             if (previous != null) {
                 node.setId(previous.getId());
                 if (!retained.add(previous.getId())) throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线ID重复");
-                if (node.getNodeType() == null) node.setNodeType(previous.getNodeType());
-                if (node.getLocation() == null) node.setLocation(previous.getLocation());
-                if (node.getTimeDescription() == null) node.setTimeDescription(previous.getTimeDescription());
-                if (node.getStartPrecision() == null && java.util.Objects.equals(node.getStartTime(), previous.getStartTime()))
-                    node.setStartPrecision(previous.getStartPrecision());
-                if (node.getEndPrecision() == null && java.util.Objects.equals(node.getEndTime(), previous.getEndTime()))
-                    node.setEndPrecision(previous.getEndPrecision());
+                if (!canonical) {
+                    if (node.getNodeType() == null) node.setNodeType(previous.getNodeType());
+                    if (node.getNodeKey() == null) node.setNodeKey(previous.getNodeKey());
+                    if (node.getLocation() == null) node.setLocation(previous.getLocation());
+                    if (node.getTimeDescription() == null) node.setTimeDescription(previous.getTimeDescription());
+                    if (node.getStartPrecision() == null && java.util.Objects.equals(node.getStartTime(), previous.getStartTime()))
+                        node.setStartPrecision(previous.getStartPrecision());
+                    if (node.getEndPrecision() == null && java.util.Objects.equals(node.getEndTime(), previous.getEndTime()))
+                        node.setEndPrecision(previous.getEndPrecision());
+                }
             }
-            validateNode(node);
+            validateNode(node, canonical);
             if (previous == null) {
+                if (node.getNodeKey() == null || node.getNodeKey().isBlank()) node.setNodeKey("legacy-" + java.util.UUID.randomUUID());
                 if (timelineMapper.insert(node) != 1) throw new BusinessException(ResultCode.TIMELINE_OPERATION_FAILED);
             } else {
                 int updated = timelineMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Timeline>()
                         .set(Timeline::getLabel, node.getLabel()).set(Timeline::getDescription, node.getDescription())
                         .set(Timeline::getStartTime, node.getStartTime()).set(Timeline::getEndTime, node.getEndTime())
                         .set(Timeline::getNodeType, node.getNodeType()).set(Timeline::getLocation, node.getLocation())
+                        .set(Timeline::getNodeKey, node.getNodeKey())
                         .set(Timeline::getStartPrecision, node.getStartPrecision()).set(Timeline::getEndPrecision, node.getEndPrecision())
                         .set(Timeline::getTimeDescription, node.getTimeDescription()).set(Timeline::getSortOrder, node.getSortOrder())
                         .eq(Timeline::getId, node.getId()).eq(Timeline::getTargetType, targetType.getCode()).eq(Timeline::getTargetId, targetId));
@@ -102,14 +113,30 @@ public class TimelineServiceImpl implements TimelineService {
                 .eq(Timeline::getTargetType, targetType.getCode()).eq(Timeline::getTargetId, targetId).in(Timeline::getId, removed));
     }
 
-    private void validateNode(Timeline node) {
-        if (node.getLabel() == null || node.getLabel().isBlank() || node.getLabel().length() > 64)
-            throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线名称不能为空或超过64字");
-        if (node.getNodeType() == null) node.setNodeType("CUSTOM");
-        if (!node.getNodeType().matches("[A-Z][A-Z0-9_]{0,31}"))
+    private void validateNode(Timeline node, boolean canonical) {
+        if (node.getLabel() == null || node.getLabel().isBlank() || node.getLabel().length() > 120)
+            throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线名称不能为空或超过120字");
+        if (node.getNodeType() == null) node.setNodeType(canonical ? TimelineSemantic.OTHER.name() : "CUSTOM");
+        if (canonical) {
+            TimelineSemantic semantic;
+            try {
+                semantic = TimelineSemantic.requireKnown(node.getNodeType());
+            } catch (IllegalArgumentException exception) {
+                throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线业务语义不合法");
+            }
+            if (!semantic.supports(TargetType.fromCode(node.getTargetType()))) {
+                throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线业务语义与主体类型不匹配");
+            }
+            node.setNodeType(semantic.name());
+        } else if (!node.getNodeType().matches("[A-Z][A-Z0-9_]{0,31}")) {
             throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线类型不合法");
-        for (String text : new String[]{node.getLocation(), node.getDescription(), node.getTimeDescription()})
-            if (text != null && text.length() > 255) throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线说明过长");
+        }
+        if (node.getLocation() != null && node.getLocation().length() > 300)
+            throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线地点过长");
+        if (node.getDescription() != null && node.getDescription().length() > 2000)
+            throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间线说明过长");
+        if (node.getTimeDescription() != null && node.getTimeDescription().length() > 500)
+            throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "时间说明过长");
         if (node.getSortOrder() == null || node.getSortOrder() < 0 || node.getSortOrder() > 65535)
             throw new BusinessException(ResultCode.TIMELINE_PARAM_INVALID, "排序值不合法");
         node.setStartPrecision(precision(node.getStartTime(), node.getStartPrecision()));
@@ -153,6 +180,21 @@ public class TimelineServiceImpl implements TimelineService {
         List<Timeline> timelines = timelineMapper.selectList(wrapper);
 
         return timelineConverter.toItemDTOList(timelines);
+    }
+
+    @Override
+    public Map<Long, List<TimelineItemDTO>> listTimelinesByTargets(TargetType targetType, List<Long> targetIds) {
+        assertTargetType(targetType);
+        if (targetIds == null || targetIds.isEmpty()) return Map.of();
+        List<Timeline> timelines = timelineMapper.selectList(Wrappers.lambdaQuery(Timeline.class)
+                .eq(Timeline::getTargetType, targetType.getCode()).in(Timeline::getTargetId, targetIds)
+                .orderByAsc(Timeline::getTargetId).orderByAsc(Timeline::getSortOrder).orderByAsc(Timeline::getId));
+        Map<Long, List<TimelineItemDTO>> result = new LinkedHashMap<>();
+        for (Timeline timeline : timelines) {
+            result.computeIfAbsent(timeline.getTargetId(), ignored -> new java.util.ArrayList<>())
+                    .add(timelineConverter.toItemDTO(timeline));
+        }
+        return result;
     }
 
     private void assertTargetType(TargetType targetType) {

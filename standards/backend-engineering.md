@@ -432,6 +432,11 @@ Prefer expand/migrate/contract style evolution where the deployment model requir
 
 # 4. Reliability, Resource & Process Lifecycle
 
+The repository-specific failure inventory, retry/idempotency decisions, client contract and Async
+Architecture requirements are owned by [Reliability Baseline](../docs/reliability.md). This section
+defines technology-independent engineering rules and must not be used to invent a project retry
+or operation framework without that baseline.
+
 ## 4.1 Failure Outcome Model
 
 Classify an operation attempt into:
@@ -917,15 +922,24 @@ Is the DB pool saturated?
 
 Instrumentation SHOULD be designed around operational properties, not arbitrary classes.
 
-## 8.2 Logs
+## 8.2 Logs and Operational Ownership
 
-Logs are for detailed discrete events.
+One meaningful failure/event SHOULD have one primary logging owner: the boundary responsible for observing its outcome, not every layer through which an exception propagates.
 
-They SHOULD include useful correlation context where available.
+HTTP unexpected request failures belong to the HTTP failure boundary. Workers, consumers, schedulers, retry/recovery loops, dispatchers, callbacks, security infrastructure and startup/shutdown have their own outcome boundaries; a global HTTP exception handler cannot observe them all. Distinct events in one operation may have different owners; avoid duplicate stack traces for the same propagated failure.
 
-Do not log secrets or uncontrolled sensitive payloads.
+Expected validation, capacity, duplicate-operation or state rejection SHOULD NOT automatically generate ERROR stack traces. Ordinary CRUD success, cache misses and queries do not need individual logs without an operational purpose.
 
-Expected business rejection SHOULD NOT automatically generate high-severity stack traces.
+Retry exhaustion, permanent async/dispatch failure, failed recovery and unexpected infrastructure failure SHOULD leave actionable operational evidence. Intermediate retry attempts SHOULD use proportionate evidence such as debug/warn or metrics; do not emit a full ERROR stack trace on every attempt. Severity depends on impact and runtime policy, not a fixed level for every retry.
+
+Evidence SHOULD identify the event, outcome/category, available request/trace/operation correlation, safe necessary resource identity and attempt information. These identifiers serve different scopes (§1.2, §8.5); not every event has all of them. Include the exception when it adds diagnostic value.
+
+Do not log passwords, JWTs, Authorization headers, session/token values, secrets, whole request/response bodies, entire user/entity dumps or unbounded personal data. Select safe fields and bound their size; sanitize untrusted text where it could forge log structure.
+
+Operational logs are not durable audit records or business source of truth. If an action requires reliable retention, queryability or proof for security audit or disputes, define durable audit state/events and their retention/access guarantees in the business/security/data design. A higher log level does not provide those guarantees.
+
+Java §7.7 owns logging call discipline; Spring §11.15–11.17 owns framework integration. This section owns event selection, correlation and primary logging responsibility.
+The repository-specific ID, field, taxonomy, metric/cardinality, sensitive-data and health contract is owned by [Observability Baseline](../docs/observability.md), which MUST reference rather than redefine these technology-independent guarantees.
 
 ## 8.3 Metrics
 
@@ -1154,7 +1168,38 @@ recovered
 
 without evidence appropriate to the claimed property.
 
-When evidence is partial, state the remaining uncertainty.
+Report each verification boundary with PASS, FAIL, BLOCKED or NOT RUN, its actual target, and the property established. PASS requires the relevant check to execute successfully; skipped tests or compilation alone are not test PASS. FAIL means an executed check failed; BLOCKED means a prerequisite prevented the intended check from running; NOT RUN means it was not attempted, with the scope reason.
+
+Focused evidence and repository health are independent claims. Report partial execution and remaining uncertainty rather than an unqualified “Tests: PASS”. Environment evidence must describe the actual configured/used path and its limits, not assume a requested baseline was enforced. The command catalog provides an example report.
+
+## 9.12 Verification Scope and Escalation
+
+Use the smallest boundary capable of proving the changed property. These levels describe scope, not mandatory sequential gates; choose one or a combination directly. A focused test may also exercise a V3 mechanism. Pure documentation changes need appropriate document checks, not a build.
+
+| Level | Scope | Evidence limit |
+|---|---|---|
+| V0 | Compile | Compilation only, not changed runtime behavior |
+| V1 | Focused class/method checks | Selected behavior only |
+| V2 | Related feature/service/package checks | Affected collaborators and regressions |
+| V3 | Component or mechanism boundary | Actual framework, transaction, persistence or other relevant integration |
+| V4 | Repository test suite | Configured repository tests actually executed |
+| V5 | Full verification / CI checks | Actual lifecycle/checks run, not automatic proof of deployment or all tests |
+
+A local change does not default to V4/V5. Shared build/dependency/plugin configuration, global Spring/security/exception/serialization configuration, migrations, shared abstractions, transaction/cache/messaging infrastructure, cross-module refactors and public Contract changes require broader impact assessment and corresponding dependent/mechanism checks. Select V2/V3 and V4/V5 where the propagation warrants them; a “global” label does not make an irrelevant test useful.
+
+Do not substitute V0/V1 for a required mechanism boundary. Mechanism selection belongs to the applicable Java/Spring/Database standard; executable mappings belong to commands.md. Expand after new failures, changed scope or unresolved risk, not merely because more tests exist. Reuse prior evidence only when the tested code, configuration, dependencies and environment relevant to the property remain unchanged.
+
+## 9.13 Failure Classification and Scope Control
+
+| Classification | Required action |
+|---|---|
+| A — Current-scope failure | Fix a failure in the changed behavior or required proof path; complete the relevant verification |
+| B — Unrelated broader failure | Establish evidence it is outside the modified path/dependencies, report it separately, and do not silently expand the task to repair it |
+| C — Verification blocker | Report BLOCKED when test compilation, dependencies, environment or infrastructure prevent the intended verification from executing |
+
+An untouched filename alone is not proof of B: shared behavior may have changed. Use the failing path, dependency analysis or existing/baseline evidence; if attribution remains uncertain, report that uncertainty and investigate proportionally.
+
+The same run can contain B for a known old compilation defect and C for the focused test it blocks. Earlier independent PASS results remain valid within their proven scope, but do not establish the blocked property. Use an existing isolated verification procedure when it proves the required property; never weaken assertions, disable required checks, or claim packaging as a substitute. If repair exceeds task scope, surface the remaining blocker rather than silently fixing unrelated code.
 
 ---
 

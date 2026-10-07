@@ -9,12 +9,9 @@ import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.PageResult;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.infrastructure.queue.contract.QueueProducer;
 import cn.jualn.miniapp.module.audit.bo.AuditReserveBO;
 import cn.jualn.miniapp.module.audit.bo.AuditReserveResultBO;
 import cn.jualn.miniapp.module.audit.enums.AuditStatus;
-import cn.jualn.miniapp.module.audit.payload.AuditMediaBatchPayload;
-import cn.jualn.miniapp.module.audit.payload.AuditTextPayload;
 import cn.jualn.miniapp.module.audit.service.AuditReservationService;
 import cn.jualn.miniapp.module.interact.bo.UserLikeBO;
 import cn.jualn.miniapp.module.interact.dto.inner.UserLikeQuery;
@@ -77,7 +74,6 @@ public class PostServiceImpl implements PostService {
     private final MediaService mediaService;
     private final UserService userService;
     private final RedisService redisService;
-    private final QueueProducer queueProducer;
     private final InteractService interactService;
     private final AuditReservationService auditReservationService;
 
@@ -96,7 +92,7 @@ public class PostServiceImpl implements PostService {
         Long userId = requireUserId();
         userService.assertContentCreationAllowed(userId);
         long start = System.currentTimeMillis();
-        log.info("[PostService.createPost][开始] userId={}, title={}", userId, command.getTitle());
+        log.debug("[PostService.createPost][开始] userId={}", userId);
 
         Post post = Post.builder()
                 .userId(userId)
@@ -140,9 +136,8 @@ public class PostServiceImpl implements PostService {
         List<MediaAttachmentSimpleBO> attachments =
                 buildSimpleAttachments(post.getId(), command.getAttachmentItems());
 
-        afterCommit(() -> enqueueAudit(post.getId(), post.getContent(), reserveResult));
 
-        log.info("[PostService.createPost][完成] userId={}, postId={}, costMs={}",
+        log.debug("[PostService.createPost][完成] userId={}, postId={}, costMs={}",
                 userId, post.getId(), System.currentTimeMillis() - start);
 
         return PostListBO.builder()
@@ -358,8 +353,8 @@ public class PostServiceImpl implements PostService {
             throwAdminPostConflict(command.getPostId(), "帖子当前状态不允许下架");
         }
         afterCommit(() -> redisService.delete(buildPostDetailCacheKey(command.getPostId())));
-        log.info("[PostService.takeDownPost][完成] operatorId={}, postId={}, reason={}",
-                command.getOperatorId(), command.getPostId(), command.getReason());
+        log.info("[PostService.takeDownPost][完成] operatorId={}, postId={}",
+                command.getOperatorId(), command.getPostId());
     }
 
     @Override
@@ -370,8 +365,7 @@ public class PostServiceImpl implements PostService {
             throwAdminPostConflict(postId, "帖子当前状态不允许通过复核");
         }
         afterCommit(() -> redisService.delete(buildPostDetailCacheKey(postId)));
-        log.info("[PostService.approvePostReview][完成] operatorId={}, postId={}, remark={}",
-                operatorId, postId, remark);
+        log.info("[PostService.approvePostReview][完成] operatorId={}, postId={}", operatorId, postId);
     }
 
     @Override
@@ -382,8 +376,7 @@ public class PostServiceImpl implements PostService {
             throwAdminPostConflict(postId, "帖子当前状态不允许拒绝复核");
         }
         afterCommit(() -> redisService.delete(buildPostDetailCacheKey(postId)));
-        log.info("[PostService.rejectPostReview][完成] operatorId={}, postId={}, reason={}",
-                operatorId, postId, reason);
+        log.info("[PostService.rejectPostReview][完成] operatorId={}, postId={}", operatorId, postId);
     }
 
     private void validateReviewAction(Long postId, Long operatorId, boolean reasonRequired, String reason) {
@@ -529,44 +522,6 @@ public class PostServiceImpl implements PostService {
             throw new BusinessException(ResultCode.UNAUTHORIZED);
         }
         return userId;
-    }
-
-    private void enqueueAudit(Long postId, String content, AuditReserveResultBO reserveResult) {
-        if (reserveResult == null || !reserveResult.hasAuditTask()) {
-            return;
-        }
-
-        if (!CollectionUtils.isEmpty(reserveResult.getMediaItems())) {
-            List<AuditMediaBatchPayload.AuditMediaItem> items = reserveResult.getMediaItems().stream()
-                    .filter(Objects::nonNull)
-                    .map(item -> AuditMediaBatchPayload.AuditMediaItem.builder()
-                            .auditLogId(item.getAuditLogId())
-                            .mediaType(item.getMediaType())
-                            .mediaUrl(item.getMediaUrl())
-                            .build())
-                    .toList();
-
-            if (!items.isEmpty()) {
-                queueProducer.send(AuditMediaBatchPayload.builder()
-                        .auditScene(AuditScene.POST)
-                        .targetId(postId)
-                        .scene(3)
-                        .items(items)
-                        .build());
-            }
-        }
-
-        if (reserveResult.getTextAuditLogId() != null && StringUtils.hasText(content)) {
-            queueProducer.send(
-                    AuditTextPayload.builder()
-                            .auditLogId(reserveResult.getTextAuditLogId())
-                            .targetId(postId)
-                            .auditScene(AuditScene.POST)
-                            .content(content)
-                            .scene(3)
-                            .build()
-            );
-        }
     }
 
     private List<MediaAttachmentSimpleBO> buildSimpleAttachments(Long postId, List<AttachmentItemBO> attachmentItems) {

@@ -10,9 +10,10 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @TableName("event_section")
 public class EventSection {
+    private String sectionKey;
+    private Integer contentFormat;
     @TableId(type = IdType.AUTO)
     private Long id;
-    private String sectionType;
     private String title;
     private String content;
     private Integer sortOrder;

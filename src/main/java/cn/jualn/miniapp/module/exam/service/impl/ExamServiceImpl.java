@@ -2,7 +2,6 @@ package cn.jualn.miniapp.module.exam.service.impl;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.constant.UserContext;
-import cn.jualn.miniapp.module.eventcontent.service.EventTimePolicy;
 import cn.jualn.miniapp.common.enums.ExamStatus;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
@@ -18,20 +17,19 @@ import cn.jualn.miniapp.module.exam.bo.AdminPublicEventSaveBO;
 import cn.jualn.miniapp.module.exam.bo.AdminPublicEventQueryBO;
 import cn.jualn.miniapp.module.exam.bo.AdminPublicEventPageBO;
 import cn.jualn.miniapp.module.exam.bo.AdminPublicEventListBO;
-import cn.jualn.miniapp.common.pagination.AdminIdCursorCodec;
 import cn.jualn.miniapp.module.exam.bo.ExamDetailBO;
 import cn.jualn.miniapp.module.exam.bo.ExamPageBO;
-import cn.jualn.miniapp.module.exam.bo.ExamSimpleBO;
 import cn.jualn.miniapp.module.exam.bo.ExamUpdateBO;
 import cn.jualn.miniapp.module.exam.converter.ExamConverter;
 import cn.jualn.miniapp.module.exam.service.ExamService;
 import cn.jualn.miniapp.module.exam.service.ExamSubscriptionService;
+import cn.jualn.miniapp.module.exam.service.PublicEventCursorCodec;
 import cn.jualn.miniapp.module.exam.vo.ExamDetailVO;
 import cn.jualn.miniapp.module.interact.service.InteractService;
-import cn.jualn.miniapp.module.media.bo.MediaAttachmentSaveBO;
 import cn.jualn.miniapp.module.media.service.MediaService;
 import cn.jualn.miniapp.module.notify.service.NotifyService;
 import cn.jualn.miniapp.module.timeline.bo.TimelineSaveBO;
+import cn.jualn.miniapp.module.timeline.service.CardTimelinePolicy;
 import cn.jualn.miniapp.module.timeline.service.TimelineService;
 import cn.jualn.miniapp.module.user.bo.UserSimpleBO;
 import cn.jualn.miniapp.module.user.service.UserService;
@@ -39,6 +37,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import cn.jualn.miniapp.common.web.StrongEtag;
 
 import org.springframework.util.CollectionUtils;
 
@@ -66,6 +65,8 @@ public class ExamServiceImpl implements ExamService {
     private final cn.jualn.miniapp.module.eventcontent.service.EventContentService eventContentService;
 
     private static final Integer SUBSCRIBE_STATUS_ACTIVE = 1;
+    private static final cn.jualn.miniapp.module.exam.service.PublicEventReminderPolicy REMINDER_POLICY =
+            new cn.jualn.miniapp.module.exam.service.PublicEventReminderPolicy();
 
     private final ExamInfoMapper examInfoMapper;
     private final ExamSubscriptionMapper examSubscriptionMapper;
@@ -77,8 +78,21 @@ public class ExamServiceImpl implements ExamService {
     private final InteractService interactService;
     private final ExamSubscriptionService examSubscriptionService;
     private final NotifyService notifyService;
+    private final cn.jualn.miniapp.module.eventcontent.service.EventContactCodec eventContactCodec;
 
     /** 旧用户写入口已停用；事项统一由独立管理端身份维护。 */
+    @Override
+    public ExamDetailBO getPublicEventResource(Long id) {
+        ExamDetailBO detail = getExamDetail(id);
+        detail.setContacts(eventContactCodec.read(detail.getContactsJson(), null, null, null));
+        return detail;
+    }
+
+    @Override
+    public boolean isPubliclyVisible(Long id) {
+        return id != null && examInfoMapper.existsPublicById(id);
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createExam(ExamCreateBO command) {
@@ -98,11 +112,6 @@ public class ExamServiceImpl implements ExamService {
     @Transactional(rollbackFor = Exception.class)
     public void removeExam(Long id) {
         throw new BusinessException(ResultCode.INVALID_OPERATION, "公共事项由运维管理，请使用管理端接口");
-    }
-
-    @Override
-    public List<ExamSimpleBO> getExamSimple() {
-        return examInfoMapper.selectSimpleExams();
     }
 
     /**
@@ -145,6 +154,8 @@ public class ExamServiceImpl implements ExamService {
         List<ExamInfo> examInfos = examInfoMapper.selectPageExams(
                 status,
                 command.getCategory(),
+                command.getEventType(),
+                command.getLifecycleStatus(),
                 keyword,
                 command.getLastId(),
                 pageSize + 1
@@ -155,8 +166,13 @@ public class ExamServiceImpl implements ExamService {
         }
 
         List<ExamDetailBO> list = examConverter.toDetailList(examInfos);
-        list.forEach(this::deriveEventState);
-
+        Map<Long, List<cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO>> timelines =
+                timelineService.listTimelinesByTargets(TargetType.EXAM, list.stream().map(ExamDetailBO::getId).toList());
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"));
+        for (ExamDetailBO item : list) {
+            item.setCardTimeline(CardTimelinePolicy.select(
+                    timelines.getOrDefault(item.getId(), List.of()), now));
+        }
         return PageResult.of(list, hasMore, list.isEmpty() ? null : list.get(list.size() - 1).getId());
     }
 
@@ -251,14 +267,14 @@ public class ExamServiceImpl implements ExamService {
     }
     @Override
     public AdminPublicEventPageBO pageAdminPublicEvents(AdminPublicEventQueryBO query) {
+        int page = query.getPage() == null ? 1 : query.getPage();
         int size = query.getPageSize() == null ? 20 : query.getPageSize();
-        if (size < 1 || size > 100) throw new BusinessException(ResultCode.BAD_REQUEST);
-        Long lastId = AdminIdCursorCodec.decode(query.getCursor(), "public-event-id-desc");
-        List<AdminPublicEventListBO> rows = examInfoMapper.selectOperationsPage(query, lastId, size + 1);
-        boolean more = rows.size() > size;
-        List<AdminPublicEventListBO> items = more ? rows.subList(0, size) : rows;
-        return AdminPublicEventPageBO.builder().items(items).hasMore(more).pageSize(size)
-                .nextCursor(more ? AdminIdCursorCodec.encode("public-event-id-desc", items.get(items.size()-1).getId()) : null).build();
+        if (page < 1 || size < 1 || size > 100 || !"-updatedAt".equals(query.getSort()))
+            throw new BusinessException(ResultCode.BAD_REQUEST);
+        long offset = Math.multiplyExact((long) page - 1, size);
+        List<AdminPublicEventListBO> items = examInfoMapper.selectOperationsPage(query, offset, size);
+        return AdminPublicEventPageBO.builder().items(items).page(page).pageSize(size)
+                .totalItems(examInfoMapper.countOperationsPage(query)).build();
     }
 
     @Override
@@ -266,23 +282,13 @@ public class ExamServiceImpl implements ExamService {
 
     private ExamDetailBO loadPublicEventDetail(ExamInfo exam) {
         ExamDetailBO detail = examConverter.toDetailBO(exam);
-        detail.setAuthor(resolveAuthor(exam.getUserId()));
         detail.setAttachmentItems(mediaService.listAttachments(TargetType.EXAM, exam.getId()));
         detail.setTimelineItems(timelineService.listTimelinesByTarget(TargetType.EXAM, exam.getId()));
-        detail.setSections(eventContentService.sections(TargetType.EXAM, exam.getId(), exam.getContent()));
+        detail.setCardTimeline(CardTimelinePolicy.select(detail.getTimelineItems(),
+                LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))));
+        detail.setSections(eventContentService.sections(TargetType.EXAM, exam.getId()));
         detail.setActions(eventContentService.actions(TargetType.EXAM, exam.getId()));
-        deriveEventState(detail);
         return detail;
-    }
-
-    private void deriveEventState(ExamDetailBO detail) {
-        int publication = detail.getPublishStatus() == null ? 0 : detail.getPublishStatus();
-        LocalDateTime now = LocalDateTime.now();
-        detail.setActivityPhase(EventTimePolicy.phase(publication, detail.getStartTime(), detail.getStartPrecision(),
-                detail.getEndTime(), detail.getEndPrecision(), now));
-        detail.setRegistrationStatus(EventTimePolicy.registration(publication, detail.getRegistrationMode(),
-                detail.getRegistrationStart(), detail.getRegistrationStartPrecision(),
-                detail.getRegistrationEnd(), detail.getRegistrationEndPrecision(), now));
     }
 
     @Override
@@ -290,133 +296,146 @@ public class ExamServiceImpl implements ExamService {
     public ExamDetailBO createAdminPublicEvent(AdminPublicEventSaveBO command) {
         validateOperationsSave(command);
         ExamInfo exam = examConverter.toOperationsEntity(command);
-        normalizeSchedule(exam);
-        exam.setUserId(command.getOperatorId()); // admin login id is the existing user_profile id.
+        exam.setUserId(command.getOperatorId());
         exam.setPublishStatus(0);
-        exam.setStatus(0);
-        exam.setAuditStatus(0);
-        if (exam.getContent() == null) exam.setContent("");
+        exam.setLifecycleStatus(0);
         if (examInfoMapper.insert(exam) != 1) throw operationDenied("公共事项创建失败");
         saveOperationsChildren(exam, command);
         return loadPublicEventDetail(examInfoMapper.selectForUpdate(exam.getId()));
     }
 
     @Override
+    public cn.jualn.miniapp.module.exam.bo.PublicEventResourcePageBO pagePublicEventResources(ExamPageBO query) {
+        query.setLastId(PublicEventCursorCodec.decode(query));
+        PageResult<ExamDetailBO> page = pageExam(query);
+        String nextCursor = Boolean.TRUE.equals(page.getHasMore())
+                ? PublicEventCursorCodec.encode(query, page.getNextCursor()) : null;
+        return new cn.jualn.miniapp.module.exam.bo.PublicEventResourcePageBO(page.getList(), nextCursor);
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
-    public ExamDetailBO updateAdminPublicEvent(AdminPublicEventSaveBO command) {
+    public ExamDetailBO replaceAdminPublicEvent(AdminPublicEventSaveBO command, String ifMatch) {
         validateOperationsSave(command);
         ExamInfo current = lockedEvent(command.getId());
-        if (Integer.valueOf(3).equals(current.getPublishStatus())) throw operationDenied("已取消事项不可编辑");
+        boolean notifyActionableChange = Integer.valueOf(1).equals(current.getPublishStatus())
+                && Integer.valueOf(0).equals(current.getLifecycleStatus());
+        List<cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO> previousTimeline = notifyActionableChange
+                ? timelineService.listTimelinesByTarget(TargetType.EXAM, current.getId()) : List.of();
+        long version = current.getContractVersion() == null ? 1L : current.getContractVersion();
+        StrongEtag.require(ifMatch, "public-event", current.getId(), version);
         ExamInfo exam = examConverter.toOperationsEntity(command);
         exam.setId(current.getId());
-        exam.setCoverAttachmentId(current.getCoverAttachmentId());
-        exam.setContent(command.getContent() == null ? current.getContent() : command.getContent());
         exam.setPublishStatus(current.getPublishStatus());
-        normalizeSchedule(exam);
+        exam.setLifecycleStatus(current.getLifecycleStatus());
         saveOperationsChildren(exam, command);
         if (Integer.valueOf(1).equals(exam.getPublishStatus())) validatePublish(exam);
-        refreshEventReminder(exam);
+        ExamInfo saved = examInfoMapper.selectForUpdate(exam.getId());
+        refreshEventReminder(saved);
+        if (notifyActionableChange) {
+            enqueuePublicEventActionableChanges(saved, previousTimeline,
+                    timelineService.listTimelinesByTarget(TargetType.EXAM, saved.getId()));
+        }
         invalidateEventAfterCommit(exam.getId());
-        return loadPublicEventDetail(examInfoMapper.selectForUpdate(exam.getId()));
+        return loadPublicEventDetail(saved);
     }
 
     private void saveOperationsChildren(ExamInfo exam, AdminPublicEventSaveBO command) {
         Long id = exam.getId();
-        exam.setContent(eventContentService.saveSections(TargetType.EXAM, id, command.getSections(), command.getContent() == null ? exam.getContent() : command.getContent()));
+        eventContentService.saveSections(TargetType.EXAM, id, command.getSections());
         eventContentService.prepareActions(TargetType.EXAM, id, command.getActions());
-        if (command.getAttachments() != null) mediaService.replaceAttachments(MediaAttachmentSaveBO.builder()
-                .targetType(TargetType.EXAM).targetId(id).attachments(command.getAttachments()).build());
-        if (command.getTimeline() != null) timelineService.replaceTimelines(TimelineSaveBO.builder()
+        timelineService.replaceTimelines(TimelineSaveBO.builder()
                 .targetType(TargetType.EXAM).targetId(id).timelines(command.getTimeline()).build());
+        mediaService.replaceAttachmentLinks(TargetType.EXAM, id, command.getAttachmentLinks());
         eventContentService.saveActions(TargetType.EXAM, id, command.getActions());
-        Long cover = command.getCoverAttachmentId();
-        if (Boolean.TRUE.equals(command.getClearCover()) && (cover != null || org.springframework.util.StringUtils.hasText(command.getCoverObjectKey())))
-            throw operationDenied("清除封面与设置封面不能同时提交");
-        List<cn.jualn.miniapp.module.media.bo.MediaAttachmentBO> attachments = mediaService.listAttachments(TargetType.EXAM, id);
-        if (org.springframework.util.StringUtils.hasText(command.getCoverObjectKey())) {
-            Long resolved = attachments.stream().filter(a -> command.getCoverObjectKey().equals(a.getObjectKey()))
-                    .map(cn.jualn.miniapp.module.media.bo.MediaAttachmentBO::getId).findFirst()
-                    .orElseThrow(() -> operationDenied("封面对象不属于当前事项"));
-            if (cover != null && !cover.equals(resolved)) throw operationDenied("封面ID与对象键不一致");
-            cover = resolved;
-        }
-        eventContentService.validateCover(TargetType.EXAM, id, cover);
-        if (Boolean.TRUE.equals(command.getClearCover())) exam.setCoverAttachmentId(null);
-        else if (cover != null) exam.setCoverAttachmentId(cover);
-        else if (attachments.stream().noneMatch(a -> a.getId().equals(exam.getCoverAttachmentId())))
-            exam.setCoverAttachmentId(null); // Deleted cover follows the FK SET NULL semantics.
+        eventContentService.validateCover(TargetType.EXAM, id, command.getCoverAttachmentId());
+        exam.setCoverAttachmentId(command.getCoverAttachmentId());
         if (examInfoMapper.saveOperationsFields(exam) != 1) throw operationDenied("公共事项保存失败");
     }
 
     private void validateOperationsSave(AdminPublicEventSaveBO command) {
         if (command == null || command.getOperatorId() == null) throw new BusinessException(ResultCode.UNAUTHORIZED);
-        if (command.getRegistrationMode() == null || !Set.of(0, 1, 3).contains(command.getRegistrationMode()))
-            throw operationDenied("仅支持未确认、无需报名或外部报名");
-        if (command.getParticipantMode() == null || command.getParticipantMode() < 0 || command.getParticipantMode() > 3)
-            throw operationDenied("参与形式不合法");
-        Integer scope = command.getAudienceScope();
-        if (scope == null || scope < 0 || scope > 63 || ((scope & 1) != 0 && scope != 1))
-            throw operationDenied("参与范围不合法");
-        if ((command.getCapacity() == null) != (command.getCapacityUnit() == null)
-                || (command.getCapacity() != null && (command.getCapacity() <= 0 || !Set.of(1, 2).contains(command.getCapacityUnit()))))
-            throw operationDenied("官方容量与人/队单位必须同时填写");
+        if (!command.isCanonicalFullReplacement() || command.getTitle() == null
+                || command.getTimeline() == null || command.getSections() == null || command.getActions() == null
+                || command.getAttachmentLinks() == null || command.getContactsJson() == null)
+            throw new BusinessException(ResultCode.BAD_REQUEST, "PublicEventDraft不完整");
     }
 
     private void validatePublish(ExamInfo exam) {
-        if (exam.getTitle() == null || exam.getTitle().isBlank() || exam.getContent() == null || exam.getContent().isBlank()
-                || exam.getRegistrationMode() == null || !Set.of(1, 3).contains(exam.getRegistrationMode()))
-            throw operationDenied("发布前请填写正文并确认报名方式");
+        List<cn.jualn.miniapp.common.exception.ContractProblemException.Violation> errors = new ArrayList<>();
+        if (exam.getTitle() == null || exam.getTitle().isBlank()) errors.add(publishError("/title", "标题不能为空"));
+        if (exam.getSummary() == null || exam.getSummary().isBlank()) errors.add(publishError("/summary", "摘要不能为空"));
+        if (exam.getEventType() == null) errors.add(publishError("/type", "类型不能为空"));
+        if (exam.getSourceName() == null || exam.getSourceName().isBlank()) errors.add(publishError("/sourceName", "来源名称不能为空"));
+        if ((exam.getSourceUrl() == null || exam.getSourceUrl().isBlank())
+                && (exam.getOfficialUrl() == null || exam.getOfficialUrl().isBlank()))
+            errors.add(publishError("/sourceUrl", "sourceUrl或officialUrl至少提供一个"));
+        if (!errors.isEmpty()) throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict(
+                "publish-validation-failed", "PublicEvent未满足发布完整性", errors);
+    }
+
+    private cn.jualn.miniapp.common.exception.ContractProblemException.Violation publishError(
+            String pointer, String detail) {
+        return new cn.jualn.miniapp.common.exception.ContractProblemException.Violation(
+                "body", pointer, "REQUIRED", detail);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void publishAdminPublicEvent(Long id, Long operatorId) {
+    public ExamDetailBO transitionAdminPublicEvent(Long id, Long operatorId, String ifMatch, String action) {
         requireOperator(operatorId);
-        ExamInfo exam = lockedEvent(id);
-        if (Integer.valueOf(1).equals(exam.getPublishStatus())) return;
-        if (Integer.valueOf(3).equals(exam.getPublishStatus())) throw operationDenied("已取消事项不能重新发布");
-        validatePublish(exam);
-        if (examInfoMapper.publishDirectly(id) != 1) throw operationDenied("公共事项发布失败");
-        exam.setPublishStatus(1);
-        refreshEventReminder(exam);
+        ExamInfo current = lockedEvent(id);
+        long version = current.getContractVersion() == null ? 1L : current.getContractVersion();
+        StrongEtag.require(ifMatch, "public-event", id, version);
+        int publication = current.getPublishStatus() == null ? 0 : current.getPublishStatus();
+        int lifecycle = current.getLifecycleStatus() == null ? 0 : current.getLifecycleStatus();
+        int nextPublication = publication; int nextLifecycle = lifecycle;
+        boolean publishing = false;
+        switch (action) {
+            case "publish" -> {
+                if (publication == 1) return loadPublicEventDetail(current);
+                validatePublish(current);
+                nextPublication = 1;
+                publishing = true;
+            }
+            case "unpublish" -> {
+                if (publication == 2) return loadPublicEventDetail(current);
+                if (publication != 1)
+                    throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict(
+                            "state-conflict", "Only published content can be unpublished");
+                nextPublication = 2;
+            }
+            case "cancel" -> {
+                if (lifecycle == 2) return loadPublicEventDetail(current);
+                if (publication != 1 || lifecycle != 0)
+                    throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict(
+                            "state-conflict", "Only a published active public event can be cancelled");
+                nextPublication = 1;
+                nextLifecycle = 2;
+            }
+            case "end" -> {
+                if (lifecycle == 1) return loadPublicEventDetail(current);
+                if (publication != 1 || lifecycle != 0)
+                    throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict(
+                            "state-conflict", "Only a published active public event can be ended");
+                nextLifecycle = 1;
+            }
+            default -> throw new BusinessException(ResultCode.BAD_REQUEST, "Unknown lifecycle action");
+        }
+        if(examInfoMapper.transitionContract(id,version,nextPublication,nextLifecycle,publishing)!=1)
+            throw cn.jualn.miniapp.common.exception.ContractProblemException.preconditionFailed();
+        notifyService.replaceEventReminder(TargetType.EXAM,id,current.getTitle(),null);
+        ExamInfo changed=examInfoMapper.selectForUpdate(id);
+        if(publishing&&nextLifecycle==0)refreshEventReminder(changed);
+        if ("cancel".equals(action)) {
+            notifyService.enqueueBusinessNotification(TargetType.EXAM, id,
+                    "public-event:" + id + ":cancel:v" + changed.getContractVersion(),
+                    cn.jualn.miniapp.common.enums.NotifyType.PUBLIC_EVENT_CANCELLED, "SUBSCRIBERS",
+                    "公共事项已取消", "公共事项「" + changed.getTitle() + "」已取消",
+                    subjectSnapshot(changed, "公共事项已取消", "公共事项「" + changed.getTitle() + "」已取消"));
+        }
         invalidateEventAfterCommit(id);
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void takeDownAdminPublicEvent(Long id, Long operatorId, String reason) {
-        requireReason(operatorId, reason);
-        ExamInfo exam = lockedEvent(id);
-        if (Integer.valueOf(2).equals(exam.getPublishStatus())) return;
-        if (!Integer.valueOf(1).equals(exam.getPublishStatus()) || examInfoMapper.takeDownDirectly(id) != 1)
-            throw operationDenied("只有已发布事项可以下架");
-        notifyService.replaceEventReminder(TargetType.EXAM, id, exam.getTitle(), null);
-        invalidateEventAfterCommit(id);
-        log.info("[公共事项下架] id={}, operatorId={}, reason={}", id, operatorId, reason.trim());
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void cancelAdminPublicEvent(Long id, Long operatorId, String reason) {
-        requireReason(operatorId, reason);
-        ExamInfo exam = lockedEvent(id);
-        if (Integer.valueOf(3).equals(exam.getPublishStatus())) return;
-        if (!Integer.valueOf(1).equals(exam.getPublishStatus()) || examInfoMapper.cancelDirectly(id, reason.trim()) != 1)
-            throw operationDenied("只有已发布事项可以取消");
-        notifyService.replaceEventReminder(TargetType.EXAM, id, exam.getTitle(), null);
-        invalidateEventAfterCommit(id);
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void removeAdminPublicEvent(Long id, Long operatorId, String reason) {
-        requireReason(operatorId, reason);
-        ExamInfo exam = lockedEvent(id);
-        if (Integer.valueOf(1).equals(exam.getPublishStatus())) throw operationDenied("已发布事项请先下架");
-        if (examInfoMapper.removeDirectly(id) != 1) throw operationDenied("公共事项删除失败");
-        notifyService.replaceEventReminder(TargetType.EXAM, id, exam.getTitle(), null);
-        invalidateEventAfterCommit(id);
-        log.info("[公共事项删除] id={}, operatorId={}, reason={}", id, operatorId, reason.trim());
+        return loadPublicEventDetail(changed);
     }
 
     private ExamInfo lockedEvent(Long id) {
@@ -428,17 +447,57 @@ public class ExamServiceImpl implements ExamService {
     private void requireOperator(Long id) {
         if (id == null) throw new BusinessException(ResultCode.UNAUTHORIZED);
     }
-    private void requireReason(Long id, String reason) {
-        requireOperator(id);
-        if (reason == null || reason.isBlank() || reason.length() > 255) throw operationDenied("请填写255字内原因");
-    }
     private BusinessException operationDenied(String message) { return new BusinessException(ResultCode.INVALID_OPERATION, message); }
     private void refreshEventReminder(ExamInfo exam) {
-        LocalDateTime sendAt = Integer.valueOf(1).equals(exam.getPublishStatus())
-                && Integer.valueOf(3).equals(exam.getRegistrationMode())
-                && Integer.valueOf(2).equals(exam.getRegistrationStartPrecision()) && exam.getRegistrationStart() != null
-                ? exam.getRegistrationStart().minusHours(1) : null;
-        notifyService.replaceEventReminder(TargetType.EXAM, exam.getId(), exam.getTitle(), sendAt);
+        LocalDateTime now = LocalDateTime.now();
+        List<cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO> timeline =
+                timelineService.listTimelinesByTarget(TargetType.EXAM, exam.getId());
+        notifyService.reconcileReminders(TargetType.EXAM, exam.getId(),
+                exam.getContractVersion() == null ? 0L : exam.getContractVersion(),
+                REMINDER_POLICY.evaluate(exam, timeline, now), now);
+    }
+    private void enqueuePublicEventActionableChanges(ExamInfo saved,
+            List<cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO> previousTimeline,
+            List<cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO> currentTimeline) {
+        long version = saved.getContractVersion() == null ? 1L : saved.getContractVersion();
+        java.util.Set<String> semantics = java.util.Set.of("PUBLIC_EVENT_START", "REGISTRATION_END");
+        if (cn.jualn.miniapp.module.timeline.service.ActionableTimelineChangeDetector.exactTimeChanged(
+                previousTimeline, currentTimeline, semantics)) {
+            notifyService.enqueueBusinessNotification(TargetType.EXAM, saved.getId(),
+                    "public-event:" + saved.getId() + ":time:v" + version,
+                    cn.jualn.miniapp.common.enums.NotifyType.PUBLIC_EVENT_TIME_CHANGED, "SUBSCRIBERS",
+                    "公共事项时间已变更", "公共事项「" + saved.getTitle() + "」的行动时间已变更",
+                    changeSnapshot(saved, "公共事项时间已变更", cn.jualn.miniapp.module.timeline.service.ActionableTimelineChangeDetector
+                            .timeChanges(previousTimeline, currentTimeline, semantics)));
+        }
+        if (cn.jualn.miniapp.module.timeline.service.ActionableTimelineChangeDetector.effectiveLocationChanged(
+                previousTimeline, currentTimeline, semantics)) {
+            notifyService.enqueueBusinessNotification(TargetType.EXAM, saved.getId(),
+                    "public-event:" + saved.getId() + ":location:v" + version,
+                    cn.jualn.miniapp.common.enums.NotifyType.PUBLIC_EVENT_LOCATION_CHANGED, "SUBSCRIBERS",
+                    "公共事项地点已变更", "公共事项「" + saved.getTitle() + "」的行动地点已变更",
+                    changeSnapshot(saved, "公共事项地点已变更", cn.jualn.miniapp.module.timeline.service.ActionableTimelineChangeDetector
+                            .locationChanges(previousTimeline, currentTimeline, semantics)));
+        }
+    }
+
+    private cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot subjectSnapshot(ExamInfo event, String title, String body) {
+        String id = event.getId().toString();
+        return new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot(
+                new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Presentation(title, body, null, null, null, event.getTitle(), null),
+                null, new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Subject("PUBLIC_EVENT", id),
+                new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Target("PUBLIC_EVENT_DETAIL", null, null, null, id));
+    }
+
+    private cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot changeSnapshot(ExamInfo event, String title,
+            List<cn.jualn.miniapp.module.timeline.service.ActionableTimelineChangeDetector.Change> changes) {
+        String id = event.getId().toString();
+        return new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot(
+                new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Presentation(title, null, event.getTitle(), null,
+                        changes.stream().map(change -> new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Change(
+                                change.label(), change.before(), change.after())).toList(), event.getTitle(), null), null,
+                new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Subject("PUBLIC_EVENT", id),
+                new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Target("PUBLIC_EVENT_DETAIL", null, null, null, id));
     }
     private void invalidateEventAfterCommit(Long id) {
         org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
@@ -452,26 +511,4 @@ public class ExamServiceImpl implements ExamService {
                 });
     }
 
-    private void normalizeSchedule(ExamInfo exam) {
-        if (exam.getStartTime() == null && exam.getExamDate() != null) {
-            exam.setStartTime(exam.getExamDate().atStartOfDay());
-            exam.setStartPrecision(1);
-        }
-        if (exam.getEndTime() == null && exam.getExamDateEnd() != null) {
-            exam.setEndTime(exam.getExamDateEnd().atStartOfDay());
-            exam.setEndPrecision(1);
-        }
-        if (exam.getEventType() != null && (exam.getEventType() < 0 || exam.getEventType() > 3))
-            throw new BusinessException(ResultCode.INVALID_OPERATION, "事项类型不合法");
-        if (exam.getTimeDescription() != null && exam.getTimeDescription().length() > 255)
-            throw new BusinessException(ResultCode.INVALID_OPERATION, "时间说明过长");
-        exam.setStartPrecision(EventTimePolicy.precision(exam.getStartTime(), exam.getStartPrecision()));
-        exam.setEndPrecision(EventTimePolicy.precision(exam.getEndTime(), exam.getEndPrecision()));
-        exam.setRegistrationStartPrecision(EventTimePolicy.precision(exam.getRegistrationStart(), exam.getRegistrationStartPrecision()));
-        exam.setRegistrationEndPrecision(EventTimePolicy.precision(exam.getRegistrationEnd(), exam.getRegistrationEndPrecision()));
-        EventTimePolicy.range(exam.getStartTime(), exam.getEndTime(), exam.getEndPrecision());
-        EventTimePolicy.range(exam.getRegistrationStart(), exam.getRegistrationEnd(), exam.getRegistrationEndPrecision());
-        exam.setExamDate(exam.getStartTime() == null ? null : exam.getStartTime().toLocalDate());
-        exam.setExamDateEnd(exam.getEndTime() == null ? null : exam.getEndTime().toLocalDate());
-    }
 }

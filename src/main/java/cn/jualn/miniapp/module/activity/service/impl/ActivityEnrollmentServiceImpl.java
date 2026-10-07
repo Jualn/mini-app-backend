@@ -4,6 +4,7 @@ import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.constant.UserContext;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
+import cn.jualn.miniapp.common.exception.ContractProblemException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
@@ -54,14 +55,43 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
      * @throws BusinessException 当用户未登录、活动不存在或已报名时抛出
      */
     @Override
+    public cn.jualn.miniapp.module.activity.bo.ActivitySubscriptionBO getSubscriptionState(Long activityId) {
+        Long userId = requireUserId();
+        ActivityEnrollment relation = activityEnrollmentMapper.selectOne(new LambdaQueryWrapper<ActivityEnrollment>()
+                .eq(ActivityEnrollment::getActivityId, activityId).eq(ActivityEnrollment::getUserId, userId));
+        if (relation == null) {
+            var subject = activityMapper.selectByIdNotDeleted(activityId);
+            if (subject == null || !Integer.valueOf(1).equals(subject.getPublishStatus())) {
+                throw new BusinessException(ResultCode.NOT_FOUND);
+            }
+        }
+        boolean subscribed = relation != null && Integer.valueOf(1).equals(relation.getStatus());
+        return new cn.jualn.miniapp.module.activity.bo.ActivitySubscriptionBO(subscribed,
+                subscribed ? relation.getCreatedAt() : null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public cn.jualn.miniapp.module.activity.bo.ActivitySubscriptionBO subscribeWithState(Long activityId) {
+        enrollActivity(activityId);
+        return getSubscriptionState(activityId);
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public void enrollActivity(Long activityId) {
         Long userId = requireUserId();
         var event = activityMapper.selectForUpdate(activityId);
-        if (event == null || !Integer.valueOf(1).equals(event.getPublishStatus()))
-            throw new BusinessException(ResultCode.NOT_FOUND, "事项未发布或不可订阅");
         var existing = activityEnrollmentMapper.selectOne(new LambdaQueryWrapper<ActivityEnrollment>()
                 .eq(ActivityEnrollment::getActivityId, activityId).eq(ActivityEnrollment::getUserId, userId));
+        // PUT is idempotent: an existing fact survives later withdrawal or lifecycle changes.
+        if (existing != null && Integer.valueOf(STATUS_ACTIVE).equals(existing.getStatus())) {
+            return;
+        }
+        if (event == null || !Integer.valueOf(1).equals(event.getPublishStatus()))
+            throw new BusinessException(ResultCode.NOT_FOUND, "事项未发布或不可订阅");
+        if (!Integer.valueOf(0).equals(event.getLifecycleStatus()))
+            throw ContractProblemException.conflict("lifecycle-conflict", "Only an active activity can be subscribed");
         if (existing == null) {
             if (activityEnrollmentMapper.insert(ActivityEnrollment.builder().activityId(activityId).userId(userId)
                     .status(1).notifyEnable(1).type(2).build()) != 1)
@@ -200,6 +230,24 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
                         .orderByAsc(ActivityEnrollment::getUserId)
                         .last(" LIMIT " + limit)
         ).stream().map(ActivityEnrollment::getUserId).toList();
+    }
+
+    @Override
+    public List<Long> listNotifyEnabledUnregisteredUserIds(Long activityId, long lastId, int limit) {
+        if (activityId == null || limit <= 0) return java.util.List.of();
+        return activityEnrollmentMapper.selectNotifyEnabledUnregisteredUserIds(activityId, lastId, limit);
+    }
+
+    @Override
+    public List<Long> listSubscriberOrRegisteredUserIds(Long activityId, long lastId, long upperUserId, int limit) {
+        if (activityId == null || upperUserId <= 0 || limit <= 0) return List.of();
+        return activityEnrollmentMapper.selectSubscriberOrRegisteredUserIds(
+                activityId, lastId, upperUserId, Math.min(limit, 100));
+    }
+
+    @Override
+    public long subscriberOrRegisteredUpperBound(Long activityId) {
+        return activityId == null ? 0L : activityEnrollmentMapper.selectSubscriberOrRegisteredUpperBound(activityId);
     }
 
     @Override

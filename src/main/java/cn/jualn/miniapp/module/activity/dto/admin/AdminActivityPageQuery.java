@@ -9,25 +9,20 @@ import lombok.Data;
 @Data
 public class AdminActivityPageQuery {
 
-    @Size(max = 128, message = "关键词不能超过128字")
-    private String keyword;
+    @Size(min = 1, max = 200, message = "关键词长度必须为1至200字")
+    private String q;
 
-    @Pattern(regexp = "draft|reviewing|enrolling|ongoing|ended|cancelled|rejected",
-            message = "活动状态不合法")
-    private String status;
+    @Pattern(regexp = "DRAFT|PUBLISHED|UNPUBLISHED", message = "发布状态不合法")
+    private String publishStatus;
 
-    @Pattern(regexp = "other|culture|volunteer|ideology|lecture|sports", message = "活动分类不合法")
-    private String category;
+    @Pattern(regexp = "ACTIVE|ENDED|CANCELLED", message = "生命周期状态不合法")
+    private String lifecycleStatus;
 
-    @Pattern(regexp = "college|information|science|finance|humanities|foundation",
-            message = "参与范围不合法")
-    private String audience;
+    @Pattern(regexp = "-updatedAt", message = "排序方式不合法")
+    private String sort = "-updatedAt";
 
-    @Pattern(regexp = "latest|soonest|most-subscribed", message = "排序方式不合法")
-    private String sort = "latest";
-
-    @Size(max = 256, message = "分页游标过长")
-    private String cursor;
+    @Min(value = 1, message = "页码至少为1")
+    private Integer page = 1;
 
     @Min(value = 1, message = "每页至少返回1条")
     @Max(value = 100, message = "每页最多返回100条")

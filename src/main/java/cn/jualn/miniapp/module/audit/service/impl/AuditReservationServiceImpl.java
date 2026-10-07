@@ -3,6 +3,12 @@ package cn.jualn.miniapp.module.audit.service.impl;
 import cn.jualn.miniapp.common.enums.AuditScene;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.ResultCode;
+import cn.jualn.miniapp.common.constant.UserContext;
+import cn.jualn.miniapp.common.observability.ObservabilityContext;
+import cn.jualn.miniapp.infrastructure.async.job.JobDefinition;
+import cn.jualn.miniapp.infrastructure.async.job.JobService;
+import cn.jualn.miniapp.module.audit.async.AuditMediaJobPayload;
+import cn.jualn.miniapp.module.audit.async.AuditTextJobPayload;
 import cn.jualn.miniapp.module.audit.bo.AuditReserveBO;
 import cn.jualn.miniapp.module.audit.bo.AuditReserveResultBO;
 import cn.jualn.miniapp.module.audit.entity.ContentAuditLog;
@@ -19,6 +25,7 @@ import org.springframework.util.StringUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -37,6 +44,7 @@ public class AuditReservationServiceImpl implements AuditReservationService {
             );
 
     private final ContentAuditLogMapper contentAuditLogMapper;
+    private final JobService jobService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -64,6 +72,11 @@ public class AuditReservationServiceImpl implements AuditReservationService {
 
             contentAuditLogMapper.insert(textLog);
             textAuditLogId = textLog.getId();
+            jobService.create(new JobDefinition("audit.text.submit", 1, ObservabilityContext.ensureOperationId(),
+                    "audit-log:" + textLog.getId(), "content-audit-log", String.valueOf(textLog.getId()),
+                    new AuditTextJobPayload(textLog.getId(), bo.getAuditScene(), bo.getTargetId(),
+                            bo.getTextContent(), wxScene(bo.getAuditScene()), UserContext.getUserId()),
+                    LocalDateTime.now(), 4));
         }
 
         if (!CollectionUtils.isEmpty(bo.getMediaItems())) {
@@ -81,6 +94,12 @@ public class AuditReservationServiceImpl implements AuditReservationService {
 
                 contentAuditLogMapper.insert(mediaLog);
 
+                jobService.create(new JobDefinition("audit.media.submit", 1, ObservabilityContext.ensureOperationId(),
+                        "audit-log:" + mediaLog.getId(), "content-audit-log", String.valueOf(mediaLog.getId()),
+                        new AuditMediaJobPayload(mediaLog.getId(), bo.getAuditScene(), bo.getTargetId(),
+                                item.getMediaUrl(), item.getMediaType(), wxScene(bo.getAuditScene()), UserContext.getUserId()),
+                        LocalDateTime.now(), 4));
+
                 mediaResults.add(AuditReserveResultBO.MediaItem.builder()
                         .auditLogId(mediaLog.getId())
                         .mediaType(item.getMediaType())
@@ -93,6 +112,14 @@ public class AuditReservationServiceImpl implements AuditReservationService {
                 .textAuditLogId(textAuditLogId)
                 .mediaItems(mediaResults)
                 .build();
+    }
+
+    private int wxScene(AuditScene scene) {
+        return switch (scene) {
+            case USER_NICKNAME, USER_AVATAR, USER_BIO, USER_BACKGROUND -> 1;
+            case COMMENT -> 2;
+            default -> 3;
+        };
     }
 
     private void assertAuditScene(AuditScene auditScene) {

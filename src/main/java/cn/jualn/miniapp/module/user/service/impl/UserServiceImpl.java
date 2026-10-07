@@ -1,5 +1,16 @@
 package cn.jualn.miniapp.module.user.service.impl;
 
+import cn.jualn.miniapp.common.enums.AuditScene;
+import cn.jualn.miniapp.common.exception.ContractProblemException;
+import cn.jualn.miniapp.common.exception.ContractProblemException.Violation;
+import cn.jualn.miniapp.common.exception.ExternalServiceException;
+import cn.jualn.miniapp.module.audit.service.ProfileSafetyCheckService;
+import cn.jualn.miniapp.module.media.bo.ProfileMediaSnapshotBO;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.transaction.annotation.Propagation;
+
 import cn.dev33.satoken.stp.StpUtil;
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.constant.UserContext;
@@ -17,7 +28,7 @@ import cn.jualn.miniapp.module.user.converter.UserConverter;
 import cn.jualn.miniapp.module.user.dto.inner.UserInfoDTO;
 import cn.jualn.miniapp.module.user.entity.UserAgreement;
 import cn.jualn.miniapp.module.user.entity.UserProfile;
-import cn.jualn.miniapp.module.user.event.UserProfileUpdatedEvent;
+import cn.jualn.miniapp.module.user.event.UserCreatedEvent;
 import cn.jualn.miniapp.module.user.mapper.UserAgreementMapper;
 import cn.jualn.miniapp.module.user.mapper.AdminUserDetailRow;
 import cn.jualn.miniapp.module.user.mapper.AdminUserListRow;
@@ -30,6 +41,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -54,6 +66,58 @@ public class UserServiceImpl implements UserService {
     private final MediaService mediaService;
     private final AdminOperationLogService adminOperationLogService;
 
+    private final ProfileSafetyCheckService profileSafety;
+    private final PlatformTransactionManager transactionManager;
+
+    @Value("${app.user-profile.writes-enabled:false}")
+    private boolean profileWritesEnabled;
+
+    @Override
+    public EffectiveProfileBO getEffectiveProfile(Long userId) {
+        Long actorId = requireUserId();
+        UserProfile actor = requireProfile(actorId);
+        assertProfileAllowed(actor);
+        return effectiveProfile(userId == null || actorId.equals(userId) ? actor : requireProfile(userId));
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NEVER)
+    public EffectiveProfileBO updateEffectiveProfile(UserProfileUpdateBO command) {
+        if (command == null || command.getAvatarUrl() != null || command.getBackgroundUrl() != null
+                || command.getBackgroundObjectKey() != null || command.getGender() != null) {
+            throw invalidProfile("/", "INVALID", "仅允许修改昵称、头像引用和简介");
+        }
+        UserProfileBO saved = updateCurrentProfile(command);
+        return EffectiveProfileBO.builder().userId(saved.getId()).nickname(saved.getNickname())
+                .avatarUrl(StringUtils.hasText(saved.getAvatarUrl()) ? saved.getAvatarUrl() : null)
+                .bio(Objects.requireNonNullElse(saved.getBio(), ""))
+                .platformOperator(saved.getRole() == UserRole.OPR || saved.getRole() == UserRole.ADMIN).build();
+    }
+
+    private UserProfile requireProfile(Long userId) {
+        UserProfile profile = userProfileMapper.selectById(userId);
+        if (profile == null) throw new BusinessException(ResultCode.USER_NOT_FOUND);
+        return profile;
+    }
+
+    private EffectiveProfileBO effectiveProfile(UserProfile profile) {
+        if (profile.getNickname() == null) {
+            throw new IllegalStateException("Profile nickname requires historical-data remediation");
+        }
+        return EffectiveProfileBO.builder().userId(profile.getId()).nickname(profile.getNickname())
+                .avatarUrl(StringUtils.hasText(profile.getAvatarUrl()) ? profile.getAvatarUrl() : null)
+                .bio(Objects.requireNonNullElse(profile.getBio(), ""))
+                .platformOperator(Objects.equals(profile.getRole(), UserRole.OPR.getCode())
+                        || Objects.equals(profile.getRole(), UserRole.ADMIN.getCode())).build();
+    }
+
+    private void assertProfileAllowed(UserProfile profile) {
+        if (Objects.equals(profile.getStatus(), UserStatus.BANNED.getCode())
+                && (profile.getBanExpireAt() == null || profile.getBanExpireAt().isAfter(LocalDateTime.now()))) {
+            throw new BusinessException(ResultCode.FORBIDDEN);
+        }
+    }
+
     /**
      * 根据微信小程序 openid 获取用户基本信息。
      *
@@ -61,6 +125,7 @@ public class UserServiceImpl implements UserService {
      * @return 用户基本信息，用于拼接给登录返回
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public UserInfoDTO getUserInfo(String openid) {
         if (!StringUtils.hasText(openid)) {
             throw new BusinessException(ResultCode.INVALID_OPERATION, "openid 不能为空");
@@ -82,6 +147,7 @@ public class UserServiceImpl implements UserService {
                     .role(UserRole.USER.getCode())  // 只会回填 id，这里设置避免下方转化拿到null
                     .build();
             userProfileMapper.insert(userProfile);
+            eventPublisher.publishEvent(new UserCreatedEvent(userProfile.getId()));
         }
 
         return userConverter.toUserInfoDTO(userProfile);
@@ -94,7 +160,7 @@ public class UserServiceImpl implements UserService {
     public UserProfileBO getCurrentProfile() {
         long start = System.currentTimeMillis();
         Long userId = requireUserId();
-        log.info("[UserService.getCurrentProfile][开始] userId={}", userId);
+        log.debug("[UserService.getCurrentProfile][开始] userId={}", userId);
 
         UserProfileBO profileBO = userConverter.toProfileBO(
                 userProfileMapper.selectById(userId));
@@ -103,7 +169,7 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(ResultCode.USER_NOT_FOUND);
         }
 
-        log.info("[UserService.getCurrentProfile][完成] userId={}, costMs={}", userId, System.currentTimeMillis() - start);
+        log.debug("[UserService.getCurrentProfile][完成] userId={}, costMs={}", userId, System.currentTimeMillis() - start);
         return profileBO;
     }
 
@@ -400,8 +466,8 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(ResultCode.DATA_CONFLICT, "用户状态已变化，请刷新后重试");
         }
         evictUserProfileCache(target.getId());
-        log.info("[UserService.restoreUser][完成] operatorId={}, targetUserId={}, reason={}",
-                command.getOperatorId(), target.getId(), command.getReason());
+        log.info("[UserService.restoreUser][完成] operatorId={}, targetUserId={}",
+                command.getOperatorId(), target.getId());
     }
 
     @Override
@@ -463,18 +529,67 @@ public class UserServiceImpl implements UserService {
         return openid;
     }
 
+    @Override
+    public String getOfficialAccountOpenid(Long userId) {
+        if (userId == null) {
+            return null;
+        }
+        return userProfileMapper.selectMpOpenIdById(userId);
+    }
+
+    @Override
+    public Long findUserIdByOfficialAccountOpenid(String mpOpenid) {
+        if (!StringUtils.hasText(mpOpenid)) {
+            return null;
+        }
+        List<Long> userIds = userProfileMapper.selectIdsByMpOpenid(mpOpenid);
+        if (userIds.size() > 1) {
+            throw new BusinessException(ResultCode.DATA_CONFLICT, "服务号身份存在重复关联，暂不能继续");
+        }
+        return userIds.isEmpty() ? null : userIds.get(0);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void bindOfficialAccountIdentity(Long userId, String mpOpenid) {
+        if (userId == null || !StringUtils.hasText(mpOpenid)) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "服务号身份关联参数不完整");
+        }
+
+        String current = userProfileMapper.selectMpOpenIdById(userId);
+        if (mpOpenid.equals(current)) {
+            return;
+        }
+        if (StringUtils.hasText(current)) {
+            throw new BusinessException(ResultCode.DATA_CONFLICT, "当前用户已绑定其他服务号身份");
+        }
+
+        Long existingOwner = findUserIdByOfficialAccountOpenid(mpOpenid);
+        if (existingOwner != null && !existingOwner.equals(userId)) {
+            throw new BusinessException(ResultCode.DATA_CONFLICT, "该服务号身份已关联其他用户");
+        }
+
+        try {
+            if (userProfileMapper.bindMpOpenidIfUnchanged(userId, mpOpenid) != 1) {
+                throw new BusinessException(ResultCode.DATA_CONFLICT, "用户身份已变化，请重新发起绑定");
+            }
+        } catch (DuplicateKeyException conflict) {
+            throw new BusinessException(ResultCode.DATA_CONFLICT, "该服务号身份已关联其他用户");
+        }
+    }
+
     /**
      * 更新当前登录用户资料。
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(propagation = Propagation.NEVER)
     public UserProfileBO updateCurrentProfile(UserProfileUpdateBO bo) {
         if (bo == null) {
             throw new BusinessException(ResultCode.INVALID_OPERATION, "请求参数不能为空");
         }
 
         Long userId = requireUserId();
-        log.info("[UserService.updateCurrentProfile][开始] userId={}", userId);
+        log.debug("[UserService.updateCurrentProfile][开始] userId={}", userId);
 
         if (!hasAnyProfileUpdateField(bo)) {
             throw new BusinessException(ResultCode.USER_PROFILE_EMPTY);
@@ -484,37 +599,106 @@ public class UserServiceImpl implements UserService {
         if (existingProfile == null) {
             throw new BusinessException(ResultCode.USER_NOT_FOUND);
         }
+        assertProfileAllowed(existingProfile);
+        validateProfileFields(bo);
+        if (!profileWritesEnabled) throw ProfileSafetyCheckService.unavailable();
         List<String> removedObjectKeys = normalizeProfileMediaUpdate(bo, existingProfile);
         List<String> newObjectKeys = new ArrayList<>(2);
         collectNewObjectKey(newObjectKeys, existingProfile.getAvatarObjectKey(), bo.getAvatarObjectKey());
         collectNewObjectKey(newObjectKeys, existingProfile.getBackgroundObjectKey(), bo.getBackgroundObjectKey());
-        mediaService.bindPendingUploads(TargetType.USER, userId, newObjectKeys);
-
         UserProfile profile = userConverter.toEntity(bo);
-
-        profile.setId(userId);
-        int updated = userProfileMapper.updateById(profile);
-        if (updated == 0) {
-            log.warn("[UserService.updateCurrentProfile][用户不存在] userId={}", userId);
-            throw new BusinessException(ResultCode.USER_NOT_FOUND);
+        if (bo.getAvatarObjectKey() != null && !Objects.equals(bo.getAvatarObjectKey(), existingProfile.getAvatarObjectKey())) {
+            var snapshot = prepareProfileSnapshot(bo.getAvatarObjectKey(), "/avatarObjectKey");
+            profile.setAvatarSnapshotKey(snapshot.objectKey());
+            profile.setAvatarUrl(snapshot.url());
+            newObjectKeys.add(snapshot.objectKey());
+            if (existingProfile.getAvatarSnapshotKey() != null) removedObjectKeys.add(existingProfile.getAvatarSnapshotKey());
+        } else {
+            profile.setAvatarSnapshotKey(existingProfile.getAvatarSnapshotKey());
+            if (bo.getAvatarObjectKey() != null) profile.setAvatarUrl(existingProfile.getAvatarUrl());
+        }
+        if (bo.getBackgroundObjectKey() != null && !Objects.equals(bo.getBackgroundObjectKey(), existingProfile.getBackgroundObjectKey())) {
+            var snapshot = prepareProfileSnapshot(bo.getBackgroundObjectKey(), "/backgroundObjectKey");
+            profile.setBackgroundSnapshotKey(snapshot.objectKey());
+            profile.setBackgroundUrl(snapshot.url());
+            newObjectKeys.add(snapshot.objectKey());
+            if (existingProfile.getBackgroundSnapshotKey() != null) removedObjectKeys.add(existingProfile.getBackgroundSnapshotKey());
+        } else {
+            profile.setBackgroundSnapshotKey(existingProfile.getBackgroundSnapshotKey());
+            if (bo.getBackgroundObjectKey() != null) profile.setBackgroundUrl(existingProfile.getBackgroundUrl());
+        }
+        String openid = (bo.getNickname() != null || bo.getBio() != null) ? getMiniOpenid(userId) : null;
+        profileSafety.checkText(openid, bo.getNickname());
+        profileSafety.checkText(openid, bo.getBio());
+        if (bo.getAvatarObjectKey() != null && !Objects.equals(profile.getAvatarSnapshotKey(), existingProfile.getAvatarSnapshotKey())) {
+            profileSafety.checkMedia(userId, AuditScene.USER_AVATAR, profile.getAvatarUrl());
+        }
+        if (bo.getBackgroundObjectKey() != null && !Objects.equals(profile.getBackgroundSnapshotKey(), existingProfile.getBackgroundSnapshotKey())) {
+            profileSafety.checkMedia(userId, AuditScene.USER_BACKGROUND, profile.getBackgroundUrl());
         }
 
-        // 提交后再失效缓存，缓存故障不能把已经保存成功的资料报告为保存失败。
-        afterCommit(() -> {
-            try {
-                evictUserProfileCache(userId);
-            } catch (Exception e) {
-                log.error("[UserService.updateCurrentProfile] 缓存失效失败，等待 TTL，userId={}", userId, e);
+        // No candidate has been written. Lock only during validation and final local commit.
+        return new TransactionTemplate(transactionManager).execute(status -> {
+            UserProfile current = userProfileMapper.selectProfileForUpdate(userId);
+            if (current == null) throw new BusinessException(ResultCode.USER_NOT_FOUND);
+            assertProfileAllowed(current);
+            if (!Objects.equals(current.getProfileRevision(), existingProfile.getProfileRevision())) {
+                throw ProfileSafetyCheckService.unavailable();
             }
+            try {
+                mediaService.bindPendingUploads(TargetType.USER, userId, newObjectKeys);
+            } catch (BusinessException invalidReference) {
+                throw invalidProfile(bo.getAvatarObjectKey() != null ? "/avatarObjectKey" : "/backgroundObjectKey",
+                        "INVALID_REFERENCE", "媒体引用不可用");
+            }
+            if (userProfileMapper.updateCheckedProfile(userId, current.getProfileRevision(), profile) != 1) {
+                throw ProfileSafetyCheckService.unavailable();
+            }
+            afterCommit(() -> {
+                try {
+                    evictUserProfileCache(userId);
+                } catch (RuntimeException failure) {
+                    log.error("[UserService.updateCurrentProfile] 缓存失效失败，等待 TTL，userId={}", userId, failure);
+                }
+            });
+            UserProfile saved = requireProfile(userId);
+            Set<String> retainedKeys = new HashSet<>(Arrays.asList(saved.getAvatarObjectKey(), saved.getBackgroundObjectKey(),
+                    saved.getAvatarSnapshotKey(), saved.getBackgroundSnapshotKey()));
+            mediaService.deleteObjectsAfterCommit(removedObjectKeys.stream().filter(key -> !retainedKeys.contains(key)).toList(),
+                    TargetType.USER, userId);
+            return userConverter.toProfileBO(saved);
         });
+    }
 
-        eventPublisher.publishEvent(new UserProfileUpdatedEvent(userId, bo));
-        mediaService.deleteObjectsAfterCommit(removedObjectKeys, TargetType.USER, userId);
+    private ProfileMediaSnapshotBO prepareProfileSnapshot(String key, String pointer) {
+        try {
+            return mediaService.prepareProfileSnapshot(key);
+        } catch (BusinessException invalid) {
+            throw invalidProfile(pointer, "INVALID_REFERENCE", "媒体引用不可用");
+        } catch (ExternalServiceException failure) {
+            var problem = ProfileSafetyCheckService.unavailable();
+            problem.initCause(failure);
+            throw problem;
+        }
+    }
 
-        log.info("[UserService.updateCurrentProfile][完成] userId={}", userId);
-        // 事务内读取最终记录（含未修改字段和服务端规范化 URL），不回显请求或读取 Redis。
-        // Spring 事务代理提交成功后，Controller 才会发送此结果。
-        return getUserProfile(userId);
+    private void validateProfileFields(UserProfileUpdateBO command) {
+        validateProfileString(command.getNickname(), "/nickname", 10, true);
+        validateProfileString(command.getBio(), "/bio", 200, false);
+        validateProfileString(command.getAvatarObjectKey(), "/avatarObjectKey", 512, true);
+        validateProfileString(command.getBackgroundObjectKey(), "/backgroundObjectKey", 512, true);
+    }
+
+    private void validateProfileString(String value, String pointer, int max, boolean nonBlank) {
+        if (value != null && ((nonBlank && value.codePoints().noneMatch(c -> !Character.isWhitespace(c) && !Character.isSpaceChar(c)))
+                || value.codePointCount(0, value.length()) > max)) {
+            throw invalidProfile(pointer, "INVALID", "字段为空白或长度超限");
+        }
+    }
+
+    private ContractProblemException invalidProfile(String pointer, String code, String detail) {
+        return ContractProblemException.validation(
+                new ContractProblemException.Violation("body", pointer, code, detail));
     }
 
     /**
@@ -524,7 +708,7 @@ public class UserServiceImpl implements UserService {
     @Transactional(rollbackFor = Exception.class)
     public void agreeCurrentAgreement(String version) {
         Long userId = requireUserId();
-        log.info("[UserService.agreeCurrentAgreement][开始] userId={}, version={}", userId, version);
+        log.debug("[UserService.agreeCurrentAgreement][开始] userId={}, version={}", userId, version);
         if (!StringUtils.hasText(version)) {
             throw new BusinessException(ResultCode.INVALID_OPERATION, "协议版本不能为空");
         }
@@ -543,7 +727,7 @@ public class UserServiceImpl implements UserService {
         }
 
         redisService.delete(RedisKeyConstant.userAgreement(userId));
-        log.info("[UserService.agreeCurrentAgreement][完成] userId={}, version={}", userId, version);
+        log.debug("[UserService.agreeCurrentAgreement][完成] userId={}, version={}", userId, version);
     }
 
     /**
@@ -587,8 +771,8 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(ResultCode.DATA_CONFLICT, "用户状态已变化，请刷新后重试");
         }
         evictUserProfileCache(target.getId());
-        log.info("[UserService.changeRestriction][完成] operatorId={}, targetUserId={}, status={}, expireAt={}, reason={}",
-                command.getOperatorId(), target.getId(), targetStatus, expireAt, command.getReason());
+        log.info("[UserService.changeRestriction][完成] operatorId={}, targetUserId={}, status={}, expireAt={}",
+                command.getOperatorId(), target.getId(), targetStatus, expireAt);
     }
 
     private void validateRestrictionCommand(AdminUserRestrictionBO command) {
@@ -744,7 +928,7 @@ public class UserServiceImpl implements UserService {
             }
             String objectKey = bo.getAvatarObjectKey().trim();
             bo.setAvatarObjectKey(objectKey);
-            bo.setAvatarUrl(mediaService.resolveOwnedUploadUrl(TargetType.USER, objectKey));
+            bo.setAvatarUrl(resolveProfileReference(objectKey, "/avatarObjectKey"));
             collectReplacedObjectKey(removedObjectKeys, existingProfile.getAvatarObjectKey(), objectKey);
         } else if (bo.getAvatarUrl() != null
                 && !Objects.equals(bo.getAvatarUrl(), existingProfile.getAvatarUrl())) {
@@ -757,7 +941,7 @@ public class UserServiceImpl implements UserService {
             }
             String objectKey = bo.getBackgroundObjectKey().trim();
             bo.setBackgroundObjectKey(objectKey);
-            bo.setBackgroundUrl(mediaService.resolveOwnedUploadUrl(TargetType.USER, objectKey));
+            bo.setBackgroundUrl(resolveProfileReference(objectKey, "/backgroundObjectKey"));
             collectReplacedObjectKey(removedObjectKeys, existingProfile.getBackgroundObjectKey(), objectKey);
         } else if (bo.getBackgroundUrl() != null
                 && !Objects.equals(bo.getBackgroundUrl(), existingProfile.getBackgroundUrl())) {
@@ -770,6 +954,14 @@ public class UserServiceImpl implements UserService {
     private void collectReplacedObjectKey(List<String> removed, String previousKey, String nextKey) {
         if (StringUtils.hasText(previousKey) && !Objects.equals(previousKey, nextKey)) {
             removed.add(previousKey);
+        }
+    }
+
+    private String resolveProfileReference(String objectKey, String pointer) {
+        try {
+            return mediaService.resolveOwnedUploadUrl(TargetType.USER, objectKey);
+        } catch (BusinessException invalidReference) {
+            throw invalidProfile(pointer, "INVALID_REFERENCE", "媒体引用不可用");
         }
     }
 

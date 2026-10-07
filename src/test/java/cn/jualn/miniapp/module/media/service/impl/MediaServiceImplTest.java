@@ -6,6 +6,8 @@ import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
 import cn.jualn.miniapp.module.media.bo.AttachmentItemBO;
+import cn.jualn.miniapp.module.media.bo.AttachmentLinkBO;
+import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentSaveBO;
 import cn.jualn.miniapp.module.media.converter.MediaConverter;
 import cn.jualn.miniapp.module.media.entity.MediaAttachment;
@@ -89,6 +91,31 @@ class MediaServiceImplTest {
         String objectKey = captor.getValue().get(0);
         assertTrue(objectKey.startsWith("post/7/"));
         assertTrue(objectKey.endsWith("_mypic.jpg"));
+    }
+
+    @Test
+    void registerAttachmentStoresImmutableCanonicalMetadata() {
+        mediaService.registerAttachment("POSTER", " 招新海报 ", "https://cdn.example/poster.png", 9L);
+
+        ArgumentCaptor<MediaAttachment> captor = ArgumentCaptor.forClass(MediaAttachment.class);
+        verify(mediaAttachmentMapper).insert(captor.capture());
+        assertEquals("POSTER", captor.getValue().getKind());
+        assertEquals(MediaType.IMAGE.getCode(), captor.getValue().getType());
+        assertEquals("招新海报", captor.getValue().getOriginalName());
+        assertEquals(9L, captor.getValue().getRegisteredBy());
+    }
+
+    @Test
+    void replaceAttachmentLinksValidatesRegistryBeforeReplacing() {
+        var entity = MediaAttachment.builder().id(31L).registered(true).build();
+        when(mediaAttachmentMapper.selectBatchIds(any())).thenReturn(List.of(entity));
+        when(mediaAttachmentMapper.selectById(31L)).thenReturn(entity);
+        when(mediaConverter.toBOList(List.of(entity))).thenReturn(List.of(MediaAttachmentBO.builder().id(31L).build()));
+
+        mediaService.replaceAttachmentLinks(TargetType.ACTIVITY, 7L, List.of(new AttachmentLinkBO(31L, 0)));
+
+        verify(mediaAttachmentMapper).deleteLinks(TargetType.ACTIVITY.getCode(), 7L);
+        verify(mediaAttachmentMapper).insertLink(TargetType.ACTIVITY.getCode(), 7L, 31L, 0);
     }
 
     @Test

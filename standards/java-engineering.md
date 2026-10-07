@@ -50,6 +50,8 @@ A newer local JDK, CI JDK, IDE, formatter, or compiler MUST NOT by itself author
 
 The build SHOULD use a platform-aware Java 17 compilation mode equivalent to `--release 17` rather than relying only on bytecode targeting.
 
+Repository build configuration owns enforcement of this baseline; developer probes do not establish it. Maven Wrapper selects Maven, not a JDK. A configured Java 17 toolchain can select compatible build/test tools; compiler release targeting alone does not select the test JVM. Keep compiler, annotation processing and test runtime compatibility aligned. Current repository entry points and environment-diagnostic triggers are in [commands.md](../governance/commands.md#环境).
+
 ## 0.3 Stable and Preview Features
 
 Stable Java 17 features MAY be used when they improve semantics, correctness, or readability. Examples include:
@@ -191,7 +193,7 @@ Comments SHOULD explain information the code cannot clearly express, such as:
 - an external compatibility limitation;
 - a temporary constraint and removal condition.
 
-Comments SHOULD NOT narrate syntax.
+Inline comments should explain ordering requirements, concurrency assumptions, non-obvious edge cases and workaround reasons where needed. Comments SHOULD NOT narrate syntax, such as describing count++ as incrementing count.
 
 A stale comment MUST be updated or removed when the implementation changes.
 
@@ -211,7 +213,9 @@ Javadoc documents Java API semantics.
 
 It SHOULD explain non-obvious purpose, preconditions, ownership/lifecycle, return semantics, failure behavior, thread-safety expectations, units/ranges, or important side effects.
 
-Javadoc SHOULD NOT mechanically repeat names and signatures.
+Javadoc SHOULD NOT mechanically repeat names and signatures. Obvious getters/setters, DTO accessors and simple CRUD forwarding methods do not need documentation that adds no information. Document a precondition, postcondition, side effect or constraint when a caller cannot use the API correctly from its signature alone.
+
+Javadoc is implementation-facing Java API documentation. HTTP/schema semantics remain owned by Accepted Contract/OpenAPI; Controller Javadoc may link to that authority but MUST NOT become a parallel HTTP contract or manually copied field/status specification.
 
 Javadoc is especially useful for reusable public/protected APIs, cross-package abstractions, non-obvious value/domain types, extension points, and lifecycle-sensitive APIs.
 
@@ -967,13 +971,11 @@ Messages SHOULD add useful diagnostic context and MUST NOT intentionally include
 
 ## 7.7 Logging and Throwing
 
-A layer SHOULD NOT automatically log an exception merely because it catches it.
+Follow the primary event/failure owner defined in [Backend §8.2](backend-engineering.md#82-logs-and-operational-ownership). Catching does not itself require logging. A catch that translates and rethrows should preserve the cause without logging another stack trace when the receiving boundary owns the failure.
 
-Avoid duplicate logging at repository/service/controller/global-handler layers for the same propagated failure.
+Use parameterized logging rather than concatenating messages. Avoid eagerly constructing expensive diagnostic values for disabled levels; guard expensive work where needed. Pass the Throwable through the logger's exception argument when a stack trace is required rather than retaining only getMessage(). Do not use broad object toString() calls as a shortcut for selecting safe diagnostic fields.
 
-Do not log-and-swallow when the caller must know the operation failed.
-
-Operational logging ownership belongs to the observability/framework boundary.
+Do not log-and-swallow when the caller must know the operation failed. Event selection, severity and audit guarantees belong to Backend §8.2; the concrete logging API and context integration belong to Spring §11.17.
 
 ## 7.8 Fallback
 

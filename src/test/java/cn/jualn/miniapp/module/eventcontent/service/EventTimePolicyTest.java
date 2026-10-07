@@ -16,22 +16,18 @@ class EventTimePolicyTest {
         var end = LocalDateTime.of(2026,9,7,12,0);
         assertEquals("CLOSED", EventTimePolicy.registration(1,3,end.minusDays(2),2,end,2,end));
     }
-    @Test void activityMayBeOngoingWhileRegistrationOpen() {
+    @Test void activityRegistrationMayBeOpen() {
         var now = LocalDateTime.of(2026,9,7,12,0);
-        assertEquals("ONGOING", EventTimePolicy.phase(1,now.minusDays(1),2,now.plusDays(1),2,now));
         assertEquals("OPEN", EventTimePolicy.registration(1,3,now.minusDays(2),2,now.plusHours(1),2,now));
     }
     @Test void unknownTimesDoNotInventAvailability() {
         var now = LocalDateTime.now();
-        assertEquals("UNKNOWN", EventTimePolicy.phase(1,null,0,null,0,now));
         assertEquals("UNKNOWN", EventTimePolicy.registration(1,3,null,0,null,0,now));
         assertEquals("UNKNOWN", EventTimePolicy.registration(1,0,now.minusDays(1),2,now.plusDays(1),2,now));
     }
-    @Test void cancelledOrUnpublishedIsUnavailable() {
+    @Test void unpublishedIsUnavailable() {
         var now = LocalDateTime.now();
-        assertEquals("CANCELLED", EventTimePolicy.phase(3,null,0,null,0,now));
         assertEquals("UNAVAILABLE", EventTimePolicy.registration(0,3,now.minusDays(1),2,now.plusDays(1),2,now));
-        assertEquals("UNAVAILABLE", EventTimePolicy.registration(3,1,null,0,null,0,now));
     }
     @Test void datePrecisionRequiresMidnight() {
         assertThrows(BusinessException.class, () -> EventTimePolicy.precision(LocalDateTime.of(2026,9,7,12,0),1));

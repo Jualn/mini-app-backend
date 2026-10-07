@@ -57,12 +57,33 @@ class ExamSubscriptionServiceImplTest {
     void subscribeExam_shouldBeIdempotentWhenAlreadySubscribed() {
         UserContext.setUserId(12L);
         ExamSubscriptionServiceImpl service = new ExamSubscriptionServiceImpl(examInfoMapper, examSubscriptionMapper, redisService, targetValidator);
-        when(examInfoMapper.selectForUpdate(88L)).thenReturn(cn.jualn.miniapp.module.exam.entity.ExamInfo.builder().id(88L).publishStatus(1).build());
+        when(examInfoMapper.selectForUpdate(88L)).thenReturn(cn.jualn.miniapp.module.exam.entity.ExamInfo.builder().id(88L).publishStatus(1).lifecycleStatus(0).build());
         when(examSubscriptionMapper.selectOne(any())).thenReturn(ExamSubscription.builder().id(1L).status(1).build());
 
         service.subscribeExam(88L);
 
         verify(examSubscriptionMapper, never()).insert(any(ExamSubscription.class));
+    }
+
+    @Test
+    void cancelledRelationshipRemainsReadableWithoutLoadingUnavailableSubject() {
+        UserContext.setUserId(7L);
+        var service = new ExamSubscriptionServiceImpl(examInfoMapper, examSubscriptionMapper, redisService, targetValidator);
+        when(examSubscriptionMapper.selectOne(any())).thenReturn(ExamSubscription.builder().id(1L).status(2).build());
+        var state = service.getSubscriptionState(10L);
+        org.junit.jupiter.api.Assertions.assertFalse(state.subscribed());
+        org.junit.jupiter.api.Assertions.assertNull(state.subscribedAt());
+        org.mockito.Mockito.verifyNoInteractions(examInfoMapper, redisService);
+    }
+
+    @Test
+    void absentRelationshipDoesNotExposeAnUnavailableSubject() {
+        UserContext.setUserId(7L);
+        var service = new ExamSubscriptionServiceImpl(examInfoMapper, examSubscriptionMapper, redisService, targetValidator);
+        org.junit.jupiter.api.Assertions.assertThrows(cn.jualn.miniapp.common.exception.BusinessException.class,
+                () -> service.getSubscriptionState(10L));
+        verify(examInfoMapper).selectByIdNotDeleted(10L);
+        org.mockito.Mockito.verifyNoInteractions(redisService);
     }
 }
 

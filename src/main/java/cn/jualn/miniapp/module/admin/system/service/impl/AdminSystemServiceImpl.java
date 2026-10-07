@@ -1,8 +1,14 @@
 package cn.jualn.miniapp.module.admin.system.service.impl;
 
+import cn.jualn.miniapp.infrastructure.async.AsyncMetricNames;
 import cn.jualn.miniapp.module.admin.system.bo.AdminSystemOverviewBO;
 import cn.jualn.miniapp.module.admin.system.service.AdminSystemService;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.availability.ApplicationAvailability;
+import org.springframework.boot.availability.LivenessState;
+import org.springframework.boot.availability.ReadinessState;
 import org.springframework.core.env.Environment;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -11,7 +17,7 @@ import org.springframework.util.StringUtils;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -22,10 +28,13 @@ public class AdminSystemServiceImpl implements AdminSystemService {
     private final DataSource dataSource;
     private final RedisConnectionFactory redisConnectionFactory;
     private final Environment environment;
+    private final ApplicationAvailability applicationAvailability;
+    private final MeterRegistry meterRegistry;
+    private final AdminRuntimeMetricsReader runtimeMetricsReader;
 
     @Override
     public AdminSystemOverviewBO getOverview() {
-        LocalDateTime checkedAt = LocalDateTime.now();
+        OffsetDateTime checkedAt = OffsetDateTime.now();
         List<AdminSystemOverviewBO.ServiceHealthBO> services = new ArrayList<>();
         services.add(healthy(
                 "admin-api",
@@ -33,8 +42,10 @@ public class AdminSystemServiceImpl implements AdminSystemService {
                 "当前请求已通过管理端认证与权限校验",
                 0L,
                 checkedAt));
-        services.add(checkMySql(checkedAt));
-        services.add(checkRedis(checkedAt));
+        AdminSystemOverviewBO.ServiceHealthBO mysql = checkMySql(checkedAt);
+        AdminSystemOverviewBO.ServiceHealthBO redis = checkRedis(checkedAt);
+        services.add(mysql);
+        services.add(redis);
         services.add(configurationState(
                 "cos",
                 "腾讯云 COS",
@@ -54,11 +65,80 @@ public class AdminSystemServiceImpl implements AdminSystemService {
                 .environment(String.join(",", environment.getActiveProfiles()))
                 .release(resolveRelease())
                 .checkedAt(checkedAt)
+                .health(applicationHealth(mysql, redis))
                 .services(services)
+                .runtimeMetrics(runtimeMetricsReader.snapshot())
+                .asyncRuntime(asyncRuntime())
                 .build();
     }
 
-    private AdminSystemOverviewBO.ServiceHealthBO checkMySql(LocalDateTime checkedAt) {
+    private AdminSystemOverviewBO.ApplicationHealthBO applicationHealth(
+            AdminSystemOverviewBO.ServiceHealthBO mysql,
+            AdminSystemOverviewBO.ServiceHealthBO redis) {
+        boolean live = applicationAvailability.getLivenessState() == LivenessState.CORRECT;
+        boolean ready = applicationAvailability.getReadinessState() == ReadinessState.ACCEPTING_TRAFFIC
+                && isHealthy(mysql) && isHealthy(redis);
+        return AdminSystemOverviewBO.ApplicationHealthBO.builder()
+                .liveness(healthState(live,
+                        "Spring 应用生命周期状态；依赖短暂失败不会触发进程重启"))
+                .readiness(healthState(ready,
+                        "接流量状态，并纳入当前核心依赖 MySQL 与 Redis"))
+                .build();
+    }
+
+    private AdminSystemOverviewBO.HealthStateBO healthState(boolean up, String description) {
+        return AdminSystemOverviewBO.HealthStateBO.builder()
+                .status(up ? "UP" : "DOWN")
+                .statusLabel(up ? "正常" : "不可用")
+                .description(description)
+                .build();
+    }
+
+    private boolean isHealthy(AdminSystemOverviewBO.ServiceHealthBO service) {
+        return "healthy".equals(service.getStatus());
+    }
+
+    private AdminSystemOverviewBO.AsyncRuntimeBO asyncRuntime() {
+        long refreshIntervalMs = environment.getProperty(
+                "async-processing.metrics.refresh-interval", Long.class, 30_000L);
+        return AdminSystemOverviewBO.AsyncRuntimeBO.builder()
+                .sampleMaxAgeSeconds(Math.max(1L, (refreshIntervalMs + 999L) / 1000L))
+                .databaseAvailable(isAvailable(AsyncMetricNames.DATABASE_STATE_AVAILABLE))
+                .streamAvailable(isAvailable(AsyncMetricNames.STREAM_AVAILABLE))
+                .outbox(AdminSystemOverviewBO.OutboxStateBO.builder()
+                        .pending(gaugeValue(AsyncMetricNames.OUTBOX_PENDING))
+                        .oldestPendingAgeSeconds(gaugeValue(AsyncMetricNames.OUTBOX_OLDEST_PENDING_AGE))
+                        .build())
+                .jobs(AdminSystemOverviewBO.JobStateBO.builder()
+                        .ready(gaugeValue(AsyncMetricNames.JOB_READY))
+                        .running(gaugeValue(AsyncMetricNames.JOB_RUNNING))
+                        .retryWaiting(gaugeValue(AsyncMetricNames.JOB_RETRY_WAITING))
+                        .dead(gaugeValue(AsyncMetricNames.JOB_DEAD_CURRENT))
+                        .oldestOverdueAgeSeconds(gaugeValue(AsyncMetricNames.JOB_OLDEST_OVERDUE_AGE))
+                        .build())
+                .stream(AdminSystemOverviewBO.StreamStateBO.builder()
+                        .length(gaugeValue(AsyncMetricNames.STREAM_LENGTH))
+                        .lag(gaugeValue(AsyncMetricNames.STREAM_LAG))
+                        .pending(gaugeValue(AsyncMetricNames.STREAM_PENDING))
+                        .consumers(gaugeValue(AsyncMetricNames.STREAM_CONSUMERS))
+                        .oldestPendingAgeSeconds(gaugeValue(AsyncMetricNames.STREAM_OLDEST_PENDING_AGE))
+                        .build())
+                .build();
+    }
+
+    private boolean isAvailable(String meterName) {
+        Long value = gaugeValue(meterName);
+        return value != null && value == 1L;
+    }
+
+    private Long gaugeValue(String meterName) {
+        Gauge gauge = meterRegistry.find(meterName).gauge();
+        if (gauge == null) return null;
+        double value = gauge.value();
+        return Double.isFinite(value) && value >= 0D ? Math.round(value) : null;
+    }
+
+    private AdminSystemOverviewBO.ServiceHealthBO checkMySql(OffsetDateTime checkedAt) {
         long startedAt = System.nanoTime();
         try (Connection connection = dataSource.getConnection()) {
             boolean valid = connection.isValid(2);
@@ -70,7 +150,7 @@ public class AdminSystemServiceImpl implements AdminSystemService {
         }
     }
 
-    private AdminSystemOverviewBO.ServiceHealthBO checkRedis(LocalDateTime checkedAt) {
+    private AdminSystemOverviewBO.ServiceHealthBO checkRedis(OffsetDateTime checkedAt) {
         long startedAt = System.nanoTime();
         try (RedisConnection connection = redisConnectionFactory.getConnection()) {
             String pong = connection.ping();
@@ -86,7 +166,7 @@ public class AdminSystemServiceImpl implements AdminSystemService {
             String key,
             String name,
             String description,
-            LocalDateTime checkedAt,
+            OffsetDateTime checkedAt,
             String... propertyNames) {
         boolean configured = true;
         for (String propertyName : propertyNames) {
@@ -111,7 +191,7 @@ public class AdminSystemServiceImpl implements AdminSystemService {
             String name,
             String description,
             Long latencyMs,
-            LocalDateTime checkedAt) {
+            OffsetDateTime checkedAt) {
         return AdminSystemOverviewBO.ServiceHealthBO.builder()
                 .key(key)
                 .name(name)
@@ -128,7 +208,7 @@ public class AdminSystemServiceImpl implements AdminSystemService {
             String name,
             String description,
             Long latencyMs,
-            LocalDateTime checkedAt) {
+            OffsetDateTime checkedAt) {
         return AdminSystemOverviewBO.ServiceHealthBO.builder()
                 .key(key)
                 .name(name)

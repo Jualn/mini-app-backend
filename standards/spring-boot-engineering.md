@@ -1077,13 +1077,7 @@ Security-specific error adapters MUST still produce the accepted Contract semant
 
 An exception handler MUST NOT generally re-execute failed business operations.
 
-Retry/recovery requires higher-level knowledge of:
-
-- logical operation identity;
-- idempotency;
-- outcome certainty;
-- retry ownership;
-- backoff.
+Retry ownership and safety are defined in Backend §4.3–4.10; Web exception translation does not own operation recovery.
 
 ### 6.13 Unknown Outcome
 
@@ -1093,11 +1087,7 @@ Web translation must preserve higher-level failure semantics.
 
 ### 6.14 Logging
 
-Error translation and log severity are separate decisions.
-
-Expected validation/business rejection SHOULD NOT flood ERROR logs with full stack traces.
-
-Unexpected server failures SHOULD produce appropriate diagnostic evidence without leaking it to clients.
+HTTP exception translation and logging are separate responsibilities. Apply the HTTP-boundary integration in §11.17 and the primary ownership policy in Backend §8.2; translating an exception does not require another stack trace.
 
 ---
 
@@ -1478,11 +1468,7 @@ Capture only context whose lifetime intentionally crosses the boundary.
 
 ### 9.5 Context Propagation
 
-For Boot-managed task execution, use the supported Boot context-propagation configuration where appropriate.
-
-For custom executors, configure an appropriate `TaskDecorator` explicitly.
-
-Worker thread context MUST be restored/cleared in `finally`-style semantics to avoid cross-task leakage.
+Apply §9.4's lifetime boundary when selecting context. Observability capture, task decoration and cleanup are defined once in §11.15; do not assume context propagation also carries a transaction or authorization.
 
 ### 9.6 Async + Transaction
 
@@ -2000,31 +1986,24 @@ Tracing headers are observability context, not authentication.
 
 ### 11.15 Async Context
 
-Executor boundaries do not automatically preserve arbitrary thread-local observability context.
+MDC is thread-associated context, not durable operation state; arbitrary MDC does not automatically follow executor boundaries. For Boot-managed executors use supported context propagation where applicable; for custom executors use an explicit task decorator when correlation must propagate.
 
-Use the supported Boot context-propagation configuration for Boot-managed executors, or an explicit decorator for custom executors.
+Capture only selected safe context when submitting a task, install it for that task, then restore the prior context in finally (or clear when none existed). Request filters/interceptors likewise own cleanup on pooled request threads. Do not clear another scope's context or leak previous users' context between tasks. Callback/consumer boundaries derive correlation from their validated input; they cannot inherit the original HTTP thread implicitly.
 
-Do not assume MDC follows worker threads.
+Verify required propagation and cleanup across success, failure and reused-thread paths when changing this wiring. Context propagation does not transfer authentication authority or a transaction.
 
 ### 11.16 Sensitive Data
 
-Logs, traces, metrics, health details, and baggage MUST NOT casually expose:
-
-- passwords;
-- tokens;
-- private keys;
-- secrets;
-- unnecessary personal/sensitive payload.
-
-Observability data can have broader retention/access than application memory.
+Apply Backend §8.2's safe-field policy to logs, traces, health details and baggage. Configure framework request logging, access logging and exception rendering so they do not bypass it. Review runtime logging configuration as well as application calls.
 
 ### 11.17 Logging
 
-Log severity is an operational policy.
+Use the project's SLF4J facade and Boot-managed logging configuration (normally Logback with the default logging starter). Avoid introducing a second backend or custom logger infrastructure without a concrete need. Parameterized calls and exception propagation follow Java §7.7; event selection, severity, correlation requirements and audit distinction follow Backend §8.2.
+The repository-specific field names, ID semantics, metric/cardinality and health groups are defined by [Observability Baseline](../docs/observability.md); this section owns only their Spring integration mechanisms.
 
-Expected client validation or known business rejection SHOULD NOT automatically generate ERROR stack traces.
+GlobalExceptionHandler / ControllerAdvice records unexpected HTTP failures that reach its boundary. Failures outside MVC need their corresponding adapters (§6.11 for security/filter boundaries, §8 for lifecycle, §9.3 for async completion). Use Future completion or the void @Async failure handler according to §9.3; a TaskDecorator that installs context is not by itself proof that task exceptions are observed. Do not duplicate a service stack trace when adapting the same failure.
 
-Required business/audit facts MUST NOT exist only in DEBUG logs.
+Runtime levels, appenders, formats and retention belong in Boot logging properties or the applicable logging configuration, not scattered per-call special cases. MDC rendering should use only context actually supplied by the relevant boundary. Required durable audit state must use its own persistence design; logback configuration cannot provide that guarantee.
 
 ### 11.18 Telemetry Failure
 
@@ -2055,7 +2034,7 @@ property
 → evidence
 ```
 
-Do not begin with “which Spring annotation should I use?”
+Verification scope, escalation and failure classification are owned by [Backend §9.12–9.13](backend-engineering.md#912-verification-scope-and-escalation); this section selects Spring mechanisms. Do not begin with “which Spring annotation should I use?”
 
 ### 12.2 Plain Java Tests
 

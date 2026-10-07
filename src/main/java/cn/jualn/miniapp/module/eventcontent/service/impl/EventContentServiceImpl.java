@@ -29,45 +29,25 @@ public class EventContentServiceImpl implements EventContentService {
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public String saveSections(TargetType type, Long id, List<EventSectionBO> sections, String legacyContent) {
+    public void saveSections(TargetType type, Long id, List<EventSectionBO> sections) {
         checkTarget(type, id);
-        List<EventSection> old = sectionMapper.selectList(sectionQuery(type, id).orderByAsc(EventSection::getSortOrder, EventSection::getId));
-        if (sections == null) {
-            if (!old.isEmpty()) {
-                String projection = project(old.stream().map(this::toBO).toList());
-                if (legacyContent != null && !legacyContent.equals(projection)) {
-                    // Only the single legacy INTRO is editable by old clients.
-                    if (old.size() != 1 || !"INTRO".equals(old.get(0).getSectionType())) {
-                        throw invalid("此内容包含多个详情段，请使用新版编辑器");
-                    }
-                    sections = List.of(EventSectionBO.builder().sectionType("INTRO")
-                            .title(old.get(0).getTitle()).content(legacyContent).build());
-                } else {
-                    return projection;
-                }
-            } else {
-                if (!StringUtils.hasText(legacyContent)) throw invalid("详情不能为空");
-                sections = List.of(EventSectionBO.builder().sectionType("INTRO")
-                        .title("介绍").content(legacyContent).build());
-            }
-        }
-        if (sections.isEmpty() || sections.size() > 30) throw invalid("详情段数量必须为1至30");
+        if (sections == null) throw invalid("详情段不能缺失");
+        if (sections.size() > 50) throw invalid("详情段最多50项");
         for (EventSectionBO s : sections) {
             if (s == null) throw invalid("详情段不能为空");
-            text(s.getSectionType(), 32, true);
-            if (!s.getSectionType().matches("[A-Z][A-Z0-9_]*")) throw invalid("详情段类型不合法");
-            text(s.getTitle(), 128, true);
-            text(s.getContent(), 20000, true);
+            text(s.getSectionKey(), 128, true);
+            text(s.getTitle(), 120, true);
+            text(s.getContent(), 50000, true);
         }
-        String projection = project(sections);
         sectionMapper.delete(sectionQuery(type, id));
         for (int i = 0; i < sections.size(); i++) {
             EventSectionBO s = sections.get(i);
             sectionMapper.insert(EventSection.builder().targetType(type.getCode()).targetId(id)
-                    .sectionType(s.getSectionType()).title(s.getTitle()).content(s.getContent())
-                    .sortOrder(i).build());
+                    .sectionKey(s.getSectionKey())
+                    .contentFormat(s.getContentFormat() == null ? 0 : s.getContentFormat())
+                    .title(s.getTitle()).content(s.getContent())
+                    .sortOrder(s.getSortOrder() == null ? i : s.getSortOrder()).build());
         }
-        return projection;
     }
 
     @Override
@@ -75,7 +55,7 @@ public class EventContentServiceImpl implements EventContentService {
     public void prepareActions(TargetType type, Long id, List<EventActionBO> actions) {
         checkTarget(type, id);
         if (actions != null) {
-            if (actions.size() > 20) throw invalid("参与入口最多20项");
+            if (actions.size() > 50) throw invalid("参与入口最多50项");
             // Release replaced references before media diff; any later failure rolls back all changes.
             actionMapper.delete(actionQuery(type, id));
         }
@@ -86,27 +66,31 @@ public class EventContentServiceImpl implements EventContentService {
     public void saveActions(TargetType type, Long id, List<EventActionBO> actions) {
         checkTarget(type, id);
         if (actions == null) return;
-        if (actions.size() > 20) throw invalid("参与入口最多20项");
+        if (actions.size() > 50) throw invalid("参与入口最多50项");
         Map<Long, MediaAttachmentBO> media = mediaService.listAttachments(type, id).stream()
                 .collect(Collectors.toMap(MediaAttachmentBO::getId, a -> a));
         for (int i = 0; i < actions.size(); i++) {
             EventActionBO a = actions.get(i);
             if (a == null || a.getActionType() == null || a.getActionType() < 1 || a.getActionType() > 8)
                 throw invalid("参与入口类型不合法");
-            text(a.getLabel(), 128, true);
+            text(a.getActionKey(), 128, true);
+            text(a.getLabel(), 120, true);
             text(a.getDescription(), 2000, false);
-            text(a.getTargetValue(), 1024, a.getActionType() <= 4);
-            if (a.getActionType() == 1) {
+            text(a.getTargetValue(), 1024, false);
+            if (!StringUtils.hasText(a.getDescription()) && !StringUtils.hasText(a.getTargetValue())
+                    && a.getAttachmentId() == null && !StringUtils.hasText(a.getAttachmentObjectKey()))
+                throw invalid("参与入口至少需要说明、地址或附件之一");
+            if (StringUtils.hasText(a.getTargetValue())) {
                 try {
                     URI uri = URI.create(a.getTargetValue());
-                    if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || uri.getUserInfo() != null)
-                        throw invalid("网页必须使用有效HTTPS地址");
+                    if (!Set.of("http", "https", "mailto").contains(uri.getScheme())) throw invalid("参与入口地址协议不合法");
                 } catch (IllegalArgumentException e) { throw invalid("网页地址不合法"); }
             }
-            if (a.getActionType() == 2 && !a.getTargetValue().matches("[0-9]{5,20}"))
-                throw invalid("QQ群号不合法");
-            if (a.getActionType() == 3 && !a.getTargetValue().matches("[^\\s@]+@[^\\s@]+\\.[^\\s@]+"))
-                throw invalid("邮箱不合法");
+            if (Set.of(1, 4, 7).contains(a.getActionType())
+                    && (!StringUtils.hasText(a.getTargetValue()) || !a.getTargetValue().matches("^https?://.+")))
+                throw invalid("该参与入口需要HTTP(S)地址");
+            if (a.getActionType() == 3 && (!StringUtils.hasText(a.getTargetValue()) || !a.getTargetValue().startsWith("mailto:")))
+                throw invalid("邮件提交需要mailto地址");
             if (StringUtils.hasText(a.getAttachmentObjectKey())) {
                 Long resolved = media.values().stream().filter(m -> a.getAttachmentObjectKey().equals(m.getObjectKey()))
                         .map(MediaAttachmentBO::getId).findFirst().orElseThrow(() -> invalid("附件对象键不属于当前事项"));
@@ -115,37 +99,30 @@ public class EventContentServiceImpl implements EventContentService {
             }
             if (a.getAttachmentId() != null && !media.containsKey(a.getAttachmentId()))
                 throw invalid("附件不属于当前事项");
-            if (a.getActionType() == 5 || a.getActionType() == 6) {
-                MediaAttachmentBO attachment = media.get(a.getAttachmentId());
-                if (attachment == null || attachment.getType() == MediaType.URL
-                        || (a.getActionType() == 5 && attachment.getType() != MediaType.IMAGE))
-                    throw invalid("二维码或下载入口缺少正确类型的附件");
-            }
-            if (a.getActionType() == 7 && !StringUtils.hasText(a.getTargetValue()) && !StringUtils.hasText(a.getDescription()))
-                throw invalid("线下提交需填写地址或说明");
-            if (a.getActionType() == 8) text(a.getDescription(), 2000, true);
+            if ((a.getActionType() == 5 || a.getActionType() == 6) && a.getAttachmentId() == null
+                    && (!StringUtils.hasText(a.getTargetValue()) || !a.getTargetValue().matches("^https?://.+")))
+                throw invalid("查看或下载入口需要附件或HTTP(S)地址");
             actionMapper.insert(EventAction.builder().targetType(type.getCode()).targetId(id)
+                    .actionKey(a.getActionKey())
                     .actionType(a.getActionType()).label(a.getLabel()).description(a.getDescription())
                     .targetValue(a.getTargetValue()).attachmentId(a.getAttachmentId())
-                    .isRequired(Boolean.TRUE.equals(a.getIsRequired())).sortOrder(i).build());
+                    .isRequired(Boolean.TRUE.equals(a.getIsRequired()))
+                    .sortOrder(a.getSortOrder() == null ? i : a.getSortOrder()).build());
         }
     }
 
     @Override
-    public List<EventSectionBO> sections(TargetType type, Long id, String legacyContent) {
+    public List<EventSectionBO> sections(TargetType type, Long id) {
         checkTarget(type, id);
-        List<EventSectionBO> result = sectionMapper.selectList(sectionQuery(type, id)
+        return sectionMapper.selectList(sectionQuery(type, id)
                 .orderByAsc(EventSection::getSortOrder, EventSection::getId)).stream().map(this::toBO).toList();
-        return result.isEmpty() && StringUtils.hasText(legacyContent)
-                ? List.of(EventSectionBO.builder().sectionType("INTRO").title("介绍").content(legacyContent).sortOrder(0).build())
-                : result;
     }
 
     @Override
     public List<EventActionBO> actions(TargetType type, Long id) {
         checkTarget(type, id);
         return actionMapper.selectList(actionQuery(type, id).orderByAsc(EventAction::getSortOrder, EventAction::getId))
-                .stream().map(a -> EventActionBO.builder().id(a.getId()).actionType(a.getActionType())
+                .stream().map(a -> EventActionBO.builder().id(a.getId()).actionKey(a.getActionKey()).actionType(a.getActionType())
                         .label(a.getLabel()).description(a.getDescription()).targetValue(a.getTargetValue())
                         .attachmentId(a.getAttachmentId()).isRequired(a.getIsRequired()).sortOrder(a.getSortOrder()).build()).toList();
     }
@@ -165,12 +142,8 @@ public class EventContentServiceImpl implements EventContentService {
                 .collect(Collectors.joining("\n"));
     }
 
-    private String project(List<EventSectionBO> sections) {
-        if (sections.size() == 1 && "INTRO".equals(sections.get(0).getSectionType())) return sections.get(0).getContent();
-        return sections.stream().map(s -> s.getTitle() + "\n" + s.getContent()).collect(Collectors.joining("\n\n"));
-    }
     private EventSectionBO toBO(EventSection s) {
-        return EventSectionBO.builder().id(s.getId()).sectionType(s.getSectionType()).title(s.getTitle())
+        return EventSectionBO.builder().id(s.getId()).sectionKey(s.getSectionKey()).contentFormat(s.getContentFormat()).title(s.getTitle())
                 .content(s.getContent()).sortOrder(s.getSortOrder()).build();
     }
     private LambdaQueryWrapper<EventSection> sectionQuery(TargetType type, Long id) {

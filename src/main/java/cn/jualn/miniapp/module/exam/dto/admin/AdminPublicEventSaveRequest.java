@@ -1,65 +1,69 @@
 package cn.jualn.miniapp.module.exam.dto.admin;
-import lombok.Data;
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.*;
-import com.fasterxml.jackson.annotation.JsonFormat;
-import java.time.LocalDateTime;
-import java.util.List;
-import cn.jualn.miniapp.module.exam.dto.request.EventSectionRequest;
-import cn.jualn.miniapp.module.exam.dto.request.EventActionRequest;
 
-/** 运维完整表单；sections/actions/attachments/timeline 省略保留，显式数组替换。 */
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+import java.util.List;
+import cn.jualn.miniapp.module.timeline.dto.request.TimelineScheduleRequest;
+import cn.jualn.miniapp.module.timeline.model.TimelineSemantic;
+import lombok.Data;
+
+/** Canonical PublicEventDraft used by both POST and full-replacement PUT. */
 @Data
 public class AdminPublicEventSaveRequest {
-    @NotBlank @Size(max=128) private String title;
-    @Size(max=300) private String summary;
-    @NotNull @Min(0) @Max(7) private Integer category;
-    @NotNull @Min(0) @Max(3) private Integer eventType;
-    @Size(max=128) private String editionLabel;
-    @Size(max=128) private String organizer;
-    @Size(max=255) private String location;
-    @NotNull @Min(0) @Max(63) private Integer audienceScope;
-    @Size(max=255) private String audienceSummary;
-    @Size(max=64) private String contactName;
-    @Size(max=32) private String contactPhone;
-    @NotNull @Min(0) @Max(3) private Integer registrationMode;
-    @NotNull @Min(0) @Max(3) private Integer participantMode;
-    @Positive private Integer capacity;
-    @Min(1) @Max(2) private Integer capacityUnit;
-    @Positive private Long coverAttachmentId;
-    @Size(max=512) private String coverObjectKey;
-    private Boolean clearCover;
-    @Size(max=255) private String timeDescription;
-    @Size(max=20000) private String content;
-    @JsonFormat(pattern="yyyy-MM-dd'T'HH:mm[:ss]") private LocalDateTime startTime;
-    @NotNull @Min(0) @Max(2) private Integer startPrecision;
-    @JsonFormat(pattern="yyyy-MM-dd'T'HH:mm[:ss]") private LocalDateTime endTime;
-    @NotNull @Min(0) @Max(2) private Integer endPrecision;
-    @JsonFormat(pattern="yyyy-MM-dd'T'HH:mm[:ss]") private LocalDateTime registrationStart;
-    @NotNull @Min(0) @Max(2) private Integer registrationStartPrecision;
-    @JsonFormat(pattern="yyyy-MM-dd'T'HH:mm[:ss]") private LocalDateTime registrationEnd;
-    @NotNull @Min(0) @Max(2) private Integer registrationEndPrecision;
-    @Valid @Size(max=30) private List<EventSectionRequest> sections;
-    @Valid @Size(max=20) private List<EventActionRequest> actions;
-    @Valid @Size(max=9) private List<Attachment> attachments;
-    @Valid @Size(max=20) private List<Timeline> timeline;
-    @Data public static class Attachment {
-        @NotNull private cn.jualn.miniapp.common.enums.MediaType type;
-        @Size(max=512) private String objectKey;
-        @Size(max=512) private String url;
-        @Size(max=255) private String originalName;
-        @Min(0) @Max(127) private Integer sortOrder;
+    @NotBlank @Size(max = 200) private String title;
+    @Size(min = 1, max = 1000) private String summary;
+    @Size(max = 128) private String coverAttachmentId;
+    @Pattern(regexp = "EXAM|COMPETITION|CERTIFICATION|OTHER") private String type;
+    @Size(min = 1, max = 200) private String sourceName;
+    @Pattern(regexp = "^https?://.+") private String sourceUrl;
+    @Pattern(regexp = "^https?://.+") private String officialUrl;
+    @NotNull @Valid @Size(max = 100) private List<TimelineNode> timeline;
+    @NotNull @Valid @Size(max = 50) private List<Section> sections;
+    @NotNull @Valid @Size(max = 50) private List<Action> actions;
+    @NotNull @Valid @Size(max = 20) private List<Contact> contacts;
+    @NotNull @Valid @Size(max = 100) private List<AttachmentLink> attachments;
+
+    @Data public static class TimelineNode {
+        @NotBlank @Size(max = 128) private String nodeKey;
+        @NotBlank @Pattern(regexp = TimelineSemantic.PUBLIC_EVENT_INPUT_PATTERN) private String type;
+        @NotBlank @Size(max = 120) private String title;
+        @Size(min = 1, max = 2000) private String description;
+        @NotNull @Valid private TimelineScheduleRequest schedule;
+        @Size(min = 1, max = 300) private String location;
+        @NotNull @Min(0) private Integer displayOrder;
     }
-    @Data public static class Timeline {
-        @Positive private Long id;
-        @NotBlank @Size(max=64) private String label;
-        @Size(max=255) private String description;
-        @Size(max=32) private String nodeType;
-        @Size(max=255) private String location;
-        @Size(max=255) private String timeDescription;
-        @Min(0) @Max(2) private Integer startPrecision;
-        @Min(0) @Max(2) private Integer endPrecision;
-        @JsonFormat(pattern="yyyy-MM-dd'T'HH:mm[:ss]") private LocalDateTime startTime;
-        @JsonFormat(pattern="yyyy-MM-dd'T'HH:mm[:ss]") private LocalDateTime endTime;
+
+    @Data public static class Section {
+        @NotBlank @Size(max = 128) private String sectionKey;
+        @NotBlank @Size(max = 120) private String title;
+        @NotBlank @Size(max = 50000) private String content;
+        @NotBlank @Pattern(regexp = "PLAIN_TEXT|MARKDOWN") private String format;
+        @NotNull @Min(0) private Integer displayOrder;
+    }
+
+    @Data public static class Action {
+        @NotBlank @Size(max = 128) private String actionKey;
+        @NotBlank @Pattern(regexp = "JOIN_GROUP|OFFICIAL_SITE|EXTERNAL_REGISTRATION|DOWNLOAD|VIEW_ATTACHMENT|EMAIL_SUBMISSION|OFFICIAL_NOTICE|OTHER") private String type;
+        @NotBlank @Size(max = 120) private String title;
+        @Size(min = 1, max = 2000) private String description;
+        @Pattern(regexp = "^(https?://|mailto:).+") private String url;
+        @Size(max = 128) private String attachmentId;
+        @NotNull @Min(0) private Integer displayOrder;
+    }
+
+    @Data public static class Contact {
+        @NotBlank @Size(max = 128) private String contactKey;
+        @NotBlank @Size(max = 80) private String name;
+        @NotBlank @Size(max = 300) private String contact;
+        @Size(min = 1, max = 500) private String remark;
+    }
+
+    @Data public static class AttachmentLink {
+        @NotBlank @Size(max = 128) private String attachmentId;
+        @NotNull @Min(0) private Integer displayOrder;
     }
 }

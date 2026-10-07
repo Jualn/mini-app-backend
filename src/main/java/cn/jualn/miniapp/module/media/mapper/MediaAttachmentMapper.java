@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Param;
 
 import java.util.Collection;
 import java.util.List;
+import cn.jualn.miniapp.module.media.bo.AttachmentTargetBO;
 
 @Mapper
 public interface MediaAttachmentMapper extends BaseMapper<MediaAttachment> {
@@ -17,4 +18,14 @@ public interface MediaAttachmentMapper extends BaseMapper<MediaAttachment> {
     List<MediaAttachmentSimpleBO> selectSimpleBatchByTargetIds(
             @Param("targetType") Integer targetType,
             @Param("targetIds") Collection<Long> targetIds);
+
+    List<MediaAttachment> selectLinked(@Param("targetType") Integer targetType,
+                                       @Param("targetId") Long targetId);
+
+    int deleteLinks(@Param("targetType") Integer targetType, @Param("targetId") Long targetId);
+
+    int insertLink(@Param("targetType") Integer targetType, @Param("targetId") Long targetId,
+                   @Param("attachmentId") Long attachmentId, @Param("displayOrder") Integer displayOrder);
+
+    List<AttachmentTargetBO> selectTargets(@Param("attachmentId") Long attachmentId);
 }

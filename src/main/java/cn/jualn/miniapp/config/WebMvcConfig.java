@@ -5,6 +5,7 @@ import cn.dev33.satoken.router.SaRouter;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.jualn.miniapp.common.interceptor.ContextInterceptor;
 import cn.jualn.miniapp.module.admin.auth.service.AdminTokenService;
+import cn.jualn.miniapp.module.admin.auth.support.AdminQrLoginRoutes;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -42,15 +43,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 new HandlerInterceptor() {
                     private final SaInterceptor delegate =
                             new SaInterceptor(handle -> {
-                        // 小程序扫码确认必须使用现有小程序登录态。
-                        SaRouter.match("/v1/admin/auth/qr-confirmations/**")
-                                .check(r -> StpUtil.checkLogin());
-
-                        // 其余管理端接口使用独立 admin loginType。
+                        // 管理端使用独立 admin loginType；新扫码入口在下方精确分流。
                         SaRouter.match("/v1/admin/**")
-                                .notMatch("/v1/admin/auth/qr-sessions")
-                                .notMatch("/v1/admin/auth/qr-sessions/*")
-                                .notMatch("/v1/admin/auth/qr-confirmations/**")
                                 .check(r -> adminTokenService.requireValidLogin());
 
                         // 小程序需要登录的接口。
@@ -81,6 +75,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
                                 || DispatcherType.ERROR.equals(req.getDispatcherType())) {
                             return true;
                         }
+                        String path = req.getRequestURI().substring(req.getContextPath().length());
+                        if (AdminQrLoginRoutes.mobile(path, req.getMethod())) {
+                            StpUtil.checkLogin();
+                            return true;
+                        }
+                        if (AdminQrLoginRoutes.web(path, req.getMethod())) return true;
                         return delegate.preHandle(req, res, handler);
                     }
                 }
@@ -96,7 +96,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .allowedOriginPatterns(corsAllowedOriginPatterns)
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
-                .exposedHeaders("X-Trace-Id")
+                .exposedHeaders("X-Trace-Id", "ETag", "Location", "Content-Disposition", "Retry-After")
                 .allowCredentials(true)
                 .maxAge(3600);                // 预检请求缓存1小时
 
@@ -104,7 +104,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .allowedOriginPatterns(corsAllowedOriginPatterns)
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
-                .exposedHeaders("X-Trace-Id")
+                .exposedHeaders("X-Trace-Id", "ETag", "Location", "Content-Disposition")
                 .allowCredentials(true)
                 .maxAge(3600);                // 预检请求缓存1小时
     }

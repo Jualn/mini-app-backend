@@ -7,8 +7,9 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 public class EventSectionVO {
+    private String sectionKey;
+    private Integer contentFormat;
     private Long id;
-    private String sectionType;
     private String title;
     private String content;
     private Integer sortOrder;

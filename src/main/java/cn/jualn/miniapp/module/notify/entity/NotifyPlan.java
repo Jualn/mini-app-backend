@@ -25,6 +25,12 @@ public class NotifyPlan {
     /** 关联内容ID，系统广播时为NULL */
     private Long sourceId;
 
+    /** Timeline fact and stable rule identity. Null only for pre-V20 legacy plans. */
+    private Long timelineId;
+    private String ruleKey;
+    private Long generation;
+    private String recipientScope;
+
     /** 对应 notification.type */
     private Integer notifyType;
 
@@ -33,6 +39,12 @@ public class NotifyPlan {
 
     /** 通知内容 */
     private String content;
+
+    /** 提醒所引用的业务开始时间快照；外部投递不得重新读取业务表补值。 */
+    private LocalDateTime subjectStartsAt;
+
+    /** 提醒所引用的业务地点快照；允许为空。 */
+    private String subjectLocation;
 
     /** 发送范围：0-已订阅用户 1-全员 */
     private Integer scope;
@@ -43,7 +55,7 @@ public class NotifyPlan {
     /** 计划发送时间；立即发则等于 created_at */
     private LocalDateTime sendAt;
 
-    /** 0-待发 1-已发 2-已取消 */
+    /** 0-PENDING 1-COMPLETED(fan-out only) 2-CANCELLED 3-PROCESSING */
     private Integer status;
 
     /** 创建人，NULL=系统自动生成 */
@@ -51,5 +63,10 @@ public class NotifyPlan {
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updatedAt;
+    private LocalDateTime completedAt;
+    private LocalDateTime cancelledAt;
 
 }

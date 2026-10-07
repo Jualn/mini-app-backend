@@ -7,6 +7,8 @@ import cn.jualn.miniapp.module.admin.system.converter.AdminSystemConverter;
 import cn.jualn.miniapp.module.admin.system.service.AdminSystemService;
 import cn.jualn.miniapp.module.admin.system.vo.AdminSystemOverviewVO;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -20,8 +22,10 @@ public class AdminSystemController {
     private final AdminSystemConverter adminSystemConverter;
 
     @GetMapping("/overview")
-    public Result<AdminSystemOverviewVO> getOverview() {
+    public ResponseEntity<Result<AdminSystemOverviewVO>> getOverview() {
         AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.SYSTEM_READ);
-        return Result.ok(adminSystemConverter.toOverviewVO(adminSystemService.getOverview()));
+        Result<AdminSystemOverviewVO> result = Result.ok(
+                adminSystemConverter.toOverviewVO(adminSystemService.getOverview()));
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
     }
 }

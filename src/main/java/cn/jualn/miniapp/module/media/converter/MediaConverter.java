@@ -21,6 +21,7 @@ public interface MediaConverter {
     MediaAttachmentSaveBO toSaveDTO(MediaAttachmentSaveRequest request);
 
     List<MediaAttachmentBO> toBOList(List<MediaAttachment> entities);
+    MediaAttachmentBO toBO(MediaAttachment entity);
 
     List<MediaAttachmentSimpleBO> toSimpleBOList(List<MediaAttachment> entities);
 
@@ -43,6 +44,15 @@ public interface MediaConverter {
         // 如果order为空，按照入参顺序设置
         for (int i = 0; i < mediaAttachments.size(); i++) {
             MediaAttachment mediaAttachment = mediaAttachments.get(i);
+            if (mediaAttachment.getKind() == null && mediaAttachment.getType() != null) {
+                mediaAttachment.setKind(switch (MediaType.fromCode(mediaAttachment.getType())) {
+                    case URL -> "LINK";
+                    case IMAGE -> "IMAGE";
+                    case PDF -> "PDF";
+                    case WORD -> "WORD";
+                });
+            }
+            mediaAttachment.setRegistered(Boolean.TRUE);
             if (mediaAttachment.getSortOrder() == null) {
                 mediaAttachment.setSortOrder(i + 1);  // 设置order，从1开始
             }

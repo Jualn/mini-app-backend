@@ -23,6 +23,8 @@ public class AdminPermissionPolicy {
     public static final String REPORT_HANDLE = "report:handle";
     public static final String ACTIVITY_READ = "activity:read";
     public static final String ACTIVITY_EDIT = "activity:edit";
+    public static final String ACTIVITY_REGISTRATION_READ = "activity:registration:read";
+    public static final String ACTIVITY_REGISTRATION_EXPORT = "activity:registration:export";
     public static final String PUBLIC_EVENT_READ = "public-event:read";
     public static final String PUBLIC_EVENT_EDIT = "public-event:edit";
     public static final String NOTICE_READ = "notice:read";
@@ -40,6 +42,8 @@ public class AdminPermissionPolicy {
             REPORT_HANDLE,
             ACTIVITY_READ,
             ACTIVITY_EDIT,
+            ACTIVITY_REGISTRATION_READ,
+            ACTIVITY_REGISTRATION_EXPORT,
             PUBLIC_EVENT_READ,
             PUBLIC_EVENT_EDIT,
             NOTICE_READ,
@@ -80,5 +84,12 @@ public class AdminPermissionPolicy {
                 .roleLabel(profile.getRole().getDesc())
                 .permissions(permissions(profile.getRole()))
                 .build();
+    }
+
+    public cn.jualn.miniapp.module.admin.auth.bo.qrlogin.AdminQrIdentityBO toQrIdentity(long userId, UserProfileBO profile) {
+        String name = profile.getNickname();
+        if (name == null || name.isBlank()) name = profile.getRole() == UserRole.ADMIN ? "管理员" : "运营人员";
+        return new cn.jualn.miniapp.module.admin.auth.bo.qrlogin.AdminQrIdentityBO(Long.toString(userId), name,
+                name.substring(0, 1), roleCode(profile.getRole()), profile.getRole().getDesc(), permissions(profile.getRole()));
     }
 }

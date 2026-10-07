@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @TableName("event_action")
 public class EventAction {
+    private String actionKey;
     @TableId(type = IdType.AUTO)
     private Long id;
     private Integer actionType;

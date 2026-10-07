@@ -30,7 +30,7 @@
 | setting | user_setting |
 | post | post |
 | activity | activity、activity_enrollment、activity_registration |
-| exam | exam_info、exam_subscription；当前承载公共事项 |
+| exam | public_event、exam_subscription；当前承载公共事项 |
 | eventcontent | event_section、event_action；共享正文与参与入口 |
 | comment | comment |
 | interact | like_record、share_record、view_count_cache、view_log |
@@ -38,14 +38,17 @@
 | timeline | timeline |
 | audit | content_audit_log |
 | search | search_doc |
-| notify | notification、notify_plan |
+| notify | Reminder reconcile/plan、notification、notification_delivery；渠道无关通知编排 |
 | report | report |
 | admin/auth | 独立管理身份与权限机制 |
 | admin/operation | admin_operation_log |
-| auth、wx、content | 认证、微信回调、内容能力编排；不得绕过数据所有者写表 |
+| auth、wx、content | 认证、微信回调、内容能力编排；wx 负责微信身份/模板/provider 适配，不得绕过数据所有者写表或读取 Activity/PublicEvent Mapper |
 
 跨模块只依赖对方公开 Service 接口和其提供的 BO/标量，不引用对方 Mapper、Entity、Controller 模型或 Converter。
+微信接入的目标分工见 [WeChat §10](wechat-integration.md#10-整个微信接入的目标结构)：`third/wx` 承担 provider 协议、凭据与纯映射，`module/wx` 承担入口和应用编排，现有用户微信标识的持久化仍归 user；third 层不反向依赖业务模块编排或持久模型。现有偏离按微信整理批次处理，不表示已完成迁移。
 共享子资源由其所属 Service 处理；活动/公共事项主体负责业务资格及组合用例，不能因为一张表被共享使用就形成多个写入所有者。
+
+Activity 与 PublicEvent 分别拥有自己的 Reminder Policy、Rule Catalog 和业务 Notification Factory；notify 只拥有通用 reconcile、计划、Notification、Category × Channel Preference、Recipient/Delivery 编排。Timeline 提供业务时间事实，Async Job 提供执行状态，WeChat Integration 只消费渠道无关快照。正式渠道为 `IN_APP/WECHAT_MINI_PROGRAM/WECHAT_OFFICIAL_ACCOUNT`，两个微信渠道拥有独立 Capability。完整依赖和状态边界见 [Reminder、Notification 与 Delivery 设计](reminder-notification.md) 与 [WeChat Integration](wechat-integration.md)。
 
 ## 3. 层与对象
 
@@ -60,11 +63,20 @@
 | VO | 模块 vo 下的响应模型，管理响应独立；Service 不返回 VO |
 | Converter | Request/Query 与 BO、BO 与 VO 的显式转换；不查询数据库、不决定业务流程 |
 | Payload | 异步边界中的 ID、类型和必要快照；不携带 Entity、请求对象或事务资源 |
+| `infrastructure.async` | Outbox、Durable Job、Stream transport、claim/reclaim、retry/dead、metrics 与 cleanup；业务模块只提供 typed payload/handler 并在本地事务创建 intent |
 
 Service 实现身份相关权限、归属、状态和唯一性等业务判断。Bean Validation 通过不代表业务可执行。
-字段很少且仅用一次时可以在 Controller 显式构造，避免仅为转发新建类。
+固定结构的契约请求和响应使用具名 DTO / VO；只有契约本身允许动态键或动态值的局部内容才使用 Map / JsonNode，不把整个详情、表单定义或分页响应退化为字符串键拼装。
+字段很少且仅用一次时可以在 Controller 显式构造具名对象，避免仅为转发增加 Converter。嵌套详情、重复枚举映射和跨操作复用的转换放在所属模块 Converter；不能借此例外在 Controller 内解析持久化 JSON、计算参与资格或补做资源权限判断。
+Service 先准备业务结果，包括可操作状态、所需计数和判断时刻；Converter 只转换表示，不查询其他 Service，也不以缺失字段推导权限、版本或业务成功。纯响应映射不需要额外 Service，确有业务编排时也不把它藏进 Converter。
 MapStruct 映射遗漏应逐项确认并映射或明确 ignore；不能忽略未确认的新字段。
 保留 BO 命名体系，不因 Java 标准允许 record 或强类型就批量替换现有模型。
+
+### 3.1 既有模型与新契约适配
+
+复用旧 Service 或模型前，核对其能否表达本次契约的集合、稳定局部键、枚举、时间精度与时区、缺省语义、版本和引用关系。字段同名或能够拼出 JSON 不证明语义一致；创建、替换、读取及受影响的列表应保持这些事实，不能在返回时重新编号、截断集合或用默认值掩盖未实现的数据来源。
+需要兼容旧数据时，由所属模块明确转换规则及适用条件；不存在明确等价关系时，按契约和数据演进流程处理，不静默把异常变为空集合、把未知状态变为正常状态。跨组件语义变化仍由 contracts 定义，本文不指定业务枚举或迁移结果。
+旧入口与新入口可以共存，但共享不变量由状态所有者 Service 统一保护；不同响应形状在 HTTP 边界分别适配，不让新入口继续传递旧 VO / Entity。只调整本次受影响调用链，不借适配重构整个历史模块。
 
 ## 4. Service 与管理用例
 
@@ -75,6 +87,7 @@ MapStruct 映射遗漏应逐项确认并映射或明确 ignore；不能忽略未
 - 管理活动归 activity，管理公共事项归 exam；不将所有管理业务集中到 admin 模块。
 - Callback、Listener、Handler 负责入口适配，调用状态所有者 Service，不自行堆 Mapper 和业务流程。
 - 拆分依据是业务职责、权限、事务或依赖分化，不按行数机械拆分；不添加只有转发价值的层。
+- 默认沿用 Controller / Converter / Service / Mapper；不为每个操作建立一套 Facade、Manager、CommandHandler 或 Repository。新增类应承担可说明的转换、业务规则、状态所有权或查询职责，不能只是搬走 Controller 的方法后保留混杂责任。
 - 循环依赖先检查数据所有权与编排方向，必要时提取查询能力或编排；不将跨模块 Mapper、静态 Bean 获取或 @Lazy 作为长期补丁。
 
 ## 5. MyBatis 选型与字段读取
@@ -113,9 +126,11 @@ Q0/Q1/Q3 不使用 SELECT *。XML 优先显式列字段；完整 selectById 只�
 - Redis 通过 infrastructure/cache 下的 RedisService 使用，键定义集中在 RedisKeyConstant；数据模块负责相关缓存的写入与失效。
 - 普通数据库派生缓存采用提交后失效、读未命中回填。失败收敛与可接受陈旧范围遵循 Backend §2；协调锁和幂等状态不属于可随意降级的普通缓存。
 - 提交后回调只解决执行顺序，关键消息/外部效果的持久性仍按 Backend §5 设计；不把“提交后入队”写成可靠送达保证。
+- ReminderPlan、Notification、NotificationDelivery 是业务/应用持久事实，不能用 AsyncJob 或 Redis 消息代替；计划/Job 和 Notification/Delivery/Job 能在同一 MySQL 事务创建时不增加 Outbox。IN_APP Delivery 本地完成，微信远程调用在事务外执行并分别回写 Mini Program / Official Account Delivery 状态。
 - Spring 事务、异步、配置和资源生命周期直接遵循 Spring 标准，不在这里维护第二份注解规则。
+- HTTP trace、MDC 字段、日志/异常责任、metrics 与 health 语义遵循 [Observability Baseline](observability.md)；失败结果、重试、幂等、外部副作用与恢复决策遵循 [Reliability Baseline](reliability.md)；`common/observability` 只承载无业务归属的进程内上下文机制。
 
 ## 7. 维护边界
 
-模块职责或依赖方向变化时更新本文；业务决定更新 [业务规则](domain.md)；跨组件协议在 [contracts](../../contracts/README.md) 中维护；数据库演进见 [数据库说明](../src/main/resources/db/README.md)。
+模块职责或依赖方向变化时更新本文；业务决定更新 [业务规则](domain.md)；提醒/通知/投递语义更新 [Reminder、Notification 与 Delivery 设计](reminder-notification.md)；微信适配边界更新 [WeChat Integration](wechat-integration.md)；跨组件协议在 [contracts](../../contracts/README.md) 中维护；数据库演进见 [数据库说明](../src/main/resources/db/README.md)。
 规范变化不自动证明实现合规。发现旧实现与规范不一致时，判断是否影响本次需求；相关链路必须明确处理，无关技术债不扩散本次修改范围。

@@ -49,6 +49,13 @@ class TimelineIdentityTest {
         service.replaceTimelines(save(TimelineItemBO.builder().label("复赛").timeDescription("另行通知").build()));
         verify(mapper).insert(argThat((Timeline node) -> node.getStartTime() == null && node.getStartPrecision() == 0));
     }
+    @Test void rejectsPublicEventStartSemanticForActivity() {
+        when(mapper.selectList(any())).thenReturn(List.of());
+        assertThrows(BusinessException.class, () -> service.replaceTimelines(save(TimelineItemBO.builder()
+                .nodeKey("start").nodeType("PUBLIC_EVENT_START").label("开始")
+                .startTime(LocalDateTime.of(2026, 9, 10, 10, 0)).startPrecision(2).build())));
+        verify(mapper, never()).insert(any(Timeline.class));
+    }
     private TimelineSaveBO save(TimelineItemBO node) {
         return TimelineSaveBO.builder().targetType(TargetType.ACTIVITY).targetId(1L).timelines(List.of(node)).build();
     }

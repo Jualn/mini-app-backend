@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class ActivityAuditCallbackTest {
     @Test void retiredCallbacksHaveNoPersistenceDependencies() {
         var callback = new ActivityAuditCallback();
-        assertDoesNotThrow(() -> callback.onPass(7L));
-        assertDoesNotThrow(() -> callback.onReject(7L, "historical risk"));
+        assertDoesNotThrow(() -> callback.onPass(7L, 1L));
+        assertDoesNotThrow(() -> callback.onReject(7L, 1L, "historical risk"));
     }
 }

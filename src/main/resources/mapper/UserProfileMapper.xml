@@ -3,6 +3,32 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.jualn.miniapp.module.user.mapper.UserProfileMapper">
 
+    <select id="selectProfileForUpdate" resultType="cn.jualn.miniapp.module.user.entity.UserProfile">
+        SELECT id, nickname, bio, avatar_url, avatar_object_key, avatar_snapshot_key,
+               background_url, background_object_key, background_snapshot_key, gender,
+               role, status, ban_expire_at, created_at, profile_revision
+        FROM user_profile WHERE id = #{userId} AND deleted_at IS NULL FOR UPDATE
+    </select>
+
+    <update id="updateCheckedProfile">
+        UPDATE user_profile
+        <set>
+            <if test="profile.nickname != null">nickname = #{profile.nickname},</if>
+            <if test="profile.bio != null">bio = #{profile.bio},</if>
+            <if test="profile.avatarObjectKey != null">
+                avatar_object_key = #{profile.avatarObjectKey}, avatar_url = #{profile.avatarUrl},
+                avatar_snapshot_key = #{profile.avatarSnapshotKey},
+            </if>
+            <if test="profile.backgroundObjectKey != null">
+                background_object_key = #{profile.backgroundObjectKey}, background_url = #{profile.backgroundUrl},
+                background_snapshot_key = #{profile.backgroundSnapshotKey},
+            </if>
+            <if test="profile.gender != null">gender = #{profile.gender},</if>
+            profile_revision = profile_revision + 1, updated_at = CURRENT_TIMESTAMP
+        </set>
+        WHERE id = #{userId} AND deleted_at IS NULL AND profile_revision = #{revision}
+    </update>
+
     <sql id="expiredRestriction">
         profile.deleted_at IS NULL
         AND profile.status IN (2, 3)
@@ -15,9 +41,21 @@
     </sql>
 
     <select id="selectSimpleBatch" resultType="cn.jualn.miniapp.module.user.bo.UserSimpleBO">
-        SELECT id, nickname, avatar_url
+        SELECT id, nickname, avatar_url, (role IN (2, 3)) AS platform_operator
         FROM user_profile
         WHERE status = 1 AND deleted_at IS NULL AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <select id="selectOfficialAccountUserIds" resultType="long">
+        SELECT id
+        FROM user_profile
+        WHERE deleted_at IS NULL
+          AND mp_openid IS NOT NULL
+          AND mp_openid &lt;&gt; ''
+          AND id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">
             #{id}
         </foreach>

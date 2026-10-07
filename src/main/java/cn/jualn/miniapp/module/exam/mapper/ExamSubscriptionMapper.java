@@ -64,4 +64,16 @@ public interface ExamSubscriptionMapper extends BaseMapper<ExamSubscription> {
     List<ExamSubscription> selectActiveByUserAndExamIds(@Param("userId") Long userId,
 							@Param("examIds") List<Long> examIds,
 							@Param("status") Integer status);
+
+    @Select("SELECT user_id FROM exam_subscription WHERE exam_info_id=#{examId} AND status=1 " +
+            "AND notify_enable=1 AND user_id &gt; #{lastUserId} AND user_id &lt;= #{upperUserId} " +
+            "ORDER BY user_id LIMIT #{limit}")
+    List<Long> selectSubscriberUserIdsBounded(@Param("examId") Long examId,
+                                               @Param("lastUserId") long lastUserId,
+                                               @Param("upperUserId") long upperUserId,
+                                               @Param("limit") int limit);
+
+    @Select("SELECT COALESCE(MAX(user_id),0) FROM exam_subscription " +
+            "WHERE exam_info_id=#{examId} AND status=1 AND notify_enable=1")
+    long selectSubscriberUpperBound(@Param("examId") Long examId);
 }

@@ -19,6 +19,8 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class WxCallbackServiceImpl implements WxCallbackService {
 
+    private static final int MAX_CALLBACK_BYTES = 256 * 1024;
+
     private final WxProperties wxProperties;
     private final WxEventService wxEventService;
     private final WxSignatureService wxSignatureService;
@@ -42,8 +44,7 @@ public class WxCallbackServiceImpl implements WxCallbackService {
         );
 
         if (!valid) {
-            log.warn("微信 URL 验证失败，accountType={}, signature={}, timestamp={}, nonce={}",
-                    accountType, request.signature(), request.timestamp(), request.nonce());
+            log.warn("微信 URL 验证失败，accountType={}", accountType);
             return "";
         }
 
@@ -56,6 +57,10 @@ public class WxCallbackServiceImpl implements WxCallbackService {
      */
     @Override
     public String receive(WxAccountType accountType, WxCallbackRequest request, String postData) {
+        if (postData == null || postData.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_CALLBACK_BYTES) {
+            log.warn("微信回调 body 缺失或超过限制，accountType={}", accountType);
+            return "FAIL";
+        }
         if (postData.stripLeading().startsWith("&lt;")) {
             log.warn("微信回调 body 被 HTML 转义，疑似 XSS Filter 未排除");
         }
@@ -84,7 +89,7 @@ public class WxCallbackServiceImpl implements WxCallbackService {
 
                 if (!valid) {
                     log.warn("微信明文消息签名验证失败，accountType={}", accountType);
-                    return "success";
+                    return "FAIL";
                 }
 
                 xmlBody = postData;
@@ -107,12 +112,11 @@ public class WxCallbackServiceImpl implements WxCallbackService {
 
             return replyXml;
         } catch (AesException e) {
-            log.warn("微信回调加解密失败，accountType={}, code={}, msg={}",
-                    accountType, e.getCode(), e.getMessage());
-            return "success";
+            log.warn("微信回调加解密失败，accountType={}, code={}", accountType, e.getCode());
+            return "FAIL";
         } catch (Exception e) {
             log.error("微信回调处理异常，accountType={}", accountType, e);
-            return "success";
+            return "FAIL";
         }
     }
 

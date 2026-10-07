@@ -1,6 +1,5 @@
 package cn.jualn.miniapp.module.exam.mapper;
 
-import cn.jualn.miniapp.module.exam.bo.ExamSimpleBO;
 import cn.jualn.miniapp.module.exam.bo.HomePublicMatterReminderRow;
 import cn.jualn.miniapp.module.exam.entity.ExamInfo;
 import cn.jualn.miniapp.module.interact.dto.inner.InteractCountDTO;
@@ -23,6 +22,12 @@ import java.util.List;
  */
 @Mapper
 public interface ExamInfoMapper extends BaseMapper<ExamInfo> {
+    @org.apache.ibatis.annotations.Select("SELECT id, publish_status, lifecycle_status, contract_version " +
+            "FROM public_event WHERE id = #{id} AND deleted_at IS NULL")
+    ExamInfo selectReminderStatus(@Param("id") Long id);
+    @org.apache.ibatis.annotations.Select("SELECT COUNT(*) > 0 FROM public_event WHERE id = #{id} AND deleted_at IS NULL AND publish_status = 1")
+    boolean existsPublicById(@org.apache.ibatis.annotations.Param("id") Long id);
+
     List<HomePublicMatterReminderRow> selectHomePublicMatterReminders(
             @Param("userId") Long userId,
             @Param("evaluatedAt") LocalDateTime evaluatedAt,
@@ -30,12 +35,12 @@ public interface ExamInfoMapper extends BaseMapper<ExamInfo> {
 
     List<cn.jualn.miniapp.module.exam.bo.AdminPublicEventListBO> selectOperationsPage(
             @Param("query") cn.jualn.miniapp.module.exam.bo.AdminPublicEventQueryBO query,
-            @Param("lastId") Long lastId, @Param("limit") int limit);
+            @Param("offset") long offset, @Param("limit") int limit);
+    long countOperationsPage(@Param("query") cn.jualn.miniapp.module.exam.bo.AdminPublicEventQueryBO query);
     int saveOperationsFields(@Param("event") ExamInfo event);
-    int publishDirectly(@Param("id") Long id);
-    int takeDownDirectly(@Param("id") Long id);
-    int cancelDirectly(@Param("id") Long id, @Param("reason") String reason);
-    int removeDirectly(@Param("id") Long id);
+    int transitionContract(@Param("id") Long id, @Param("version") long version,
+            @Param("publishStatus") int publishStatus, @Param("lifecycleStatus") int lifecycleStatus,
+            @Param("publish") boolean publish);
 
     ExamInfo selectForUpdate(@org.apache.ibatis.annotations.Param("id") Long id);
 
@@ -44,8 +49,6 @@ public interface ExamInfoMapper extends BaseMapper<ExamInfo> {
 	 *
 	 * @return 仅包含id、title、examDate字段的列表
 	 */
-	List<ExamSimpleBO> selectSimpleExams();
-
 	/**
 	 * 根据ID查询考试信息（排除已删除）。
 	 *
@@ -76,6 +79,8 @@ public interface ExamInfoMapper extends BaseMapper<ExamInfo> {
 	 */
 	List<ExamInfo> selectPageExams(@Param("status") Integer status,
 								   @Param("category") Integer category,
+								   @Param("eventType") Integer eventType,
+								   @Param("lifecycleStatus") Integer lifecycleStatus,
 								   @Param("keyword") String keyword,
 								   @Param("lastId") Long lastId,
 								   @Param("limit") Integer limit);
@@ -85,7 +90,7 @@ public interface ExamInfoMapper extends BaseMapper<ExamInfo> {
 	 *
 	 * @param examId 考试ID
 	 */
-	@Update("UPDATE exam_info SET like_count = IFNULL(like_count, 0) + 1 WHERE id = #{examId}")
+	@Update("UPDATE public_event SET like_count = IFNULL(like_count, 0) + 1 WHERE id = #{examId}")
 	void increaseLikeCount(@Param("examId") Long examId);
 
 	/**
@@ -93,7 +98,7 @@ public interface ExamInfoMapper extends BaseMapper<ExamInfo> {
 	 *
 	 * @param examId 考试ID
 	 */
-	@Update("UPDATE exam_info SET like_count = IF(IFNULL(like_count, 0) > 0, like_count - 1, 0) WHERE id = #{examId}")
+	@Update("UPDATE public_event SET like_count = IF(IFNULL(like_count, 0) > 0, like_count - 1, 0) WHERE id = #{examId}")
 	void decreaseLikeCount(@Param("examId") Long examId);
 
 	/**
@@ -101,7 +106,7 @@ public interface ExamInfoMapper extends BaseMapper<ExamInfo> {
 	 *
 	 * @param examId 考试ID
 	 */
-	@Update("UPDATE exam_info SET comment_count = IFNULL(comment_count, 0) + 1 WHERE id = #{examId}")
+	@Update("UPDATE public_event SET comment_count = IFNULL(comment_count, 0) + 1 WHERE id = #{examId}")
 	void increaseCommentCount(@Param("examId") Long examId);
 
 	/**
@@ -109,10 +114,10 @@ public interface ExamInfoMapper extends BaseMapper<ExamInfo> {
 	 *
 	 * @param examId 考试ID
 	 */
-	@Update("UPDATE exam_info SET comment_count = IF(IFNULL(comment_count, 0) > 0, comment_count - 1, 0) WHERE id = #{examId}")
+	@Update("UPDATE public_event SET comment_count = IF(IFNULL(comment_count, 0) > 0, comment_count - 1, 0) WHERE id = #{examId}")
 	void decreaseCommentCount(@Param("examId") Long examId);
 
-	@Update("UPDATE exam_info SET like_count = #{count} WHERE id = #{examId} AND deleted_at IS NULL")
+	@Update("UPDATE public_event SET like_count = #{count} WHERE id = #{examId} AND deleted_at IS NULL")
 	void setLikeCount(@Param("examId") Long examId, @Param("count") Long count);
 
 	Long selectViewCountById(@Param("id") Long id);

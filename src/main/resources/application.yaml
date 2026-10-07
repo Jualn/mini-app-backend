@@ -9,14 +9,36 @@ sa-token:
   cookie-auto-fill-prefix: true # 自动填充 token 前缀, 没开启就添加前缀的话cookie就认证不成功
 
 admin-auth:
-  qr-session-ttl: 2m
-  expired-retention: 1m
   token-ttl: 8h
-  rate-limit-window: 1m
-  create-limit-per-window: 10
-  confirm-limit-per-window: 10
-  poll-interval-ms: 1500
-  qr-payload-prefix: "jualn-admin-login:"
+  qr-login-v2:
+    enabled: true
+    # Reuses wx.ma credentials; the confirmation page and AppID have been confirmed.
+    env-version: ${ADMIN_QR_LOGIN_ENV_VERSION:release}
+    check-path: ${ADMIN_QR_LOGIN_CHECK_PATH:true}
+    session-ttl: 2m
+    retention: 5m
+    poll-interval-ms: 1500
+    create-ip-limit: 10
+    create-global-limit: 60
+    generation-concurrency: 4
+
+document-import:
+  stream-timeout: 5m
+  ai-read-idle-timeout: 60s
+
+async-processing:
+  outbox:
+    poll-interval: 2000
+  job:
+    poll-interval: 4000
+    recovery-interval: 30000
+  metrics:
+    # Two aggregate MySQL queries plus one bounded Redis inspection per refresh.
+    refresh-interval: 30000
+  cleanup:
+    cron: "0 25 4 * * *"
+  stream:
+    trim-cron: "0 40 4 * * *"
 
 mybatis-plus:
   global-config:
@@ -115,14 +137,12 @@ wx:
             name: 审核结果
             source: auditResult
             required: true
-            default-value: 拒绝
             formatter: text
 
           thing16:
             name: 未通过原因
             source: auditReason
             required: true
-            default-value: 存在违规内容
             max-length: 20
             formatter: text
 

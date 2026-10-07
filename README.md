@@ -6,21 +6,26 @@
 
 | 文档 | 唯一维护内容 |
 |---|---|
-| [Backend Engineering](standards/backend-engineering.md) | 与技术无关的正确性、状态、失败、可靠性和验证原则 |
-| [Java Engineering](standards/java-engineering.md) | Java 语言、类型、资源和线程规则 |
-| [Spring Boot Engineering](standards/spring-boot-engineering.md) | Spring 容器、代理、事务、Web、配置和生命周期机制 |
+| [Backend Engineering](standards/backend-engineering.md) | 与技术无关的系统保证、日志事件责任、验证范围/升级/失败分类与证据 |
+| [Java Engineering](standards/java-engineering.md) | Java 基线、语言/类型/资源规则、源码注释与日志调用纪律 |
+| [Spring Boot Engineering](standards/spring-boot-engineering.md) | Spring 容器、代理、事务、Web、配置、日志上下文及测试机制 |
 | [项目架构](docs/architecture.md) | 目录、模块所有权、层与对象、Service、MyBatis 及现有基础设施选型 |
+| [Observability Baseline](docs/observability.md) | ID 语义、日志/异常责任、错误分类、指标基数、安全与 health 契约 |
+| [Reliability Baseline](docs/reliability.md) | 结果确定性、重试、幂等、外部副作用、补偿与 reconciliation |
+| [Async Processing Architecture](docs/async-processing.md) | Outbox、Durable Job、Stream、Worker、retry/dead/recovery 与异步迁移边界 |
 | [业务规则](docs/domain.md) | 当前业务决定，不包含接口清单或阶段进度 |
+| [Reminder / Notification / Delivery](docs/reminder-notification.md) | 提醒策略与计划、用户通知事实、渠道投递状态及三者边界 |
+| [WeChat Integration](docs/wechat-integration.md) | 微信目标结构、账号/凭据/身份/许可、回调与消息产品、维护流程和分批验收；[整理执行 Prompt](docs/WECHAT_REFACTOR_PROMPT.md) |
 | [数据库说明](src/main/resources/db/README.md) | 迁移目录使用与本项目数据库演进约束 |
 | [AGENTS](AGENTS.md) | 代理默认读取路由及任务工作方式 |
 | [commands](governance/commands.md) | 常用命令、前提、副作用与验证边界 |
 | [maintenance-map](governance/maintenance-map.md) | 事实变化后需要检查哪些依赖 |
 
-[CLAUDE.md](CLAUDE.md) 只转向 AGENTS，不另维护规则。
+代理规则统一由 AGENTS 维护，不建立第二份工具专属规则副本。
 
 ## 开发顺序
 
-先读项目架构，再按任务阅读三份工程标准的相关章节。涉及产品行为读业务规则；涉及独立组件协议读 [contracts](../contracts/README.md)；涉及表结构读 [迁移历史](src/main/resources/db/migration/)。执行命令前查 commands。
+先读项目架构，再按任务阅读三份工程标准的相关章节。涉及产品行为读业务规则；涉及独立组件协议读 [contracts](../contracts/README.md)；涉及表结构读 [迁移历史](src/main/resources/db/migration/)。执行命令前查 commands；环境诊断不是每次任务的前置步骤，验证范围按 Backend §9.12 选择。
 通用标准中的高级机制按实际场景使用，不要求提前建设。规范适用于新增与本次修改的链路，现有代码是否符合仍需检查。
 
 ## 维护方式
@@ -30,3 +35,7 @@
 数据库结构只由迁移历史重建；若日后需要结构视图，应从实际迁移或验证库生成并标明来源，不再手工维护第二份 DDL。
 测试次数、阶段进度和部署结果放在任务/发布证据中，不写进长期标准。运行环境和生产状态不从旧文档推断。
 新增文件前先判断现有职责是否已覆盖，避免再出现多套 GUIDE、接口快照和并行开发规范。
+
+当前 Reminder/Notification/Delivery 设计的审查依据、后续实施顺序、可复用执行任务和实际完成边界分别记录在 [架构审查报告](docs/architecture-review-activity-public-event-notification.md)、[Implementation Handoff](docs/IMPLEMENTATION_HANDOFF.md)、[Execution Prompt](docs/IMPLEMENTATION_PROMPT.md) 和 [实施报告](docs/REMINDER_NOTIFICATION_IMPLEMENTATION_REPORT.md)。它们是决策/交接与验证证据，不替代上表的长期权威来源；其中 V20–V22 或代码存在不等于目标数据库迁移、D2/D3 实际切换、真实微信或生产发布完成。D1 产品语义已确定为只影响未来规划、不追溯历史消息。
+
+Admin QR Login v2 的编码依据为 [共享 Contract](../contracts/docs/coordination/admin-qr-login.md) + [Backend Internal Design](docs/admin-qr-login-v2-backend-design.md)，实现及分边界验证见 [实现记录](docs/admin-qr-login-v2-implementation.md)。后端提供扫码绑定、固定登录结果恢复和既有 Admin Auth 激活保护；仅保留新流程并默认启用，复用现有小程序 AppID；正式环境默认 release，dev profile 默认 develop，可用 ADMIN_QR_LOGIN_ENV_VERSION 覆盖。用户已确认 AppID 和确认页就绪；真实请求与部署证据仍单独报告。

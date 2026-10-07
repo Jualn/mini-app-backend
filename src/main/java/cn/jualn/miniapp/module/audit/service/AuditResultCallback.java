@@ -12,7 +12,7 @@ public interface AuditResultCallback {
      *
      * @param targetId 审核的目标 ID
      */
-    void onPass(Long targetId);
+    void onPass(Long targetId, Long auditLogId);
 
     /**
      * 审核拒绝时的业务回调。
@@ -20,7 +20,7 @@ public interface AuditResultCallback {
      * @param targetId 审核的目标 ID
      * @param reason 拒绝原因，由审核服务氇锛，需要映射到业务侧的具体错注信息
      */
-    void onReject(Long targetId, String reason);
+    void onReject(Long targetId, Long auditLogId, String reason);
 }
 
 // 实现的类名必须以 XxxResultCallback 结尾, xxx必须是业务使用的 targetType 的首字母大写

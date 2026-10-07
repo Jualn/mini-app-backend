@@ -4,6 +4,7 @@ import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.constant.UserContext;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
+import cn.jualn.miniapp.common.exception.ContractProblemException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
@@ -50,12 +51,37 @@ public class ExamSubscriptionServiceImpl implements ExamSubscriptionService {
      * @throws BusinessException 用户未登录或考试不存在时抛出异常
      */
     @Override
+    public cn.jualn.miniapp.module.exam.bo.PublicEventSubscriptionBO getSubscriptionState(Long examId) {
+        Long userId = requireUserId();
+        ExamSubscription relation = examSubscriptionMapper.selectOne(new LambdaQueryWrapper<ExamSubscription>()
+                .eq(ExamSubscription::getExamInfoId, examId).eq(ExamSubscription::getUserId, userId));
+        if (relation == null) {
+            var subject = examInfoMapper.selectByIdNotDeleted(examId);
+            if (subject == null || !Integer.valueOf(1).equals(subject.getPublishStatus())) {
+                throw new BusinessException(ResultCode.NOT_FOUND);
+            }
+        }
+        boolean subscribed = relation != null && Integer.valueOf(1).equals(relation.getStatus());
+        return new cn.jualn.miniapp.module.exam.bo.PublicEventSubscriptionBO(subscribed,
+                subscribed ? relation.getCreatedAt() : null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public cn.jualn.miniapp.module.exam.bo.PublicEventSubscriptionBO subscribeWithState(Long examId) {
+        subscribeExam(examId);
+        return getSubscriptionState(examId);
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public void subscribeExam(Long examId) {
         Long userId = requireUserId();
         var event = examInfoMapper.selectForUpdate(examId);
         if (event == null || !Integer.valueOf(1).equals(event.getPublishStatus()))
             throw new BusinessException(ResultCode.NOT_FOUND, "事项未发布或不可订阅");
+        if (!Integer.valueOf(0).equals(event.getLifecycleStatus()))
+            throw ContractProblemException.conflict("lifecycle-conflict", "Only an active public event can be subscribed");
         var existing = examSubscriptionMapper.selectOne(new LambdaQueryWrapper<ExamSubscription>()
                 .eq(ExamSubscription::getExamInfoId, examId).eq(ExamSubscription::getUserId, userId));
         if (existing == null) {
@@ -124,6 +150,14 @@ public class ExamSubscriptionServiceImpl implements ExamSubscriptionService {
     }
 
     @Override
+    public ExamSubscription getSubscription(Long examId) {
+        Long userId = requireUserId();
+        return examSubscriptionMapper.selectOne(new LambdaQueryWrapper<ExamSubscription>()
+                .eq(ExamSubscription::getExamInfoId, examId)
+                .eq(ExamSubscription::getUserId, userId));
+    }
+
+    @Override
     public List<Long> listSubscriberUserIds(Long examId, long lastId, int limit) {
         if (examId == null) return java.util.List.of();
         return examSubscriptionMapper.selectList(
@@ -136,6 +170,18 @@ public class ExamSubscriptionServiceImpl implements ExamSubscriptionService {
                         .orderByAsc(ExamSubscription::getUserId)
                         .last(" LIMIT " + limit)
         ).stream().map(ExamSubscription::getUserId).toList();
+    }
+
+    @Override
+    public List<Long> listSubscriberUserIds(Long examId, long lastId, long upperUserId, int limit) {
+        if (examId == null || upperUserId <= 0 || limit <= 0) return List.of();
+        return examSubscriptionMapper.selectSubscriberUserIdsBounded(
+                examId, lastId, upperUserId, Math.min(limit, 100));
+    }
+
+    @Override
+    public long subscriberUpperBound(Long examId) {
+        return examId == null ? 0L : examSubscriptionMapper.selectSubscriberUpperBound(examId);
     }
 
     private void invalidateSubscriptionAfterCommit(Long id, Long userId) {

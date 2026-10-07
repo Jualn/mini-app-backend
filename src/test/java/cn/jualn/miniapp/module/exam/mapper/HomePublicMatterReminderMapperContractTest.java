@@ -33,8 +33,14 @@ class HomePublicMatterReminderMapperContractTest {
 
         assertTrue(sql.contains("WITH future_nodes AS"));
         assertTrue(sql.contains("INNER JOIN timeline node"));
+        assertTrue(sql.contains("FROM public_event event"));
         assertTrue(sql.contains("node.label AS nodeName"));
-        assertTrue(sql.contains("'事项开始' AS nodeName"));
+        assertTrue(sql.contains("node.start_precision = 2"));
+        assertTrue(sql.contains("node.end_time IS NULL"));
+        assertTrue(sql.contains("node.end_precision = 0"));
+        assertTrue(!sql.contains("'事项开始' AS nodeName"));
+        assertTrue(!sql.contains("event.start_time AS reminderAt"));
+        assertTrue(!sql.contains("event.status"));
         assertTrue(sql.contains("ROW_NUMBER() OVER"));
         assertTrue(sql.contains("PARTITION BY node.publicMatterId"));
         assertTrue(sql.contains("WHERE node.nodeRank = 1"));

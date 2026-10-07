@@ -1,3 +1,9 @@
+admin-auth:
+  qr-login-v2:
+    env-version: ${ADMIN_QR_LOGIN_ENV_VERSION:develop}
+    # Local confirmation page may not exist in the published mini-program yet.
+    check-path: ${ADMIN_QR_LOGIN_CHECK_PATH:false}
+
 wx:
   ma:
     app-id: ${WX_MA_APP_ID}
@@ -13,6 +19,9 @@ wx:
     encoding-aes-key: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
     domain: ${WX_MP_DOMAIN} # 公众号接口地址，必须以https开头，不能有结尾的斜杠
 
+activity:
+  registration:
+    enabled: true
 
 cos:
   secret-id: ${COS_SECRET_ID}

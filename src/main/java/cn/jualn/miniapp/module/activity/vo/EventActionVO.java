@@ -7,6 +7,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 public class EventActionVO {
+    private String actionKey;
     private Long id;
     private Integer actionType;
     private String label;

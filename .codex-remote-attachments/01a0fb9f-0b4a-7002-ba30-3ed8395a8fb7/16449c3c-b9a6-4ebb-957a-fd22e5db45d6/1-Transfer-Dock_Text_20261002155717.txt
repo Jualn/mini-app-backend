@@ -1,0 +1,348 @@
+请在当前 Java/Spring Boot 后端工作区中，实现最新 User/Profile Contract。
+
+本轮目标是让后端行为符合 contracts 中已经完成并 review 通过的 User/Profile canonical contract。
+
+不要重新设计 Contract，不要修改 contracts，除非发现 Contract 本身存在无法实现的明确矛盾；如发现，只报告 blocker，不要自行改协议。
+
+项目基线：
+
+- Java 17
+- Spring Boot 3.5.13
+- MySQL
+- Redis
+- 当前已有微信小程序登录和用户资料相关实现
+- 当前已有微信内容安全审核逻辑
+- 当前存在 legacy User/Profile API
+- 当前资料实现被审计为“先写入，后异步审核”，这与新 Contract 冲突
+
+一、先读取 Contract
+
+首先定位并完整阅读最新 User/Profile 相关：
+
+- coordination / semantic MD
+- Profile paths
+- Profile schemas
+- openapi.yaml 聚合结果
+- contracts README / governance 中与兼容、错误响应、鉴权有关的规则
+
+以 Contract 为最终协议依据。
+
+重点确认 canonical endpoints：
+
+- "GET /v1/users/me/profile"
+- "PATCH /v1/users/me/profile"
+- "GET /v1/users/{userId}/profile"
+
+并确认 legacy endpoints 当前实现：
+
+- "GET /v1/users/me"
+- "PUT /v1/users/me"
+- "GET /v1/users/public/{userId}"
+
+legacy 仅用于兼容迁移，不得继续作为新的 canonical 设计基础。
+
+二、先审计现有实现，不要直接改代码
+
+检查：
+
+- User Controller
+- User Service
+- User Entity / DO / Mapper
+- 当前资料 DTO/VO
+- 微信昵称/简介文本安全检查
+- 微信头像/图片安全检查
+- 图片上传流程
+- 当前异步审核 worker / callback / queue
+- legacy API 调用路径
+- role / admin / operator 当前字段
+- 帖子/评论中作者信息是如何取得的
+
+输出当前真实执行链：
+
+客户端
+→ Controller
+→ Service
+→ 内容审核
+→ DB 写入
+→ 异步处理 / callback
+
+并明确指出当前行为与 Contract 的差异。
+
+三、核心不变量：有效 Profile 必须审核后生效
+
+这是本轮最高优先级。
+
+Contract 要求：
+
+提交修改
+→ 完成该字段要求的安全检查
+→ 检查通过
+→ 才替换当前有效资料
+
+如果明确拒绝：
+
+当前有效资料保持不变
+→ 返回 Contract 定义的 422 业务错误
+
+如果审核服务不可用、无法完成必要判断：
+
+当前有效资料保持不变
+→ 返回 Contract 定义的 503
+
+禁止实现成：
+
+先写新值
+→ 新值已经对外可见
+→ 再异步审核
+→ 失败后恢复旧值
+
+也禁止依赖 compensation 才维持 Contract。
+
+重点处理：
+
+- 旧异步审核 callback 是否可能迟到；
+- 旧请求审核结果是否可能覆盖用户之后已经提交的新值；
+- legacy writer 与 canonical writer 是否可能同时写同一资料；
+- 切换期间如何避免两个写协议破坏当前有效 Profile。
+
+如果头像审核机制与昵称/简介不同，不要强行把底层执行方式做成完全相同。
+
+要求保持的是：
+
+«未满足审核要求的资料不能成为当前公开有效资料。»
+
+如当前微信图片安全能力天然异步，请先基于现有真实 API/实现设计最小安全迁移方式，并明确状态与竞争保护；不要伪造同步能力。
+
+四、PATCH 语义
+
+实现：
+
+"PATCH /v1/users/me/profile"
+
+仅允许修改 Contract 中允许本人修改的字段。
+
+当前业务字段：
+
+- avatar
+- nickname
+- bio
+
+不要允许客户端通过这个接口修改：
+
+- userId
+- role
+- "isPlatformOperator"
+- account status
+- createdAt
+- 任何内部身份字段
+
+请求未提供的字段保持不变。
+
+如果一次请求同时修改多个字段，本轮按 Contract 的“原子有效资料”语义处理：
+
+- 所有需要的校验/安全检查成功后再提交最终更新；
+- 任一必须检查的字段失败，不得形成半成功的新 Profile；
+- 不要出现昵称更新成功、简介审核失败但仍返回整体成功等模糊状态。
+
+优先使用事务保证最终数据库写入的一致性，但不要错误地把远程微信 API 调用长期包在数据库事务锁中。
+
+需要根据当前代码结构设计合理执行边界：
+
+读取必要当前状态
+→ 本地校验
+→ 外部安全检查
+→ 条件确认/并发保护
+→ 短事务提交最终资料
+
+考虑两个并发资料修改请求时，旧请求审核较慢、后完成的问题。不得允许旧请求无条件覆盖更新的新请求。
+
+请选择与当前项目复杂度相符的最小可靠并发协议，并通过测试证明。
+
+五、读取接口
+
+实现：
+
+"GET /v1/users/me/profile"
+
+返回当前登录用户的有效 Profile。
+
+"GET /v1/users/{userId}/profile"
+
+返回目标用户公开有效 Profile。
+
+当前两者按照 Contract 复用同一个五字段 representation。
+
+不要自行增加：
+
+- 手机号
+- openid
+- 内部 role
+- 管理备注
+- 登录状态
+- 举报信息
+- 喜欢列表
+- 帖子列表
+- Activity 列表
+
+Profile 不拥有这些领域数据。
+
+六、isPlatformOperator
+
+这是公开展示语义，不是内部授权模型。
+
+后端负责根据当前真实内部身份事实生成：
+
+"isPlatformOperator"
+
+要求：
+
+- 普通用户为 false；
+- 当前平台运营/管理账号按现有可靠身份事实映射为 true；
+- 不根据 nickname 推导；
+- 不根据是否发布过 Activity 推导；
+- 不要求客户端读取内部 role 自己判断。
+
+不要为了本轮建立复杂 RBAC。
+
+如果当前 role 数据模型非常简单，只做最小映射即可。
+
+七、昵称允许重复
+
+不得增加昵称唯一约束。
+
+系统身份唯一性继续使用内部 userId / 登录身份。
+
+昵称只是展示名称。
+
+八、legacy API 迁移
+
+现有：
+
+- "GET /v1/users/me"
+- "PUT /v1/users/me"
+- "GET /v1/users/public/{userId}"
+
+需要审计实际客户端依赖。
+
+本轮不要无依据直接删除 legacy endpoints。
+
+目标：
+
+- canonical endpoints 成为新实现主路径；
+- legacy 如仍有调用，使用兼容 adapter / delegate 到新的 service 语义；
+- 禁止 legacy writer 绕过新的审核后生效规则；
+- 禁止维护两套不同 Profile 业务逻辑。
+
+如果 legacy 已确认无调用，可按项目现有兼容策略处理，但不要自行做 breaking 删除，除非现有规范明确允许。
+
+九、Like 安全缺口
+
+Contract review 发现旧“本人喜欢列表”链路可能缺少 ownership 校验。
+
+本轮 User/Profile 实现不要顺手重写 Post/Like 模块。
+
+但请验证这个问题是否真实存在。
+
+如果真实存在：
+
+- 记录为独立安全 follow-up；
+- 如果属于明显且低风险的越权漏洞，可做最小安全修复；
+- 不修改 UserProfile schema；
+- 不把喜欢列表塞进 Profile API。
+
+说明实际处理结果。
+
+十、作者展示与运营标志
+
+检查帖子、评论等现有作者摘要如何生成。
+
+如果这些位置当前所有用户都静态显示蓝色勾：
+
+- 不要在本轮无边界地重构所有页面；
+- 后端应确保作者公开信息能够稳定得到运营身份语义；
+- 避免 N+1 额外查询。
+
+优先复用当前作者查询本来就取得的 User 数据，在同一次 join / batch load 中得到身份事实。
+
+不要采用：
+
+每个作者
+→ 再查一次 role
+
+也不要采用：
+
+查该用户是否发布过 Activity
+→ 推断运营身份
+
+如果作者摘要 Contract 尚未正式包含该公开身份字段，记录客户端/其他 Contract follow-up，不要偷偷改变未定义接口。
+
+十一、错误与鉴权
+
+严格遵循现有 Contract：
+
+- 未登录
+- 无权限
+- 用户不存在
+- 参数非法
+- 内容明确违规
+- 内容检查服务不可用
+
+对应现有统一错误结构和 ErrorCode 规范。
+
+不要新造另一套响应包装。
+
+权限检查继续放在后端统一的授权边界中；客户端输入一律不可信。
+
+十二、测试
+
+至少覆盖：
+
+1. 获取本人资料。
+2. 获取其他用户公开资料。
+3. 昵称重复允许。
+4. 普通用户 "isPlatformOperator=false"。
+5. 管理/运营账号正确返回 true。
+6. 修改昵称审核成功后生效。
+7. 修改简介审核拒绝，旧资料保持不变。
+8. 审核服务不可用，旧资料保持不变。
+9. 多字段修改任一审核失败时不出现部分生效。
+10. 两个并发修改中，旧请求迟到不得覆盖更新请求。
+11. legacy writer 不得绕过 canonical 的审核生效规则。
+12. 客户端无法修改 role / isPlatformOperator 等受保护字段。
+
+优先写 service / integration tests 验证业务不变量，而不是只测试 Controller 返回 200。
+
+十三、不要做
+
+本轮不要：
+
+- 修改 Contract；
+- 开发 Admin User Management；
+- 引入复杂 RBAC；
+- 增加校园认证；
+- 增加手机号能力；
+- 增加性别；
+- 增加注销/封禁状态机；
+- 重构完整举报/审核体系；
+- 把帖子/Activity/Like 聚合进 Profile；
+- 因为本任务进行数据库大规模重构。
+
+如果现有数据库确实缺少实现 Contract 所必需的最小字段/并发控制，可做最小 migration，并说明原因。
+
+十四、最终输出
+
+完成后输出：
+
+1. 当前旧实现执行链及主要问题。
+2. 实际修改文件。
+3. canonical endpoints 实现情况。
+4. Profile 审核后原子生效的最终执行路径。
+5. 并发/迟到审核如何防护。
+6. legacy endpoint 如何兼容。
+7. "isPlatformOperator" 如何从内部事实映射。
+8. Like ownership 是否确认存在问题及处理方式。
+9. 测试结果。
+10. 尚未完成的 blocker / deferred 项。
+11. 是否已经达到“小程序可以开始依赖 canonical User/Profile Contract”的状态。
+
+不要自动执行 git commit。

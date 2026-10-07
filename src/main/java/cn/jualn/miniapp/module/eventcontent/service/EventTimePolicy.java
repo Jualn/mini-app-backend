@@ -35,16 +35,6 @@ public final class EventTimePolicy {
         return precision == 1 ? end.toLocalDate().plusDays(1).atStartOfDay() : end;
     }
 
-    public static String phase(int publication, LocalDateTime start, Integer startPrecision,
-                               LocalDateTime end, Integer endPrecision, LocalDateTime now) {
-        if (publication == 3) return "CANCELLED";
-        if (publication != 1) return "UNPUBLISHED";
-        LocalDateTime boundary = exclusiveEnd(end, endPrecision);
-        if (boundary != null && !now.isBefore(boundary)) return "ENDED";
-        if (start == null || startPrecision == null || startPrecision == 0) return "UNKNOWN";
-        return now.isBefore(start) ? "UPCOMING" : "ONGOING";
-    }
-
     public static String registration(int publication, Integer mode, LocalDateTime start, Integer startPrecision,
                                       LocalDateTime end, Integer endPrecision, LocalDateTime now) {
         if (publication != 1) return "UNAVAILABLE";

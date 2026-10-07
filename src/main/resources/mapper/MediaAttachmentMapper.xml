@@ -21,4 +21,28 @@
         ORDER BY sort_order, id
     </select>
 
+    <select id="selectLinked" resultType="cn.jualn.miniapp.module.media.entity.MediaAttachment">
+        SELECT a.id, a.target_type, a.target_id, a.type, a.kind, a.registered, a.registered_by,
+               a.object_key, a.url, a.original_name, l.display_order AS sort_order, a.created_at
+        FROM event_attachment_link l
+        JOIN media_attachment a ON a.id = l.attachment_id
+        WHERE l.target_type = #{targetType} AND l.target_id = #{targetId}
+        ORDER BY l.display_order, a.id
+    </select>
+
+    <delete id="deleteLinks">
+        DELETE FROM event_attachment_link WHERE target_type = #{targetType} AND target_id = #{targetId}
+    </delete>
+
+    <insert id="insertLink">
+        INSERT INTO event_attachment_link (target_type, target_id, attachment_id, display_order)
+        VALUES (#{targetType}, #{targetId}, #{attachmentId}, #{displayOrder})
+    </insert>
+
+    <select id="selectTargets" resultType="cn.jualn.miniapp.module.media.bo.AttachmentTargetBO">
+        SELECT target_type, target_id
+        FROM event_attachment_link
+        WHERE attachment_id = #{attachmentId}
+    </select>
+
 </mapper>

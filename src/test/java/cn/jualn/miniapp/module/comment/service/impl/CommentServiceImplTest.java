@@ -3,7 +3,8 @@ package cn.jualn.miniapp.module.comment.service.impl;
 import cn.jualn.miniapp.common.constant.UserContext;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.module.activity.service.ActivityService;
-import cn.jualn.miniapp.module.audit.payload.AuditTextPayload;
+import cn.jualn.miniapp.module.audit.bo.AuditReserveResultBO;
+import cn.jualn.miniapp.module.audit.service.AuditReservationService;
 import cn.jualn.miniapp.module.comment.bo.CommentCreateBO;
 import cn.jualn.miniapp.module.comment.bo.CommentPageBO;
 import cn.jualn.miniapp.module.comment.converter.CommentConverter;
@@ -16,9 +17,10 @@ import cn.jualn.miniapp.module.interact.service.InteractService;
 import cn.jualn.miniapp.module.post.service.PostService;
 import cn.jualn.miniapp.module.user.bo.UserSimpleBO;
 import cn.jualn.miniapp.module.user.service.UserService;
-import cn.jualn.miniapp.infrastructure.queue.contract.QueueProducer;
 import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
+import cn.jualn.miniapp.module.media.service.MediaService;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -39,6 +41,13 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CommentServiceImplTest {
 
+    @BeforeAll
+    static void initMybatisMetadata() {
+        var assistant = new org.apache.ibatis.builder.MapperBuilderAssistant(
+                new com.baomidou.mybatisplus.core.MybatisConfiguration(), "");
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(assistant, Comment.class);
+    }
+
     @Mock
     private CommentMapper commentMapper;
     @Mock
@@ -54,9 +63,11 @@ class CommentServiceImplTest {
     @Mock
     private TargetValidator targetValidator;
     @Mock
-    private QueueProducer queueProducer;
+    private AuditReservationService auditReservationService;
     @Mock
     private InteractService interactService;
+    @Mock
+    private MediaService mediaService;
 
     @AfterEach
     void tearDown() {
@@ -67,7 +78,8 @@ class CommentServiceImplTest {
     void createComment_shouldInsertIncreaseCountAndSendAudit() {
         UserContext.setUserId(7L);
         CommentServiceImpl service = new CommentServiceImpl(
-                commentMapper, commentConverter, postService, activityService, examService, userService, targetValidator, queueProducer,interactService);
+                commentMapper, commentConverter, postService, activityService, examService, userService, targetValidator,
+                interactService, auditReservationService, mediaService);
 
         CommentCreateBO command = new CommentCreateBO();
         command.setTargetType(TargetType.POST);
@@ -78,21 +90,23 @@ class CommentServiceImplTest {
             comment.setId(501L);
             return 1;
         }).when(commentMapper).insert(any(Comment.class));
+        when(auditReservationService.reserveAuditLogs(any())).thenReturn(
+                AuditReserveResultBO.builder().textAuditLogId(9L).build());
 
         Long commentId = service.createComment(command);
 
         assertEquals(501L, commentId);
         verify(targetValidator).assertExists(TargetType.POST, 100L);
         verify(commentMapper).insert(any(Comment.class));
-        verify(postService).increaseCommentCount(100L);
-        verify(queueProducer).send(any(AuditTextPayload.class));
+        verify(auditReservationService).reserveAuditLogs(any());
         verify(commentMapper, never()).increaseReplyCount(anyLong());
     }
 
     @Test
     void pageComment_shouldReturnMappedListAndNextCursor() {
         CommentServiceImpl service = new CommentServiceImpl(
-                commentMapper, commentConverter, postService, activityService, examService, userService, targetValidator, queueProducer,interactService);
+                commentMapper, commentConverter, postService, activityService, examService, userService, targetValidator,
+                interactService, auditReservationService, mediaService);
 
         Comment first = Comment.builder().id(20L).userId(10L).targetType(TargetType.POST.getCode()).targetId(100L).status(CommentStatus.NORMAL.getCode()).build();
         Comment second = Comment.builder().id(18L).userId(11L).replyToUid(99L).targetType(TargetType.POST.getCode()).targetId(100L).status(CommentStatus.NORMAL.getCode()).build();

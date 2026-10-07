@@ -17,6 +17,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -54,7 +55,7 @@ class ActivityEnrollmentServiceImplTest {
     void enrollActivity_shouldInsertWhenNotEnrolled() {
         UserContext.setUserId(7L);
         ActivityEnrollmentServiceImpl service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator);
-        when(activityMapper.selectForUpdate(10L)).thenReturn(cn.jualn.miniapp.module.activity.entity.Activity.builder().id(10L).publishStatus(1).build());
+        when(activityMapper.selectForUpdate(10L)).thenReturn(cn.jualn.miniapp.module.activity.entity.Activity.builder().id(10L).publishStatus(1).lifecycleStatus(0).build());
         when(activityEnrollmentMapper.insert(any(ActivityEnrollment.class))).thenReturn(1);
 
         service.enrollActivity(10L);
@@ -68,12 +69,31 @@ class ActivityEnrollmentServiceImplTest {
         UserContext.setUserId(7L);
         ActivityEnrollmentServiceImpl service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator);
         String key = RedisKeyConstant.activityEnrollment(10L, 7L);
-        when(activityMapper.selectForUpdate(10L)).thenReturn(cn.jualn.miniapp.module.activity.entity.Activity.builder().id(10L).publishStatus(1).build());
+        when(activityMapper.selectForUpdate(10L)).thenReturn(cn.jualn.miniapp.module.activity.entity.Activity.builder().id(10L).publishStatus(1).lifecycleStatus(0).build());
         when(activityEnrollmentMapper.selectOne(any())).thenReturn(ActivityEnrollment.builder().id(1L).status(1).build());
 
         service.enrollActivity(10L);
 
         verify(activityMapper).selectForUpdate(10L);
+        verify(activityEnrollmentMapper, never()).insert(any(ActivityEnrollment.class));
+    }
+
+    @Test
+    void existingSubscriptionSurvivesSubjectWithdrawalAndKeepsOriginalTimestamp() {
+        UserContext.setUserId(7L);
+        var service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator);
+        var subscribedAt = java.time.LocalDateTime.of(2026, 9, 1, 9, 0);
+        var relation = ActivityEnrollment.builder().id(1L).activityId(10L).userId(7L)
+                .status(1).createdAt(subscribedAt).build();
+        when(activityMapper.selectForUpdate(10L)).thenReturn(
+                cn.jualn.miniapp.module.activity.entity.Activity.builder()
+                        .id(10L).publishStatus(2).lifecycleStatus(0).build());
+        when(activityEnrollmentMapper.selectOne(any())).thenReturn(relation);
+
+        var state = service.subscribeWithState(10L);
+
+        assertTrue(state.subscribed());
+        assertEquals(subscribedAt, state.subscribedAt());
         verify(activityEnrollmentMapper, never()).insert(any(ActivityEnrollment.class));
     }
 
@@ -117,6 +137,27 @@ class ActivityEnrollmentServiceImplTest {
         assertThrows(BusinessException.class, () -> service.updateNotifyEnable(command));
 
         verify(activityEnrollmentMapper, never()).updateById(any(ActivityEnrollment.class));
+    }
+
+    @Test
+    void cancelledRelationshipRemainsReadableWithoutLoadingUnavailableSubject() {
+        UserContext.setUserId(7L);
+        var service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator);
+        when(activityEnrollmentMapper.selectOne(any())).thenReturn(ActivityEnrollment.builder().id(1L).status(2).build());
+        var state = service.getSubscriptionState(10L);
+        org.junit.jupiter.api.Assertions.assertFalse(state.subscribed());
+        org.junit.jupiter.api.Assertions.assertNull(state.subscribedAt());
+        org.mockito.Mockito.verifyNoInteractions(activityMapper, redisService);
+    }
+
+    @Test
+    void absentRelationshipDoesNotExposeAnUnavailableSubject() {
+        UserContext.setUserId(7L);
+        var service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator);
+        org.junit.jupiter.api.Assertions.assertThrows(cn.jualn.miniapp.common.exception.BusinessException.class,
+                () -> service.getSubscriptionState(10L));
+        verify(activityMapper).selectByIdNotDeleted(10L);
+        org.mockito.Mockito.verifyNoInteractions(redisService);
     }
 }
 

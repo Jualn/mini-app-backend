@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @TableName("timeline")
 public class Timeline {
+    private String nodeKey;
     private String nodeType;
     private String location;
     private Integer startPrecision;

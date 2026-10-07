@@ -2,25 +2,72 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.jualn.miniapp.module.activity.mapper.ActivityRegistrationMapper">
     <select id="page" resultType="cn.jualn.miniapp.module.activity.bo.ActivityRegistrationBO">
-        SELECT id, activity_id, user_id, status, submitted_at, cancelled_at, invalidated_at, invalidated_by, invalid_reason
+        SELECT id, activity_id, user_id, status, contract_version, form_version, submitted_at, updated_at, cancelled_at, invalidated_at, invalidated_by, invalid_reason
         FROM activity_registration WHERE activity_id = #{activityId}
         <if test="status != null">AND status = #{status}</if>
         <if test="beforeId != null">AND id &lt; #{beforeId}</if>
         ORDER BY id DESC LIMIT #{limit}
     </select>
     <select id="exportRows" resultType="cn.jualn.miniapp.module.activity.entity.ActivityRegistration">
-        SELECT id, activity_id, user_id, status, form_data, submitted_at, cancelled_at,
+        SELECT id, activity_id, user_id, status, contract_version, form_version, form_data, submitted_at, updated_at, cancelled_at,
                invalidated_at, invalidated_by, invalid_reason, created_at, updated_at
         FROM activity_registration WHERE activity_id = #{activityId}
         <if test="status != null">AND status = #{status}</if>
         ORDER BY id DESC LIMIT #{limit}
     </select>
+    <select id="pageContract" resultType="cn.jualn.miniapp.module.activity.entity.ActivityRegistration">
+        SELECT id, activity_id, user_id, status, contract_version, form_version, form_data,
+               submitted_at, updated_at, cancelled_at, created_at
+        FROM activity_registration
+        WHERE activity_id = #{activityId} AND status IN (1, 2)
+        <if test="status != null">AND status = #{status}</if>
+        ORDER BY submitted_at DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+    <select id="countContract" resultType="long">
+        SELECT COUNT(*) FROM activity_registration
+        WHERE activity_id = #{activityId} AND status IN (1, 2)
+        <if test="status != null">AND status = #{status}</if>
+    </select>
+    <select id="countSubmittedByActivityIds" resultType="cn.jualn.miniapp.module.activity.bo.ActivityRegistrationCountBO">
+        SELECT activity_id, COUNT(*) AS submitted_count
+        FROM activity_registration
+        WHERE status = 1 AND activity_id IN
+        <foreach collection="activityIds" item="activityId" open="(" separator="," close=")">
+            #{activityId}
+        </foreach>
+        GROUP BY activity_id
+    </select>
+    <select id="exportContract" resultType="cn.jualn.miniapp.module.activity.entity.ActivityRegistration">
+        SELECT id, activity_id, user_id, status, contract_version, form_version, form_data,
+               submitted_at, updated_at, cancelled_at, created_at
+        FROM activity_registration
+        WHERE activity_id = #{activityId} AND status IN (1, 2)
+        <if test="status != null">AND status = #{status}</if>
+        ORDER BY submitted_at DESC, id DESC
+    </select>
     <update id="restore">
-        UPDATE activity_registration SET status = 1, form_data = #{data}, submitted_at = #{now}, cancelled_at = NULL
+        UPDATE activity_registration SET status = 1, form_data = #{data}, submitted_at = #{now}, updated_at = #{now}, cancelled_at = NULL, contract_version = contract_version + 1
         WHERE id = #{id} AND status = 2
     </update>
     <update id="cancel">
-        UPDATE activity_registration SET status = 2, cancelled_at = #{now} WHERE id = #{id} AND status = 1
+        UPDATE activity_registration SET status = 2, cancelled_at = #{now}, updated_at = #{now}, contract_version = contract_version + 1 WHERE id = #{id} AND status = 1
+    </update>
+    <update id="restoreVersioned">
+        UPDATE activity_registration
+        SET status = 1, form_data = #{data}, form_version = #{formVersion}, submitted_at = #{now},
+            updated_at = #{now}, cancelled_at = NULL, contract_version = contract_version + 1
+        WHERE id = #{id} AND status = 2 AND contract_version = #{version}
+    </update>
+    <update id="replaceVersioned">
+        UPDATE activity_registration
+        SET form_data = #{data}, updated_at = #{now}, contract_version = contract_version + 1
+        WHERE id = #{id} AND status = 1 AND contract_version = #{version}
+    </update>
+    <update id="cancelVersioned">
+        UPDATE activity_registration
+        SET status = 2, cancelled_at = #{now}, updated_at = #{now}, contract_version = contract_version + 1
+        WHERE id = #{id} AND status = 1 AND contract_version = #{version}
     </update>
     <update id="invalidate">
         UPDATE activity_registration SET status = 3, invalidated_at = #{now}, invalidated_by = #{operatorId}, invalid_reason = #{reason}

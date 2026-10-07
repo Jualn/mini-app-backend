@@ -14,6 +14,9 @@ import java.util.List;
 @Data
 @Builder
 public class AdminActivityDetailBO {
+    private Long contractVersion;
+    private Integer lifecycleStatus;
+    private String formVersion;
     private com.fasterxml.jackson.databind.JsonNode formSchema;
     private Integer registrationLimit;
     private java.time.LocalDateTime cancelledAt;
@@ -33,6 +36,8 @@ public class AdminActivityDetailBO {
 
     private String summary;
     private String audienceSummary;
+    private String audienceDepartmentIds;
+    private String contactsJson;
     private Integer registrationMode;
     private Integer participantMode;
     private Integer capacityUnit;

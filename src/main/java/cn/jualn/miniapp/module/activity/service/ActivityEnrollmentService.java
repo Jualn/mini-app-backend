@@ -26,6 +26,11 @@ import java.util.Set;
  * @since 2026-04-28
  */
 public interface ActivityEnrollmentService {
+    /** Read the caller's persisted relationship even when its subject is no longer public. */
+    cn.jualn.miniapp.module.activity.bo.ActivitySubscriptionBO getSubscriptionState(Long activityId);
+
+    cn.jualn.miniapp.module.activity.bo.ActivitySubscriptionBO subscribeWithState(Long activityId);
+
 
     /**
      * 报名活动。
@@ -102,6 +107,13 @@ public interface ActivityEnrollmentService {
      * @return 用户 ID 列表（按 id 升序）
      */
     List<Long> listEnrolledUserIds(Long activityId, long lastId, int limit);
+
+    /** Current notify-enabled subscribers minus current submitted platform registrations. */
+    List<Long> listNotifyEnabledUnregisteredUserIds(Long activityId, long lastId, int limit);
+
+    List<Long> listSubscriberOrRegisteredUserIds(Long activityId, long lastId, long upperUserId, int limit);
+
+    long subscriberOrRegisteredUpperBound(Long activityId);
 
     /**
      * 批量获取当前用户在给定活动列表中的已报名活动 ID。

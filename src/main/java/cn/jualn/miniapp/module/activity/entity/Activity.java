@@ -14,20 +14,16 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @TableName("activity")
 public class Activity {
+    private Long contractVersion;
+    private Integer lifecycleStatus;
+    private String formVersion;
+    private String audienceDepartmentIds;
+    private String contactsJson;
     private String formSchema;
-    private Integer registrationLimit;
     private java.time.LocalDateTime cancelledAt;
     private String cancelReason;
 
     private Integer publishStatus;
-
-    private Integer startPrecision;
-    private Integer endPrecision;
-    private String timeDescription;
-    private Integer registrationStartPrecision;
-    private Integer registrationEndPrecision;
-    private java.time.LocalDateTime registrationStart;
-    private java.time.LocalDateTime registrationEnd;
 
     private String summary;
     private String audienceSummary;
@@ -46,8 +42,6 @@ public class Activity {
 
     private String title;
 
-    private String content;
-
     private String location;
 
     private Integer category;
@@ -55,28 +49,6 @@ public class Activity {
     private String organizer;
 
     private Integer audienceScope;
-
-    private String contactInfo;
-
-    private String joinMethod;
-
-    private String qrcodeUrl;
-
-    private LocalDateTime startTime;
-
-    private LocalDateTime endTime;
-
-    private LocalDateTime enrollDeadline;
-
-    private Integer maxParticipants;
-
-    private Integer status;
-
-    private Integer auditStatus;
-
-    private String rejectReason;
-
-    private Boolean isPinned;
 
     private Integer commentCount;
 

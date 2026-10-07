@@ -1,5 +1,8 @@
 package cn.jualn.miniapp.third.wx.service;
 
+import cn.jualn.miniapp.module.wx.service.WxBindService;
+import cn.jualn.miniapp.module.wx.service.WxSubscribeService;
+import cn.jualn.miniapp.module.wx.dto.WxBaseMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,7 +27,7 @@ class WxSubscribeServiceTest {
 
     @Test
     void onSubscribe_shouldUseSceneWhenQrSceneEventKey() {
-        WxEventMessage event = WxEventMessage.builder()
+        WxBaseMessage event = WxBaseMessage.builder()
                 .fromUserName("mp_openid_1")
                 .eventKey("qrscene_bind_10_a1b2c3d4")
                 .build();
@@ -37,7 +40,7 @@ class WxSubscribeServiceTest {
 
     @Test
     void onSubscribe_shouldHandleDirectSubscribeWhenNoEventKey() {
-        WxEventMessage event = WxEventMessage.builder()
+        WxBaseMessage event = WxBaseMessage.builder()
                 .fromUserName("mp_openid_2")
                 .eventKey(null)
                 .build();
@@ -49,7 +52,7 @@ class WxSubscribeServiceTest {
 
     @Test
     void onScan_shouldUseOriginalScene() {
-        WxEventMessage event = WxEventMessage.builder()
+        WxBaseMessage event = WxBaseMessage.builder()
                 .fromUserName("mp_openid_3")
                 .eventKey("bind_20_xx00yy11")
                 .build();

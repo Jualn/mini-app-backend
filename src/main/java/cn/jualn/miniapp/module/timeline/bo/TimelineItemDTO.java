@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class TimelineItemDTO {
+    private String nodeKey;
     private String nodeType;
     private String location;
     private Integer startPrecision;

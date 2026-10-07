@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 public class AdminActivityListRow {
 
     private Integer publishStatus;
+    private Integer lifecycleStatus;
     private Long id;
     private String title;
     private String summary;

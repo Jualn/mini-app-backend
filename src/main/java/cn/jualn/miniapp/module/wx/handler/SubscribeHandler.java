@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.wx.handler;
 
 import cn.jualn.miniapp.module.wx.dto.WxBaseMessage;
-import cn.jualn.miniapp.third.wx.service.WxSubscribeService;
+import cn.jualn.miniapp.module.wx.service.WxSubscribeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
  * 微信 subscribe 事件处理器。
  */
 @Slf4j
-@Component("event:subscribe")
+@Component("mp:event:subscribe")
 @RequiredArgsConstructor
 public class SubscribeHandler implements WxEventHandler {
 
@@ -24,7 +24,7 @@ public class SubscribeHandler implements WxEventHandler {
      */
     @Override
     public void handle(WxBaseMessage event) {
-        log.info("处理微信 subscribe 事件，fromUserName={}, eventKey={}", event.getFromUserName(), event.getEventKey());
-//        wxSubscribeService.onSubscribe(event);
+        log.debug("处理微信 subscribe 事件");
+        wxSubscribeService.onSubscribe(event);
     }
 }

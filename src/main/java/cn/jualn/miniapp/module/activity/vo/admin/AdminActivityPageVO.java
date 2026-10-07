@@ -10,8 +10,7 @@ import java.util.List;
 public class AdminActivityPageVO {
 
     private List<AdminActivityListVO> items;
-    private AdminActivitySummaryVO summary;
-    private Boolean hasMore;
-    private String nextCursor;
+    private Integer page;
     private Integer pageSize;
+    private Long totalItems;
 }

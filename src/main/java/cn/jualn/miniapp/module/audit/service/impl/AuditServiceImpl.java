@@ -8,9 +8,7 @@ import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.module.audit.bo.*;
 import cn.jualn.miniapp.module.audit.entity.ContentAuditLog;
 import cn.jualn.miniapp.module.audit.enums.AuditStatus;
-import cn.jualn.miniapp.module.audit.enums.AuditSourceEnum;
 import cn.jualn.miniapp.module.audit.mapper.ContentAuditLogMapper;
-import cn.jualn.miniapp.module.audit.service.AuditResultCallback;
 import cn.jualn.miniapp.module.audit.service.AuditService;
 import cn.jualn.miniapp.module.wx.dto.WxaMediaCheckMessage;
 import cn.jualn.miniapp.third.wx.client.WxClient;
@@ -36,8 +34,6 @@ import java.util.*;
 public class AuditServiceImpl implements AuditService {
 
     private static final Integer DEFAULT_SCENE = 3;
-    private static final Integer WX_RESULT_NORMAL = 0;
-    private static final Integer WX_RESULT_RISK = 1;
     private static final String SUGGEST_PASS = "pass";
 
     private static final Set<AuditScene> AUDIT_ALLOWED_SCENES =
@@ -52,11 +48,11 @@ public class AuditServiceImpl implements AuditService {
                     AuditScene.USER_BACKGROUND
             );
 
-    private final Map<AuditScene, AuditResultCallback> registry;
     private final WxClient wxClient;
     private final ContentAuditLogMapper contentAuditLogMapper;
     private final RedisService redisService;
     private final ObjectMapper objectMapper;
+    private final AuditResultPersistenceService resultPersistenceService;
 
     /**
      * 文本审核是“外部微信调用 + 本地落库”的组合流程。
@@ -76,6 +72,15 @@ public class AuditServiceImpl implements AuditService {
             throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "content 不能为空");
         }
 
+        ContentAuditLog existing = contentAuditLogMapper.selectById(bo.getAuditLogId());
+        if (existing != null && !Objects.equals(existing.getFinalResult(), AuditStatus.PENDING.getCode())) {
+            return AuditCheckResultBO.builder()
+                    .passed(Objects.equals(existing.getFinalResult(), AuditStatus.PASS.getCode()))
+                    .pending(false)
+                    .traceId(existing.getWxTraceId())
+                    .build();
+        }
+
         WxMsgSecCheckRequest wxRequest = WxMsgSecCheckRequest.builder()
                 .content(bo.getContent())
                 .version(2)
@@ -89,21 +94,11 @@ public class AuditServiceImpl implements AuditService {
         Integer label = wxResponse.getResultLabel();
         AuditStatus finalResult = mapFinalResult(suggest);
 
-        int rows = contentAuditLogMapper.update(
-                ContentAuditLog.builder()
-                        .wxTraceId(wxResponse.getTraceId())
-                        .wxResult(finalResult == AuditStatus.PASS ? WX_RESULT_NORMAL : WX_RESULT_RISK)
-                        .wxDetail(toJson(wxResponse))
-                        .finalResult(finalResult.getCode())
-                        .build(),
-                new LambdaUpdateWrapper<ContentAuditLog>()
-                        .eq(ContentAuditLog::getId, bo.getAuditLogId())
-                        .eq(ContentAuditLog::getTargetType, bo.getAuditScene().getCode())
-                        .eq(ContentAuditLog::getTargetId, bo.getTargetId())
-                        .eq(ContentAuditLog::getFinalResult, AuditStatus.PENDING.getCode())
-        );
-
-        if (rows <= 0) {
+        String reason = finalResult == AuditStatus.PASS ? null
+                : String.format("微信审核拒绝：suggest=%s, label=%s", suggest,
+                label == null ? "unknown" : label);
+        if (!resultPersistenceService.completeText(bo.getAuditLogId(), bo.getAuditScene(), bo.getTargetId(),
+                wxResponse.getTraceId(), finalResult, toJson(wxResponse), reason)) {
             log.warn("[AuditService.doTextCheck] 文本审核记录未更新，可能已处理或记录不存在，auditLogId={}, targetType={}, targetId={}",
                     bo.getAuditLogId(), bo.getAuditScene().getTargetType(), bo.getTargetId());
         }
@@ -118,41 +113,11 @@ public class AuditServiceImpl implements AuditService {
     }
 
     /**
-     * 文本审核完成后的业务回调处理。
-     *
-     * <p>当前不参与事务：审核记录已先行落库，业务回调失败仅记录日志，不影响审核事实本身。</p>
+     * 文本审核完成后，同事务写入审核事实与 Outbox；业务回调由 Stream Handler 执行。
      */
     @Override
     public void processTextAudit(AuditTextCheckBO bo) {
-        AuditCheckResultBO result = doTextCheck(bo);
-
-        AuditResultCallback callback = registry.get(
-                bo.getAuditScene()
-        );
-        if (callback == null) {
-            log.error("[AuditService.processTextAudit] 无法找到回调处理，auditScene={}, targetId={}",
-                    bo.getAuditScene(), bo.getTargetId());
-            return;
-        }
-
-        try {
-            if (result.getPassed()) {
-                log.debug("[AuditService.processTextAudit][通过] auditScene={}, targetId={}, suggest={}",
-                        bo.getAuditScene(), bo.getTargetId(), result.getSuggest());
-                callback.onPass(bo.getTargetId());
-            } else {
-                // 拒绝原因：微信审核suggest值 + 标签
-                String reason = String.format("微信审核拒绝：suggest=%s, label=%d",
-                        result.getSuggest(), result.getLabel());
-                log.warn("[AuditService.processTextAudit][拒绝] auditScene={}, targetId={}, reason={}",
-                        bo.getAuditScene(), bo.getTargetId(), reason);
-                callback.onReject(bo.getTargetId(), reason);
-            }
-        } catch (Exception e) {
-            log.error("[AuditService.processTextAudit][回调异常] 业务回调失败，auditScene={}, targetId={}",
-                    bo.getAuditScene(), bo.getTargetId(), e);
-            // 回调异常不阻塞审核流程，审核日志已保存，目标业务自行查询审核结果
-        }
+        doTextCheck(bo);
     }
 
     /**
@@ -172,6 +137,11 @@ public class AuditServiceImpl implements AuditService {
         }
         if (!StringUtils.hasText(bo.getMediaUrl())) {
             throw new BusinessException(ResultCode.AUDIT_PARAM_INVALID, "mediaUrl 不能为空");
+        }
+
+        ContentAuditLog existing = contentAuditLogMapper.selectById(bo.getAuditLogId());
+        if (existing != null && StringUtils.hasText(existing.getWxTraceId())) {
+            return AuditCheckResultBO.builder().pending(true).traceId(existing.getWxTraceId()).build();
         }
 
         WxMediaCheckAsyncRequest wxRequest = WxMediaCheckAsyncRequest.builder()
@@ -200,7 +170,7 @@ public class AuditServiceImpl implements AuditService {
                     bo.getAuditLogId(), bo.getAuditScene(), bo.getTargetId(), wxResponse.getTraceId());
         }
 
-        bindTraceTarget(wxResponse.getTraceId(), bo.getAuditScene(), bo.getTargetId());
+        bindTraceTarget(wxResponse.getTraceId(), bo.getAuditLogId(), bo.getAuditScene(), bo.getTargetId());
 
         return AuditCheckResultBO.builder()
                 .passed(null)
@@ -214,7 +184,7 @@ public class AuditServiceImpl implements AuditService {
     /**
      * 微信多媒体审核回调。
      *
-     * <p>回调处理采用“先恢复目标绑定，再更新审核日志，再执行业务回调”的顺序，降低回调丢失的概率。</p>
+     * <p>审核结果与 Outbox 在同一事务落库，业务回调由 Stream Handler 执行。</p>
      */
     @Override
     public void handleWxMediaCallback(WxaMediaCheckMessage message) {
@@ -224,7 +194,7 @@ public class AuditServiceImpl implements AuditService {
         }
 
         TraceTargetBinding binding = getTraceTargetBinding(message.getTraceId());
-        if (binding == null) {
+        if (binding == null || binding.getAuditLogId() == null) {
             // redis 丢失时，尝试从 db 回源（通过 traceId 查询待审核记录）
             binding = getTraceTargetBindingFromDb(message.getTraceId());
             if (binding == null) {
@@ -236,42 +206,30 @@ public class AuditServiceImpl implements AuditService {
                     message.getTraceId(), binding.getAuditScene(), binding.getTargetId());
         }
 
-        String suggest = extractSuggest(message);
+        boolean profileScene = binding.getAuditScene() == AuditScene.USER_AVATAR || binding.getAuditScene() == AuditScene.USER_BACKGROUND;
+        String suggest = profileScene
+                ? (message.getResult() == null ? null : message.getResult().getSuggest()) : extractSuggest(message);
+        if (profileScene && (!Integer.valueOf(0).equals(message.getErrCode())
+                || !("pass".equals(suggest) || "risky".equals(suggest) || "reject".equals(suggest))
+                || (message.getDetail() != null && message.getDetail().stream().anyMatch(detail ->
+                    detail == null || !Integer.valueOf(0).equals(detail.getErrCode())
+                            || ("pass".equals(suggest) && !"pass".equals(detail.getSuggest())))))) {
+            // An incomplete provider decision cannot be a definitive Profile rejection or pass.
+            // Retain PENDING evidence; the requesting writer times out without changing the profile.
+            return;
+        }
         Integer label = extractLabel(message);
         AuditStatus finalResult = mapFinalResult(suggest);
 
-        // 保存最终审核结果到db
-        updateAuditLogWithResult(binding.getAuditScene().getCode(), binding.getTargetId(), message.getTraceId(),
-                finalResult, toJson(message));
+        String reason = finalResult == AuditStatus.PASS ? null
+                : String.format("微信审核拒绝：suggest=%s, label=%s", suggest,
+                label == null ? "unknown" : label);
+        boolean completed = resultPersistenceService.completeMedia(binding.getAuditLogId(),
+                binding.getAuditScene(), binding.getTargetId(), message.getTraceId(), finalResult,
+                toJson(message), reason);
         redisService.delete(RedisKeyConstant.wxAuditTrace(message.getTraceId()));
-
-        // 调用业务回调处理
-        AuditResultCallback callback = registry.get(
-                binding.getAuditScene()
-        );
-        if (callback == null) {
-            log.error("[AuditService.handleWxMediaCallback] 无法找到回调处理，auditScene={}, targetId={}",
-                    binding.getAuditScene(), binding.getTargetId());
-            return;
-        }
-
-        try {
-            if (finalResult == AuditStatus.PASS) {
-                log.debug("[AuditService.handleWxMediaCallback][通过] auditScene={}, targetId={}, suggest={}",
-                        binding.getAuditScene(), binding.getTargetId(), suggest);
-                callback.onPass(binding.getTargetId());
-            } else {
-                // 拒绝原因：微信审核suggest值 + 标签
-                String reason = String.format("微信审核拒绝：suggest=%s, label=%s",
-                        suggest, label == null ? "unknown" : label);
-                log.warn("[AuditService.handleWxMediaCallback][拒绝] auditScene={}, targetId={}, reason={}",
-                        binding.getAuditScene(), binding.getTargetId(), reason);
-                callback.onReject(binding.getTargetId(), reason);
-            }
-        } catch (Exception e) {
-            log.error("[AuditService.handleWxMediaCallback][回调异常] 业务回调失败，auditScene={}, targetId={}",
-                    binding.getAuditScene(), binding.getTargetId(), e);
-            // 回调异常不阻塞审核结果存储，审核日志已保存
+        if (!completed) {
+            log.debug("[AuditService.handleWxMediaCallback] 重复或过期回调，traceId={}", message.getTraceId());
         }
 
         log.info("[AuditService.handleWxMediaCallback] 回调处理完成，traceId={}, auditScene={}, targetId={}, result={}",
@@ -356,11 +314,11 @@ public class AuditServiceImpl implements AuditService {
      * @param targetId   审核目标 ID
      * @throws BusinessException 当 traceId 为空时抛出
      */
-    private void bindTraceTarget(String traceId, AuditScene auditScene, Long targetId) {
+    private void bindTraceTarget(String traceId, Long auditLogId, AuditScene auditScene, Long targetId) {
         if (!StringUtils.hasText(traceId)) {
             throw new BusinessException(ResultCode.WX_API_ERROR, "微信多媒体审核未返回 traceId");
         }
-        TraceTargetBinding binding = new TraceTargetBinding(auditScene, targetId);
+        TraceTargetBinding binding = new TraceTargetBinding(auditLogId, auditScene, targetId);
         redisService.set(RedisKeyConstant.wxAuditTrace(traceId), toJson(binding), RedisKeyConstant.WX_AUDIT_TRACE_TTL);
     }
 
@@ -385,36 +343,6 @@ public class AuditServiceImpl implements AuditService {
     }
 
     /**
-     * 保存完整的审核日志记录到数据库。
-     *
-     * @param logRecord 审核日志对象，包含目标、结果、微信反馈等信息
-     */
-    private void saveAuditLog(ContentAuditLog logRecord) {
-        contentAuditLogMapper.insert(logRecord);
-    }
-
-    /**
-     * 在多媒体审核提交时，创建一条待审核的初始记录到数据库（双绑定策略）。
-     * 当Redis过期或丢失时，回调处理可从DB中回源查询目标信息。
-     */
-    private void savePendingAuditLog(Integer targetType, Long targetId, String wxTraceId) {
-        try {
-            saveAuditLog(ContentAuditLog.builder()
-                    .targetType(targetType)
-                    .targetId(targetId)
-                    .auditSource(AuditSourceEnum.WX_AUTO.getCode())
-                    .wxTraceId(wxTraceId)
-                    .finalResult(AuditStatus.PENDING.getCode())
-                    .build());
-            log.debug("[AuditService.savePendingAuditLog] 创建待审核记录，targetType={}, targetId={}, traceId={}",
-                    targetType, targetId, wxTraceId);
-        } catch (Exception e) {
-            log.warn("[AuditService.savePendingAuditLog] 创建待审核记录失败（非阻塞），targetType={}, targetId={}, traceId={}",
-                    targetType, targetId, wxTraceId, e);
-        }
-    }
-
-    /**
      * 从数据库回源查询trace绑定信息。
      * 用于Redis中trace绑定丢失时的恢复机制。
      */
@@ -434,49 +362,12 @@ public class AuditServiceImpl implements AuditService {
                             auditLog.getTargetType(), traceId);
                     return null;
                 }
-                return new TraceTargetBinding(auditScene, auditLog.getTargetId());
+                return new TraceTargetBinding(auditLog.getId(), auditScene, auditLog.getTargetId());
             }
         } catch (Exception e) {
             log.warn("[AuditService.getTraceTargetBindingFromDb] 从DB查询trace绑定失败，traceId={}", traceId, e);
         }
         return null;
-    }
-
-    /**
-     * 更新审核日志记录为最终结果（覆盖待审核状态）。
-     * 用于微信异步回调时更新之前创建的待审核记录。
-     */
-    private void updateAuditLogWithResult(Integer auditScene, Long targetId, String wxTraceId,
-                                          AuditStatus finalResult, String wxDetail) {
-        try {
-            ContentAuditLog updateLog = ContentAuditLog.builder()
-                    .auditSource(AuditSourceEnum.WX_AUTO.getCode())
-                    .wxTraceId(wxTraceId)
-                    .wxResult(finalResult == AuditStatus.PASS ? WX_RESULT_NORMAL : WX_RESULT_RISK)
-                    .wxDetail(wxDetail)
-                    .finalResult(finalResult.getCode())
-                    .build();
-
-            int rows = contentAuditLogMapper.update(updateLog,
-                    new LambdaUpdateWrapper<ContentAuditLog>()
-                            .eq(ContentAuditLog::getTargetType, auditScene)
-                            .eq(ContentAuditLog::getTargetId, targetId)
-                            .eq(ContentAuditLog::getWxTraceId, wxTraceId)
-                            .eq(ContentAuditLog::getFinalResult, AuditStatus.PENDING.getCode())
-            );
-
-            if (rows <= 0) {
-                log.warn("[AuditService.updateAuditLogWithResult] 审核结果未更新，可能已处理或记录不存在，auditScene={}, targetId={}, traceId={}",
-                        auditScene, targetId, wxTraceId);
-                return;
-            }
-
-            log.debug("[AuditService.updateAuditLogWithResult] 更新审核结果，auditScene={}, targetId={}, result={}",
-                    auditScene, targetId, finalResult.getDesc());
-        } catch (Exception e) {
-            log.warn("[AuditService.updateAuditLogWithResult] 更新审核日志失败，auditScene={}, targetId={}, traceId={}",
-                    auditScene, targetId, wxTraceId, e);
-        }
     }
 
     private String toJson(Object value) {
@@ -492,6 +383,7 @@ public class AuditServiceImpl implements AuditService {
     @lombok.NoArgsConstructor
     @lombok.AllArgsConstructor
     private static class TraceTargetBinding {
+        private Long auditLogId;
         private AuditScene auditScene;
         private Long targetId;
     }

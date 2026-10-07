@@ -1,45 +1,29 @@
 package cn.jualn.miniapp.module.exam.bo;
-import lombok.Data;
-import lombok.Builder;
-import java.time.LocalDateTime;
-import java.util.List;
-import cn.jualn.miniapp.module.eventcontent.bo.*;
-import cn.jualn.miniapp.module.media.bo.AttachmentItemBO;
+
+import cn.jualn.miniapp.module.eventcontent.bo.EventActionBO;
+import cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO;
+import cn.jualn.miniapp.module.media.bo.AttachmentLinkBO;
 import cn.jualn.miniapp.module.timeline.bo.TimelineItemBO;
-@Data @Builder
+import java.util.List;
+import lombok.Builder;
+import lombok.Data;
+
+@Data
+@Builder
 public class AdminPublicEventSaveBO {
     private Long id;
     private Long operatorId;
+    private boolean canonicalFullReplacement;
     private String title;
     private String summary;
-    private Integer category;
     private Integer eventType;
-    private String editionLabel;
-    private String organizer;
-    private String location;
-    private Integer audienceScope;
-    private String audienceSummary;
-    private String contactName;
-    private String contactPhone;
-    private Integer registrationMode;
-    private Integer participantMode;
-    private Integer capacity;
-    private Integer capacityUnit;
+    private String sourceName;
+    private String sourceUrl;
+    private String officialUrl;
     private Long coverAttachmentId;
-    private String coverObjectKey;
-    private Boolean clearCover;
-    private String timeDescription;
-    private String content;
-    private LocalDateTime startTime;
-    private Integer startPrecision;
-    private LocalDateTime endTime;
-    private Integer endPrecision;
-    private LocalDateTime registrationStart;
-    private Integer registrationStartPrecision;
-    private LocalDateTime registrationEnd;
-    private Integer registrationEndPrecision;
+    private String contactsJson;
     private List<EventSectionBO> sections;
     private List<EventActionBO> actions;
-    private List<AttachmentItemBO> attachments;
+    private List<AttachmentLinkBO> attachmentLinks;
     private List<TimelineItemBO> timeline;
 }

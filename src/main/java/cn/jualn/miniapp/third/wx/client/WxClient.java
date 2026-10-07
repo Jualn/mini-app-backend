@@ -12,6 +12,19 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
+import org.springframework.http.MediaType;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
+
 /**
  * 微信第三方网关客户端。
  * <p>
@@ -43,13 +56,17 @@ public class WxClient {
     private final WebClient webClient;
     private final WxProperties wxProperties;
     private final RedisService redisService;
+    private final MeterRegistry meterRegistry;
+    private final Object mpTokenMonitor = new Object();
+    private final Object miniTokenMonitor = new Object();
+    private final Object jsTicketMonitor = new Object();
 
     /**
      * 小程序登录：用 code 换取 openid / session_key。
      *
      * @param code 小程序前端调用 wx.login 获取的临时登录凭证
      * @return 小程序会话信息（含 openid、sessionKey、unionid 等）
-     * @throws BusinessException 当微信接口返回失败或响应为空时抛出
+     * @throws ExternalServiceException 当微信接口返回失败或响应为空时抛出
      */
     public MiniSessionResponse getMiniSession(String code) {
         String url = MINI_CODE2SESSION_URL
@@ -71,16 +88,26 @@ public class WxClient {
      *
      * @param forceRefresh 是否强制跳过缓存并重新向微信请求 token
      * @return 可用于服务号接口调用的 access_token
-     * @throws BusinessException 当微信接口返回失败或响应为空时抛出
+     * @throws ExternalServiceException 当微信接口返回失败或响应为空时抛出
      */
     public String getMpAccessToken(boolean forceRefresh) {
+        String cacheKey = RedisKeyConstant.wxAccessToken("mp", wxProperties.getMp().getAppId());
         if (!forceRefresh) {
-            String cachedToken = redisService.getString(RedisKeyConstant.WX_MP_ACCESS_TOKEN);
+            String cachedToken = redisService.getString(cacheKey);
             if (StringUtils.hasText(cachedToken)) {
                 return cachedToken;
             }
         }
+        synchronized (mpTokenMonitor) {
+            if (!forceRefresh) {
+                String cachedToken = redisService.getString(cacheKey);
+                if (StringUtils.hasText(cachedToken)) return cachedToken;
+            }
+            return fetchMpAccessToken(cacheKey);
+        }
+    }
 
+    private String fetchMpAccessToken(String cacheKey) {
         String url = ACCESS_TOKEN_URL
                 + "?grant_type=client_credential"
                 + "&appid=" + wxProperties.getMp().getAppId()
@@ -91,9 +118,8 @@ public class WxClient {
                 .bodyToMono(MpAccessTokenResponse.class)
                 .block();
         MpAccessTokenResponse valid = assertWxSuccess(response, "服务号 access_token 获取失败");
-//        int ttlSeconds = Math.max(60, valid.getExpiresIn() - 200);
-        redisService.set(RedisKeyConstant.WX_MP_ACCESS_TOKEN,
-                valid.getAccessToken(), RedisKeyConstant.WX_MP_ACCESS_TOKEN_TTL);
+        validateCredential(valid.getAccessToken(), valid.getExpiresIn(), "服务号 access_token");
+        redisService.set(cacheKey, valid.getAccessToken(), credentialTtl(valid.getExpiresIn()));
         return valid.getAccessToken();
     }
 
@@ -103,16 +129,26 @@ public class WxClient {
      *
      * @param forceRefresh 是否强制跳过缓存并重新向微信请求 token
      * @return 可用于小程序接口调用的 access_token
-     * @throws BusinessException 当微信接口返回失败或响应为空时抛出
+     * @throws ExternalServiceException 当微信接口返回失败或响应为空时抛出
      */
     public String getMiniAccessToken(boolean forceRefresh) {
+        String cacheKey = RedisKeyConstant.wxAccessToken("ma", wxProperties.getMa().getAppId());
         if (!forceRefresh) {
-            String cachedToken = redisService.getString(RedisKeyConstant.WX_MINI_ACCESS_TOKEN);
+            String cachedToken = redisService.getString(cacheKey);
             if (StringUtils.hasText(cachedToken)) {
                 return cachedToken;
             }
         }
+        synchronized (miniTokenMonitor) {
+            if (!forceRefresh) {
+                String cachedToken = redisService.getString(cacheKey);
+                if (StringUtils.hasText(cachedToken)) return cachedToken;
+            }
+            return fetchMiniAccessToken(cacheKey);
+        }
+    }
 
+    private String fetchMiniAccessToken(String cacheKey) {
         String url = ACCESS_TOKEN_URL
                 + "?grant_type=client_credential"
                 + "&appid=" + wxProperties.getMa().getAppId()
@@ -123,9 +159,8 @@ public class WxClient {
                 .bodyToMono(MiniAccessTokenResponse.class)
                 .block();
         MiniAccessTokenResponse valid = assertWxSuccess(response, "小程序 access_token 获取失败");
-//        int ttlSeconds = Math.max(60, valid.getExpiresIn() - 200);
-        redisService.set(RedisKeyConstant.WX_MINI_ACCESS_TOKEN,
-                valid.getAccessToken(), RedisKeyConstant.WX_MINI_ACCESS_TOKEN_TTL);
+        validateCredential(valid.getAccessToken(), valid.getExpiresIn(), "小程序 access_token");
+        redisService.set(cacheKey, valid.getAccessToken(), credentialTtl(valid.getExpiresIn()));
         return valid.getAccessToken();
     }
 
@@ -134,14 +169,14 @@ public class WxClient {
      *
      * @param request 文本审核请求体
      * @return 微信审核结果（含 traceId/result/detail）
-     * @throws BusinessException 当微信接口返回失败或响应为空时抛出
+     * @throws ExternalServiceException 当微信接口返回失败或响应为空时抛出
      */
     public WxMsgSecCheckResponse msgSecCheck(WxMsgSecCheckRequest request) {
         String token = getMiniAccessToken(false);
         WxMsgSecCheckResponse response = callMsgSecCheck(request, token);
         if (response != null && response.isTokenExpired()) {
             log.warn("微信小程序 access_token 失效，刷新后重试文本审核");
-            token = getMiniAccessToken(true);
+            token = refreshMiniAccessToken(token);
             response = callMsgSecCheck(request, token);
         }
         return assertWxSuccess(response, "小程序文本内容审核失败");
@@ -152,14 +187,14 @@ public class WxClient {
      *
      * @param request 多媒体审核请求体
      * @return 微信异步审核提交结果（含 traceId）
-     * @throws BusinessException 当微信接口返回失败或响应为空时抛出
+     * @throws ExternalServiceException 当微信接口返回失败或响应为空时抛出
      */
     public WxMediaCheckAsyncResponse mediaCheckAsync(WxMediaCheckAsyncRequest request) {
         String token = getMiniAccessToken(false);
         WxMediaCheckAsyncResponse response = callMediaCheckAsync(request, token);
         if (response != null && response.isTokenExpired()) {
             log.warn("微信小程序 access_token 失效，刷新后重试多媒体审核提交");
-            token = getMiniAccessToken(true);
+            token = refreshMiniAccessToken(token);
             response = callMediaCheckAsync(request, token);
         }
         return assertWxSuccess(response, "小程序多媒体内容审核失败");
@@ -171,14 +206,14 @@ public class WxClient {
      * @param scene         二维码场景值（用于回调绑定或业务追踪）
      * @param expireSeconds 二维码过期秒数
      * @return 创建二维码结果（ticket、url、expireSeconds）
-     * @throws BusinessException 当微信接口返回失败或响应为空时抛出
+     * @throws ExternalServiceException 当微信接口返回失败或响应为空时抛出
      */
     public MpQrCodeCreateResponse createQrSceneTicket(String scene, int expireSeconds) {
         String token = getMpAccessToken(false);
         MpQrCodeCreateResponse response = callCreateQr(scene, expireSeconds, token);
         if (response != null && response.isTokenExpired()) {
-            log.warn("微信 access_token 失效，刷新后重试创建二维码，scene={}", scene);
-            token = getMpAccessToken(true);
+            log.warn("微信 access_token 失效，刷新后重试创建二维码");
+            token = refreshMpAccessToken(token);
             response = callCreateQr(scene, expireSeconds, token);
         }
         return assertWxSuccess(response, "创建服务号二维码失败");
@@ -189,7 +224,7 @@ public class WxClient {
      *
      * @param mpOpenid 服务号侧用户 openid
      * @return 服务号用户信息
-     * @throws BusinessException 当微信接口返回失败或响应为空时抛出
+     * @throws ExternalServiceException 当微信接口返回失败或响应为空时抛出
      */
     public MpUserInfoResponse getMpUserInfo(String mpOpenid) {
         String token = getMpAccessToken(false);
@@ -203,8 +238,8 @@ public class WxClient {
                 .bodyToMono(MpUserInfoResponse.class)
                 .block();
         if (response != null && response.isTokenExpired()) {
-            log.warn("微信 access_token 失效，刷新后重试获取用户信息，mpOpenid={}", mpOpenid);
-            String refreshToken = getMpAccessToken(true);
+            log.warn("微信 access_token 失效，刷新后重试获取用户信息");
+            String refreshToken = refreshMpAccessToken(token);
             String refreshUrl = MP_USER_INFO_URL
                     + "?access_token=" + refreshToken
                     + "&openid=" + mpOpenid
@@ -224,15 +259,14 @@ public class WxClient {
      *
      * @param request 模板消息请求体（接收用户、模板 ID、模板数据等）
      * @return 模板消息发送结果（含 msgid）
-     * @throws BusinessException 当微信接口返回失败或响应为空时抛出
      */
     public MpTemplateMessageResponse sendMpTemplateMessage(MpTemplateMessageRequest request) {
         String token = getMpAccessToken(false);
         MpTemplateMessageResponse response = callSendTemplate(request, token);
         if (response != null && response.isTokenExpired()) {
-            log.warn("微信 access_token 失效，刷新后重试发送模板消息，toUser={}, templateId={}",
-                    request.getToUser(), request.getTemplateId());
-            String refreshToken = getMpAccessToken(true);
+            log.warn("微信 access_token 失效，刷新后重试发送模板消息，templateId={}",
+                    request.getTemplateId());
+            String refreshToken = refreshMpAccessToken(token);
             response = callSendTemplate(request, refreshToken);
         }
         return assertWxSuccess(response, "发送服务号模板消息失败");
@@ -273,27 +307,30 @@ public class WxClient {
      * @return jsapi_ticket
      */
     public String getMpJsApiTicket(boolean forceRefresh) {
+        String cacheKey = RedisKeyConstant.wxJsApiTicket(wxProperties.getMp().getAppId());
         if (!forceRefresh) {
-            String cachedTicket = redisService.getString(RedisKeyConstant.WX_MP_JSAPI_TICKET);
+            String cachedTicket = redisService.getString(cacheKey);
             if (StringUtils.hasText(cachedTicket)) {
                 return cachedTicket;
             }
         }
-
-        String token = getMpAccessToken(false);
-        MpJsApiTicketResponse response = callGetJsApiTicket(token);
-
-        if (response != null && response.isTokenExpired()) {
-            log.warn("微信服务号 access_token 失效，刷新后重试获取 jsapi_ticket");
-            token = getMpAccessToken(true);
-            response = callGetJsApiTicket(token);
+        synchronized (jsTicketMonitor) {
+            if (!forceRefresh) {
+                String cachedTicket = redisService.getString(cacheKey);
+                if (StringUtils.hasText(cachedTicket)) return cachedTicket;
+            }
+            String token = getMpAccessToken(false);
+            MpJsApiTicketResponse response = callGetJsApiTicket(token);
+            if (response != null && response.isTokenExpired()) {
+                log.warn("微信服务号 access_token 失效，刷新后重试获取 jsapi_ticket");
+                token = refreshMpAccessToken(token);
+                response = callGetJsApiTicket(token);
+            }
+            MpJsApiTicketResponse valid = assertWxSuccess(response, "获取服务号 jsapi_ticket 失败");
+            validateCredential(valid.getTicket(), valid.getExpiresIn(), "服务号 jsapi_ticket");
+            redisService.set(cacheKey, valid.getTicket(), credentialTtl(valid.getExpiresIn()));
+            return valid.getTicket();
         }
-
-        MpJsApiTicketResponse valid = assertWxSuccess(response, "获取服务号 jsapi_ticket 失败");
-//        int ttlSeconds = Math.max(60, valid.getExpiresIn() - 200);
-        redisService.set(RedisKeyConstant.WX_MP_JSAPI_TICKET,
-                valid.getTicket(), RedisKeyConstant.WX_MP_JSAPI_TICKET_TTL);
-        return valid.getTicket();
     }
 
     /**
@@ -310,10 +347,10 @@ public class WxClient {
         MpSubscribeMessageResponse response = callSendMpSubscribeMessage(request, token);
 
         if (response != null && response.isTokenExpired()) {
-            log.warn("微信服务号 access_token 失效，刷新后重试发送订阅通知，toUser={}, templateId={}",
-                    request.getToUser(), request.getTemplateId());
+            log.warn("微信服务号 access_token 失效，刷新后重试发送订阅通知，templateId={}",
+                    request.getTemplateId());
 
-            token = getMpAccessToken(true);
+            token = refreshMpAccessToken(token);
             response = callSendMpSubscribeMessage(request, token);
         }
 
@@ -321,6 +358,128 @@ public class WxClient {
     }
 
 // ========================================================================================
+
+    /** Generates a temporary mini-program code, never a service-account ticket QR. */
+    public byte[] generateMiniProgramCode(String page, String sceneCode, String envVersion, boolean checkPath) {
+        Timer.Sample sample = Timer.start(meterRegistry);
+        String result = "failure", category = "remote";
+        try {
+            byte[] png = Mono.fromCallable(() -> safeMiniCodeToken(null))
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .flatMap(token -> requestMiniCode(new MiniProgramCodeRequest(page, sceneCode, envVersion, checkPath, 430, false), token)
+                            .flatMap(response -> {
+                                Integer code = miniCodeError(response);
+                                if (Integer.valueOf(40001).equals(code) || Integer.valueOf(42001).equals(code)) {
+                                    return Mono.fromCallable(() -> safeMiniCodeToken(token))
+                                            .subscribeOn(Schedulers.boundedElastic())
+                                            .flatMap(refreshed -> requestMiniCode(
+                                                    new MiniProgramCodeRequest(page, sceneCode, envVersion, checkPath, 430, false), refreshed));
+                                }
+                                return Mono.just(response);
+                            }))
+                    .map(response -> {
+                        Integer code = miniCodeError(response);
+                        if (code != null) throw new MiniCodeFailure(Integer.toString(code), "remote");
+                        return normalizeMiniCode(response.body());
+                    })
+                    .timeout(Duration.ofSeconds(25)).block();
+            if (png == null) throw new IllegalStateException("Empty WeChat code response");
+            result = "success";
+            category = "internal";
+            return png;
+        } catch (RuntimeException failure) {
+            Throwable cause = failure;
+            String providerCode = "CODE_UNAVAILABLE";
+            while (cause != null) {
+                if (cause instanceof java.util.concurrent.TimeoutException) category = "timeout";
+                if (cause instanceof MiniCodeFailure controlled) { category = controlled.category; providerCode = controlled.code; }
+                cause = cause.getCause();
+            }
+            log.warn("result=failure errorCategory={} provider=wechat operation=miniCode code={}", category, providerCode);
+            // Discard provider URI/body/cause: it may contain access_token, scene or secrets.
+            throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat", providerCode,
+                    "Mini program code is temporarily unavailable");
+        } finally {
+            sample.stop(meterRegistry.timer("jualn.admin.qr.login.wechat.code.duration",
+                    "result", result, "error.category", category));
+        }
+    }
+
+    private record MiniCodeResponse(MediaType contentType, byte[] body) {
+        @Override public String toString() { return "MiniCodeResponse[body redacted]"; }
+    }
+
+    private String safeMiniCodeToken(String stale) {
+        try { return stale == null ? getMiniAccessToken(false) : refreshMiniAccessToken(stale); }
+        catch (RuntimeException failure) { throw new MiniCodeFailure("TOKEN_UNAVAILABLE", miniCodeFailureCategory(failure)); }
+    }
+
+    private static final class MiniCodeFailure extends RuntimeException {
+        private final String code;
+        private final String category;
+        private MiniCodeFailure(String code, String category) {
+            super("WeChat mini code unavailable"); this.code = code; this.category = category;
+        }
+    }
+    private String miniCodeFailureCategory(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof java.util.concurrent.TimeoutException || cause instanceof io.netty.handler.timeout.TimeoutException) return "timeout";
+        }
+        return "remote";
+    }
+
+    private Mono<MiniCodeResponse> requestMiniCode(MiniProgramCodeRequest request, String token) {
+        return webClient.post().uri("https://api.weixin.qq.com/wxa/getwxacodeunlimit?access_token=" + token)
+                .accept(MediaType.IMAGE_PNG, MediaType.IMAGE_JPEG, MediaType.APPLICATION_JSON)
+                .bodyValue(request).exchangeToMono(response -> {
+                    if (!response.statusCode().is2xxSuccessful()) {
+                        return response.releaseBody().then(Mono.error(new MiniCodeFailure("HTTP_" + response.statusCode().value(), "remote")));
+                    }
+                    MediaType contentType = response.headers().contentType().orElse(MediaType.APPLICATION_OCTET_STREAM);
+                    return response.bodyToMono(byte[].class).map(body -> new MiniCodeResponse(contentType, body));
+                }).onErrorMap(failure -> failure instanceof MiniCodeFailure ? failure
+                        : new MiniCodeFailure("TRANSPORT_UNAVAILABLE", miniCodeFailureCategory(failure)));
+    }
+
+    private Integer miniCodeError(MiniCodeResponse response) {
+        byte[] body = response.body();
+        if (body.length == 0 || body.length > 2 * 1024 * 1024) throw new IllegalStateException("Invalid WeChat code body size");
+        if (MediaType.APPLICATION_JSON.isCompatibleWith(response.contentType()) || body[0] == '{') {
+            try {
+                var json = new ObjectMapper().readTree(body);
+                if (!json.has("errcode") || !json.get("errcode").canConvertToInt()) throw new IllegalStateException("Invalid WeChat JSON response");
+                return json.get("errcode").intValue();
+            } catch (java.io.IOException e) { throw new IllegalStateException("Invalid WeChat JSON response"); }
+        }
+        if (!MediaType.IMAGE_PNG.isCompatibleWith(response.contentType())
+                && !MediaType.IMAGE_JPEG.isCompatibleWith(response.contentType())
+                && !MediaType.APPLICATION_OCTET_STREAM.isCompatibleWith(response.contentType())) {
+            throw new IllegalStateException("Unsupported WeChat code media type");
+        }
+        return null;
+    }
+
+    public static byte[] normalizeMiniCode(byte[] body) {
+        boolean png = body.length >= 8 && body[0] == (byte) 0x89 && body[1] == 'P' && body[2] == 'N' && body[3] == 'G';
+        boolean jpeg = body.length >= 3 && body[0] == (byte) 0xff && body[1] == (byte) 0xd8 && body[2] == (byte) 0xff;
+        if ((!png && !jpeg) || body.length > 2097152) throw new IllegalStateException("Invalid code image signature");
+        try (ImageInputStream stream = ImageIO.createImageInputStream(new ByteArrayInputStream(body))) {
+            var readers = ImageIO.getImageReaders(stream);
+            if (!readers.hasNext()) throw new IllegalStateException("Unreadable code image");
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(stream, true, true);
+                int width = reader.getWidth(0), height = reader.getHeight(0);
+                if (width <= 0 || height <= 0 || width > 2048 || height > 2048 || (long) width * height > 4194304) {
+                    throw new IllegalStateException("Code image dimensions exceeded");
+                }
+                var image = reader.read(0);
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                if (!ImageIO.write(image, "png", out) || out.size() > 2097152) throw new IllegalStateException("Invalid normalized code size");
+                return out.toByteArray();
+            } finally { reader.dispose(); }
+        } catch (java.io.IOException e) { throw new IllegalStateException("Damaged code image"); }
+    }
 
     /**
      * 调用微信服务号订阅通知发送接口。
@@ -416,7 +575,7 @@ public class WxClient {
      * @param errorPrefix 自定义错误前缀，用于拼接业务日志与异常文案
      * @param <T>         继承自 WxApiResult 的具体响应类型
      * @return 校验通过后的原始 response
-     * @throws BusinessException 当响应为空或 errcode 非 0 时抛出
+     * @throws ExternalServiceException 当响应为空或 errcode 非 0 时抛出
      */
     private <T extends WxApiResult> T assertWxSuccess(T response, String errorPrefix) {
         if (response == null) {
@@ -425,10 +584,39 @@ public class WxClient {
         }
         if (!response.isSuccess()) {
             String detail = errorPrefix + "，errcode=" + response.getErrcode() + ", errmsg=" + response.getErrmsg();
-            log.error(detail);
-            throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat", detail);
+            throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat",
+                    String.valueOf(response.getErrcode()), detail);
         }
         return response;
+    }
+
+    private String refreshMpAccessToken(String staleToken) {
+        String cacheKey = RedisKeyConstant.wxAccessToken("mp", wxProperties.getMp().getAppId());
+        synchronized (mpTokenMonitor) {
+            String current = redisService.getString(cacheKey);
+            if (StringUtils.hasText(current) && !current.equals(staleToken)) return current;
+            return fetchMpAccessToken(cacheKey);
+        }
+    }
+
+    private String refreshMiniAccessToken(String staleToken) {
+        String cacheKey = RedisKeyConstant.wxAccessToken("ma", wxProperties.getMa().getAppId());
+        synchronized (miniTokenMonitor) {
+            String current = redisService.getString(cacheKey);
+            if (StringUtils.hasText(current) && !current.equals(staleToken)) return current;
+            return fetchMiniAccessToken(cacheKey);
+        }
+    }
+
+    private void validateCredential(String value, Integer expiresIn, String credentialName) {
+        if (!StringUtils.hasText(value) || expiresIn == null || expiresIn <= 200) {
+            throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat",
+                    credentialName + " 返回内容无效");
+        }
+    }
+
+    private Duration credentialTtl(Integer expiresIn) {
+        return Duration.ofSeconds(expiresIn - 200L);
     }
 
 }

@@ -2,7 +2,6 @@ package cn.jualn.miniapp.module.notify.payload;
 
 import cn.jualn.miniapp.common.enums.NotifyType;
 import cn.jualn.miniapp.common.enums.TargetType;
-import cn.jualn.miniapp.infrastructure.queue.contract.MessagePayload;
 import cn.jualn.miniapp.module.wx.notice.data.NoticeData;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -25,7 +24,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class NotifyPayload implements MessagePayload {
+public class NotifyPayload {
 
     /**
      * 接收者
@@ -55,6 +54,9 @@ public class NotifyPayload implements MessagePayload {
      * 跳转目标ID
      */
     private Long targetId;
+    /** 稳定业务来源；需要幂等的通知必须提供。 */
+    private String sourceKey;
+    private cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot snapshot;
     /**
      * 微信模板变量值，按类型使用不同的 NoticeData 实现
      */

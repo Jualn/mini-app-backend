@@ -1,12 +1,15 @@
 package cn.jualn.miniapp.module.exam.bo;
+
+import lombok.Builder;
 import lombok.Data;
-import jakarta.validation.constraints.*;
+
 @Data
+@Builder
 public class AdminPublicEventQueryBO {
     private String keyword;
-    private Integer category;
-    private Integer eventType;
     private Integer publishStatus;
-    private String cursor;
-    private Integer pageSize = 20;
+    private Integer lifecycleStatus;
+    private String sort;
+    private Integer page;
+    private Integer pageSize;
 }

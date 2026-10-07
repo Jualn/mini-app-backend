@@ -2,7 +2,7 @@
 
 ## Repository binding
 
-Concrete authority paths and missing specialized-standard fallbacks are maintained in [root AGENTS.md](../AGENTS.md). Read that routing before using this map. Technology names below identify concerns, not installed frameworks or mandatory new documents. Spring Security / Compose examples do not require adopting those technologies. Only inspect sections triggered by the actual change.
+Concrete authority paths and missing specialized-standard fallbacks are maintained in [root AGENTS.md](../AGENTS.md). Read that routing before using this map. Technology names below identify concerns, not installed frameworks or mandatory new documents. Spring Security / Compose examples do not require adopting those technologies. Only inspect sections triggered by the actual change. Start with §44 to locate affected surfaces; this map does not mandate scanning every listed technology or running every test level.
 
 ## 1. Purpose
 
@@ -219,6 +219,8 @@ Broad dependent inspection and compatibility analysis required.
 | Current reconstructable DB schema | migration history | running database |
 | Redis/cache rules | Redis Standard | Redis keys/TTL/read-write logic |
 | Messaging delivery/recovery rules | Messaging Standard | producer/consumer/state implementation |
+| Reminder / Notification / Delivery semantics | `docs/reminder-notification.md` | business policies, intent generation/expiry, recipient timing, Timeline semantic preflight, expand/preflight/owner gates, notify services, preference/inbox/delivery tables, async ownership/terminal repair, WeChat mapping, retention/replay, runbook and implementation handoff |
+| WeChat capability/account/message-product boundary and enablement evidence | `docs/wechat-integration.md` | account/config references, identity/permission/template adapters, callback routing, delivery handler, `WxClient`; inspect affected auth/audit/notify owners and environment evidence; COS remains separate |
 | Authentication/authorization mechanism | Security Standard | security config/filter/service implementation |
 | Project dependency direction | Project Architecture | modules/packages/dependencies |
 | Production runtime/deployment policy | Operations | Compose/Nginx/system config/deploy scripts |
@@ -639,7 +641,7 @@ Cache representation does not become business truth unless architecture explicit
 
 ## Authority
 
-Messaging Standard.
+[Async Processing Architecture](../docs/async-processing.md) owns this project's Outbox, Job, Message, Redis Streams, Worker, retry/reclaim/dedup/dead and migration decisions. Reliability owns failure/recovery meaning; Observability owns IDs, context, logs and metrics.
 
 ## Inspect
 
@@ -666,7 +668,7 @@ A Java payload class does not own delivery semantics.
 
 ## Authority
 
-Messaging contract/schema.
+[Async Processing Architecture](../docs/async-processing.md), plus an accepted cross-component contract when a message crosses this application boundary.
 
 ## Inspect
 
@@ -697,7 +699,7 @@ shutdown/recovery loop
 
 ## Authority
 
-Spring Standard for lifecycle mechanism; Messaging/Backend standards for delivery/recovery semantics.
+Spring Standard for lifecycle mechanism; [Async Processing Architecture](../docs/async-processing.md) and Backend/Reliability standards for delivery/recovery semantics.
 
 ## Inspect
 
@@ -719,7 +721,7 @@ deployment grace period
 
 ## Authority
 
-Application/job specification owns job meaning; Spring Standard owns trigger mechanism.
+Application/job specification owns job meaning; [Async Processing Architecture](../docs/async-processing.md) owns durable Job/claim/lease boundaries; Spring Standard owns trigger mechanism.
 
 ## Inspect
 
@@ -744,7 +746,7 @@ If the schedule represents a durable business obligation, inspect whether the ob
 
 ## Authority
 
-Spring Standard owns async mechanism; Backend/Messaging owns durability/recovery requirements.
+Spring Standard owns async mechanism; Backend/Reliability and [Async Processing Architecture](../docs/async-processing.md) own durability/recovery requirements.
 
 ## Inspect
 
@@ -899,12 +901,14 @@ Spring bean availability does not override architecture dependency direction.
 
 ## Authority
 
-Testing policy in the relevant Engineering Standard; test configuration is executable representation.
+[Backend §9.11–9.13](../standards/backend-engineering.md#911-completion-claims) owns scope, escalation, classification and evidence; Java/Spring and relevant technology standards own mechanisms. Build/test configuration is executable representation; commands.md owns invocations.
 
 ## Inspect
 
 ```text
 commands.md
+AGENTS completion/routing
+Wrapper/toolchain/compiler/test JVM configuration
 CI environment
 Docker requirement
 context caching
@@ -919,11 +923,16 @@ build time/resources
 
 ## Authority
 
-Backend observability requirements; Spring Standard owns Spring integration.
+[Observability Baseline](../docs/observability.md) owns this project's ID, context, logging, error taxonomy, metric/cardinality, sensitive-data and health contract. [Backend §8.2](../standards/backend-engineering.md#82-logs-and-operational-ownership) owns technology-independent event responsibility; Java §7.7 owns calls, Spring §11.15–11.17 owns integration.
 
 ## Inspect
 
 ```text
+primary failure/event boundaries and duplicate stack traces
+retry terminal/intermediate evidence
+durable audit storage where required
+MDC propagation and cleanup
+runtime logging configuration
 metric cardinality
 sensitive data
 runtime cost
@@ -1115,6 +1124,8 @@ Do not create a diff merely to prove inspection happened.
 |---|---|
 | Accepted API Contract | Controller, DTO, serialization, validation, errors, clients, contract tests |
 | Business invariant | service/domain, DB, concurrency, auth, cache, messaging, tests |
+| Reminder / Notification / Delivery semantics | Activity/PublicEvent policy, Timeline/intent identity, recipient timing, notify plan/inbox/delivery schema, Job ownership/terminal repair, WeChat mapping, retention/runbook, handoff acceptance and tests |
+| WeChat integration | target dependency/owner boundaries, account/credential lifecycle, identity/permission, OAuth/state, callback routing/ACK, template/config, Delivery result classification, client, secrets, observability, compatibility/tests; `docs/WECHAT_REFACTOR_PROMPT.md` only routes execution, not a second authority |
 | Java baseline | build, Spring baseline, CI, runtime image, commands, code |
 | Spring Boot baseline | Java, BOM, configuration, framework integration, tests, deployment |
 | DB schema | migrations, SQL/mappers, constraints/indexes, tests, deployment |
@@ -1127,6 +1138,9 @@ Do not create a diff merely to prove inspection happened.
 | Executor | async selection, framework use, capacity, context, shutdown |
 | Actuator/health | exposure, security, probes, monitoring, deployment |
 | Canonical command | docs/scripts/CI referencing the command |
+| Build environment / verification policy | Java baseline, Wrapper/toolchains, compiler/test JVM, commands, AGENTS, CI/test configuration |
+| Comments / Javadoc policy | Java §1.8–1.10, affected source documentation, Contract references if duplicated; no blanket source rewrite |
+| Logging ownership / integration | Backend §8.2, Java §7.7, Spring §11, execution boundaries, runtime config, context tests, audit persistence |
 | Compose | commands, configuration, ports, volumes, developer workflow |
 | Deployment topology | Nginx/DNS/TLS/ports/config/health/client endpoints |
 | Engineering Standard | AGENTS routing, related standards, affected implementation |

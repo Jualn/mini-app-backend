@@ -7,6 +7,8 @@ import java.time.LocalDateTime;
 @Data
 @TableName("activity_registration")
 public class ActivityRegistration {
+    private Long contractVersion;
+    private String formVersion;
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long activityId;

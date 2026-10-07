@@ -5,6 +5,7 @@ import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.exception.NotRoleException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import jakarta.validation.ConstraintViolationException;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.core.MethodParameter;
@@ -18,6 +19,7 @@ import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.ObjectError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -29,6 +31,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.reactive.function.client.WebClientException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -39,17 +42,36 @@ import java.util.Objects;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    @ExceptionHandler(cn.jualn.miniapp.infrastructure.cache.AdminQrLoginStore.RateLimited.class)
+    public ResponseEntity<ProblemDetail> handleQrRate(cn.jualn.miniapp.infrastructure.cache.AdminQrLoginStore.RateLimited exception) {
+        ResponseEntity<ProblemDetail> response = problem(HttpStatus.TOO_MANY_REQUESTS, "/problems/rate-limited",
+                "Rate limited", "Please wait before retrying");
+        return ResponseEntity.status(response.getStatusCode()).headers(response.getHeaders())
+                .header("Retry-After", Long.toString(exception.retryAfter())).body(response.getBody());
+    }
+    @ExceptionHandler(ContractProblemException.class)
+    public ResponseEntity<ProblemDetail> handleContractProblem(ContractProblemException exception) {
+        ResponseEntity<ProblemDetail> response = problem(exception.getStatus(), exception.getType(),
+                exception.getStatus().getReasonPhrase(), exception.getMessage());
+        if (!exception.getErrors().isEmpty()) response.getBody().setProperty("errors", exception.getErrors());
+        if ("/problems/notification-preferences-unavailable".equals(exception.getType())) {
+            return ResponseEntity.status(response.getStatusCode())
+                    .headers(response.getHeaders())
+                    .header(org.springframework.http.HttpHeaders.CACHE_CONTROL, "no-store")
+                    .body(response.getBody());
+        }
+        return response;
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ProblemDetail> handleValidation(MethodArgumentNotValidException exception) {
         List<ValidationProblem> errors = bindingErrors("body", exception);
-        log.warn("参数校验失败: {}", firstDetail(errors));
         return validationProblem(errors);
     }
 
     @ExceptionHandler(BindException.class)
     public ResponseEntity<ProblemDetail> handleBind(BindException exception) {
         List<ValidationProblem> errors = bindingErrors("query", exception);
-        log.warn("参数绑定校验失败: {}", firstDetail(errors));
         return validationProblem(errors);
     }
 
@@ -62,7 +84,6 @@ public class GlobalExceptionHandler {
                         validationCode(firstCode(error.getCodes())),
                         Objects.requireNonNullElse(error.getDefaultMessage(), "参数错误"))))
                 .toList();
-        log.warn("方法参数校验失败: {}", firstDetail(errors));
         return validationProblem(errors);
     }
 
@@ -75,118 +96,126 @@ public class GlobalExceptionHandler {
                         validationCode(violation.getConstraintDescriptor().getAnnotation().annotationType().getSimpleName()),
                         violation.getMessage()))
                 .toList();
-        log.warn("约束校验失败: {}", firstDetail(errors));
         return validationProblem(errors);
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ProblemDetail> handleTypeMismatch(MethodArgumentTypeMismatchException exception) {
-        log.warn("参数类型错误: {} 期望类型 {}", exception.getName(), exception.getRequiredType());
         return validationProblem(List.of(new ValidationProblem(
                 "query", exception.getName(), "TYPE_MISMATCH", "参数类型错误")));
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ResponseEntity<ProblemDetail> handleMissingParam(MissingServletRequestParameterException exception) {
-        log.warn("缺少必要参数: {}", exception.getParameterName());
         return validationProblem(List.of(new ValidationProblem(
                 "query", exception.getParameterName(), "REQUIRED", "缺少必要参数")));
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ProblemDetail> handleNotReadable(HttpMessageNotReadableException exception) {
-        log.warn("请求体解析失败: {}", exception.getMessage());
         return validationProblem(List.of(new ValidationProblem(
                 "body", "/", "MALFORMED", "请求体格式错误")));
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
-    public ResponseEntity<ProblemDetail> handleMaxUploadSize(MaxUploadSizeExceededException exception) {
-        log.warn("文件大小超限: {}", exception.getMessage());
+    public ResponseEntity<ProblemDetail> handleMaxUploadSize(
+            MaxUploadSizeExceededException exception, HttpServletRequest request) {
+        if ("/v1/admin/document-imports".equals(request.getRequestURI())) {
+            return problem(HttpStatus.PAYLOAD_TOO_LARGE, "/problems/document-import-too-large",
+                    "Payload too large", "导入文件或 multipart 请求大小超限");
+        }
         return problem(HttpStatus.PAYLOAD_TOO_LARGE, "/problems/payload-too-large",
                 "Payload too large", "文件大小超限");
     }
 
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ProblemDetail> handleMissingPart(MissingServletRequestPartException exception) {
+        return validationProblem(List.of(new ValidationProblem(
+                "body", exception.getRequestPartName(), "REQUIRED", "缺少必要字段")));
+    }
+
     @ExceptionHandler(NotLoginException.class)
     public ResponseEntity<ProblemDetail> handleNotLogin(NotLoginException exception) {
-        log.warn("未登录访问: {}", exception.getMessage());
         return problem(HttpStatus.UNAUTHORIZED, "/problems/unauthorized",
                 "Authentication required", "缺少有效的用户身份凭证");
     }
 
     @ExceptionHandler(NotPermissionException.class)
     public ResponseEntity<ProblemDetail> handleNotPermission(NotPermissionException exception) {
-        log.warn("无权限访问: {}", exception.getMessage());
         return forbidden("无权限访问");
     }
 
     @ExceptionHandler(NotRoleException.class)
     public ResponseEntity<ProblemDetail> handleNotRole(NotRoleException exception) {
-        log.warn("角色权限不足: {}", exception.getMessage());
         return forbidden("角色权限不足");
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<ProblemDetail> handleMethodNotSupported(HttpRequestMethodNotSupportedException exception) {
-        log.warn("请求方式不支持: {}", exception.getMethod());
         return problem(HttpStatus.METHOD_NOT_ALLOWED, "/problems/method-not-allowed",
                 "Method not allowed", "当前资源不支持该请求方法");
     }
 
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
     public ResponseEntity<ProblemDetail> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException exception) {
-        log.warn("媒体类型不支持: {}", exception.getContentType());
         return problem(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "/problems/unsupported-media-type",
                 "Unsupported media type", "不支持的媒体类型");
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<ProblemDetail> handleMediaTypeNotAcceptable(
+            HttpMediaTypeNotAcceptableException exception) {
+        return problem(HttpStatus.NOT_ACCEPTABLE, "about:blank",
+                "Not acceptable", "请求的响应媒体类型不可用");
     }
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ProblemDetail> handleBusiness(BusinessException exception) {
         ResultCode resultCode = exception.getResultCode();
         ApiProblemCatalog.Definition definition = ApiProblemCatalog.forResultCode(resultCode);
-        log.warn("业务异常: code={}, msg={}", exception.getCode(), exception.getMessage());
         return problem(definition.status(), definition.type(), definition.title(), exception.getMessage());
     }
 
     @ExceptionHandler(SystemException.class)
     public ResponseEntity<ProblemDetail> handleSystem(SystemException exception) {
-        log.error("系统异常: {}", exception.getMessage(), exception);
+        log.error("result=failure errorCategory=internal exceptionType={}",
+                exception.getClass().getSimpleName(), exception);
         return internalError();
     }
 
     @ExceptionHandler(ExternalServiceException.class)
     public ResponseEntity<ProblemDetail> handleExternalService(ExternalServiceException exception) {
         ApiProblemCatalog.Definition definition = ApiProblemCatalog.forResultCode(exception.getResultCode());
-        log.error("外部服务异常: provider={}, code={}, msg={}",
-                exception.getProvider(), exception.getCode(), exception.getMessage(), exception);
-        return problem(HttpStatus.BAD_GATEWAY, definition.type(),
-                "External service unavailable", exception.getClientMessage());
+        log.error("result=failure errorCategory=remote provider={} code={} exceptionType={}",
+                exception.getProvider(), exception.getCode(), exception.getClass().getSimpleName());
+        return problem(definition.status(), definition.type(),
+                definition.title(), exception.getClientMessage());
     }
 
     @ExceptionHandler(WebClientException.class)
     public ResponseEntity<ProblemDetail> handleWebClient(WebClientException exception) {
-        log.error("外部 HTTP 调用异常: {}", exception.getMessage(), exception);
+        log.error("result=failure errorCategory=remote exceptionType={}",
+                exception.getClass().getSimpleName());
         return problem(HttpStatus.BAD_GATEWAY, "/problems/external-service-error",
                 "External service unavailable", "外部服务暂不可用，请稍后再试");
     }
 
-    @ExceptionHandler(NoResourceFoundException.class)
-    public ResponseEntity<ProblemDetail> handleNoResourceFound(NoResourceFoundException exception) {
-        log.debug("资源不存在: {}", exception.getResourcePath());
+    @ExceptionHandler({NoResourceFoundException.class, org.springframework.web.servlet.NoHandlerFoundException.class})
+    public ResponseEntity<ProblemDetail> handleNoResourceFound(Exception exception) {
         return problem(HttpStatus.NOT_FOUND, "/problems/resource-not-found",
                 "Resource not found", "资源不存在");
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ProblemDetail> handleDataIntegrity(DataIntegrityViolationException exception) {
-        log.warn("数据约束冲突: {}", exception.getMostSpecificCause().getMessage());
         return problem(HttpStatus.CONFLICT, "/problems/data-conflict",
                 "Data conflict", "数据状态冲突");
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ProblemDetail> handleException(Exception exception) {
-        log.error("未知异常", exception);
+        log.error("result=failure errorCategory=internal exceptionType={}",
+                exception.getClass().getSimpleName(), exception);
         return internalError();
     }
 

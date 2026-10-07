@@ -83,6 +83,10 @@ public class InteractServiceImpl implements InteractService {
     private final PostMapper postMapper;
     private final ActivityMapper activityMapper;
     private final ExamInfoMapper examInfoMapper;
+    private final cn.jualn.miniapp.module.post.service.PostNotificationFactsService postNotificationFacts;
+    private final cn.jualn.miniapp.module.comment.service.CommentNotificationFactsService commentNotificationFacts;
+    private final cn.jualn.miniapp.module.user.service.UserService userService;
+    private final cn.jualn.miniapp.module.notify.service.NotifyService notifyService;
 
     // =========================================================================
     // 点赞
@@ -113,12 +117,11 @@ public class InteractServiceImpl implements InteractService {
 
         boolean inserted = false;
         try {
-            likeRecordMapper.insert(LikeRecord.builder()
+            inserted = likeRecordMapper.insert(LikeRecord.builder()
                     .userId(userId)
                     .targetType(targetType.getCode())
                     .targetId(targetId)
-                    .build());
-            inserted = true;
+                    .build()) == 1;
         } catch (DuplicateKeyException e) {
             // 同一用户重复点赞：幂等，视为成功，不抛异常
             log.debug("[Interact.like] 幂等：userId={}, targetType={}, targetId={}",
@@ -128,8 +131,52 @@ public class InteractServiceImpl implements InteractService {
         final boolean actualInserted = inserted;
         afterCommit(() -> syncLikeCache(userId, targetType, targetId, true, actualInserted));
 
-        // 只有真正新增点赞时才发通知（幂等重复点赞不发）
+        if (inserted) { notifyLike(userId, targetType, targetId); }
+    }
 
+    private void notifyLike(Long actorId, TargetType targetType, Long targetId) {
+        Long recipient = null;
+        String context = null;
+        cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Target target = null;
+        String subjectTitle = null;
+        String quote = null;
+        cn.jualn.miniapp.common.enums.NotifyType type;
+        if (targetType == TargetType.POST) {
+            var fact = postNotificationFacts.published(targetId);
+            if (fact == null) { return; }
+            recipient = fact.ownerId();
+            context = fact.title();
+            subjectTitle = fact.title();
+            quote = fact.preview();
+            type = cn.jualn.miniapp.common.enums.NotifyType.POST_LIKED;
+            target = new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Target("POST_DETAIL", targetId.toString(), null, null, null);
+        } else if (targetType == TargetType.COMMENT) {
+            var fact = commentNotificationFacts.published(targetId);
+            if (fact == null) { return; }
+            recipient = fact.ownerId();
+            context = fact.preview();
+            quote = fact.preview();
+            type = cn.jualn.miniapp.common.enums.NotifyType.COMMENT_LIKED;
+            if (fact.targetType() == TargetType.POST.getCode()) {
+                var post = postNotificationFacts.published(fact.targetId());
+                subjectTitle = post == null ? null : post.title();
+                target = new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Target("POST_DETAIL", String.valueOf(fact.targetId()), targetId.toString(), null, null);
+            }
+        } else { return; }
+        if (recipient.equals(actorId)) { return; }
+        var actor = userService.getSimpleInfo(actorId);
+        var actorSnapshot = actor == null || actor.getNickname() == null || actor.getNickname().isBlank() ? null
+                : new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Actor(actorId.toString(), actor.getNickname(),
+                        actor.getAvatarUrl() == null || actor.getAvatarUrl().isBlank() ? null : actor.getAvatarUrl());
+        String title = targetType == TargetType.POST ? "有人赞了你的帖子" : "有人赞了你的评论";
+        var snapshot = new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot(
+                new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Presentation(title, null, context, null, null, subjectTitle, quote),
+                actorSnapshot, new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Subject(targetType.name(), targetId.toString()), target);
+        // First positive fact per actor/subject; unlike/re-like does not promise another notification.
+        notifyService.processNotificationPayload(cn.jualn.miniapp.module.notify.payload.NotifyPayload.builder()
+                .receiverId(recipient).senderId(actorId).type(type).title(title).content(context == null ? "" : context)
+                .targetType(targetType).targetId(targetId).snapshot(snapshot)
+                .sourceKey("like:" + targetType.name() + ":" + targetId + ":actor:" + actorId + ":recipient:" + recipient).build());
     }
 
     /**
@@ -359,12 +406,18 @@ public class InteractServiceImpl implements InteractService {
     @Override
     public List<UserLikeBO> pageUserLikes(UserLikeQuery query) {
         UserLikeQuery actualQuery = query == null ? new UserLikeQuery() : query;
+        Long actorId = requireLogin();
+        if (actualQuery.getUserId() != null && !actorId.equals(actualQuery.getUserId())) {
+            throw new BusinessException(ResultCode.FORBIDDEN);
+        }
+        actualQuery.setUserId(actorId);
         int pageSize = normalizePageSize(actualQuery.getPageSize());
 
         List<LikeRecord> likeRecords = likeRecordMapper.selectList(buildWrapper(actualQuery, pageSize));
 
         return likeRecords.stream()
                 .map(record -> UserLikeBO.builder()
+                        .id(record.getId())
                         .targetId(record.getTargetId())
                         .build())
                 .toList();

@@ -1,5 +1,13 @@
 package cn.jualn.miniapp.module.user.controller;
 
+import cn.jualn.miniapp.common.exception.BusinessException;
+import cn.jualn.miniapp.common.result.ResultCode;
+import cn.jualn.miniapp.module.user.bo.EffectiveProfileBO;
+import cn.jualn.miniapp.module.user.dto.request.EffectiveProfileUpdateRequest;
+import cn.jualn.miniapp.module.user.vo.EffectiveProfileVO;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
+
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.jualn.miniapp.common.result.Result;
 import cn.jualn.miniapp.module.user.converter.UserConverter;
@@ -34,6 +42,37 @@ public class UserController {
 
     private final UserService userService;
     private final UserConverter userConverter;
+
+    @GetMapping("/me/profile")
+    public ResponseEntity<EffectiveProfileVO> getMyProfile() {
+        return effectiveResponse(userService.getEffectiveProfile(null));
+    }
+
+    @GetMapping("/{userId}/profile")
+    public ResponseEntity<EffectiveProfileVO> getUserProfile(
+            @PathVariable String userId) {
+        Long id;
+        try {
+            id = Long.valueOf(userId);
+        } catch (NumberFormatException invalid) {
+            throw new BusinessException(
+                    ResultCode.USER_NOT_FOUND);
+        }
+        return effectiveResponse(userService.getEffectiveProfile(id));
+    }
+
+    @PostMapping("/me/profile")
+    public ResponseEntity<EffectiveProfileVO> updateMyProfile(
+            @RequestBody EffectiveProfileUpdateRequest request) {
+        return effectiveResponse(userService.updateEffectiveProfile(request.toCommand()));
+    }
+
+    private ResponseEntity<EffectiveProfileVO> effectiveResponse(
+            EffectiveProfileBO profile) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(new EffectiveProfileVO(String.valueOf(profile.getUserId()),
+                        profile.getNickname(), profile.getAvatarUrl(), profile.getBio(), profile.isPlatformOperator()));
+    }
 
     /**
      * 获取当前登录用户资料。

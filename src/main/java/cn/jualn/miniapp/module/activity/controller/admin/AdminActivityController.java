@@ -1,152 +1,77 @@
 package cn.jualn.miniapp.module.activity.controller.admin;
 
-import cn.jualn.miniapp.common.result.Result;
 import cn.jualn.miniapp.common.security.AdminStpUtil;
-import cn.jualn.miniapp.module.activity.bo.AdminActivitySaveBO;
+import cn.jualn.miniapp.common.web.StrongEtag;
 import cn.jualn.miniapp.module.activity.converter.AdminActivityConverter;
-import cn.jualn.miniapp.module.activity.dto.admin.AdminActivityDeleteRequest;
 import cn.jualn.miniapp.module.activity.dto.admin.AdminActivityPageQuery;
-import cn.jualn.miniapp.module.activity.dto.admin.AdminActivityReasonRequest;
 import cn.jualn.miniapp.module.activity.dto.admin.AdminActivitySaveRequest;
 import cn.jualn.miniapp.module.activity.service.ActivityService;
-import cn.jualn.miniapp.module.activity.vo.admin.AdminActivityDetailVO;
-import cn.jualn.miniapp.module.activity.vo.admin.AdminActivityDraftVO;
+import cn.jualn.miniapp.module.activity.vo.admin.AdminActivityDetailResourceVO;
 import cn.jualn.miniapp.module.activity.vo.admin.AdminActivityPageVO;
-import cn.jualn.miniapp.module.activity.vo.admin.AdminActivitySavedVO;
 import cn.jualn.miniapp.module.admin.auth.support.AdminPermissionPolicy;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
+import java.net.URI;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.LocalDateTime;
-
+/** Thin HTTP boundary for the canonical Activity management resource. */
 @Validated
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/v1/admin/activities")
 public class AdminActivityController {
-
     private final ActivityService activityService;
-    private final AdminActivityConverter adminActivityConverter;
+    private final AdminActivityConverter converter;
 
     @GetMapping
-    public Result<AdminActivityPageVO> pageActivities(@Valid AdminActivityPageQuery query) {
+    public ResponseEntity<AdminActivityPageVO> list(@Valid AdminActivityPageQuery query) {
         AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_READ);
-        return Result.ok(adminActivityConverter.toPageVO(
-                activityService.pageAdminActivities(adminActivityConverter.toQueryBO(query))));
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(converter.toPageVO(activityService.pageAdminActivities(converter.toQueryBO(query))));
     }
 
-    @GetMapping("/{id}")
-    public Result<AdminActivityDetailVO> getActivity(
-            @PathVariable @Positive(message = "活动ID必须大于0") Long id) {
-        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_READ);
-        return Result.ok(adminActivityConverter.toDetailVO(activityService.getAdminActivityDetail(id)));
-    }
-
-    @GetMapping("/{id}/draft")
-    public Result<AdminActivityDraftVO> getActivityDraft(
-            @PathVariable @Positive(message = "活动ID必须大于0") Long id) {
-        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
-        return Result.ok(adminActivityConverter.toDraftVO(activityService.getAdminActivityDraft(id)));
-    }
-
-    @PostMapping({"", "/drafts"})
-    public Result<AdminActivitySavedVO> createActivity(@RequestBody @Valid AdminActivitySaveRequest request) {
+    @PostMapping
+    public ResponseEntity<AdminActivityDetailResourceVO> create(@RequestBody @Valid AdminActivitySaveRequest request) {
         AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
         long operatorId = AdminStpUtil.STP_LOGIC.getLoginIdAsLong();
-        AdminActivitySaveBO command = adminActivityConverter.toSaveBO(request, null, operatorId);
-        Long id = activityService.createAdminActivity(command);
-        return Result.ok(AdminActivitySavedVO.builder().id(id.toString()).savedAt(LocalDateTime.now()).build());
+        Long id = activityService.createAdminActivity(converter.toSaveBO(request, null, operatorId));
+        var value = activityService.getAdminActivityDetail(id);
+        return ResponseEntity.created(URI.create("/v1/admin/activities/" + id)).cacheControl(CacheControl.noStore())
+                .eTag(StrongEtag.of("activity", id, version(value))).body(converter.toDetailVO(value));
     }
 
-    @PutMapping({"/{id}", "/{id}/draft"})
-    public Result<AdminActivitySavedVO> updateActivity(
-            @PathVariable @Positive(message = "活动ID必须大于0") Long id,
+    @GetMapping("/{activityId}")
+    public ResponseEntity<AdminActivityDetailResourceVO> get(@PathVariable @Positive Long activityId) {
+        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_READ);
+        var value = activityService.getAdminActivityDetail(activityId);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .eTag(StrongEtag.of("activity", activityId, version(value))).body(converter.toDetailVO(value));
+    }
+
+    @PutMapping("/{activityId}")
+    public ResponseEntity<AdminActivityDetailResourceVO> replace(@PathVariable @Positive Long activityId,
+            @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
             @RequestBody @Valid AdminActivitySaveRequest request) {
         AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
-        long operatorId = AdminStpUtil.STP_LOGIC.getLoginIdAsLong();
-        activityService.updateAdminActivity(adminActivityConverter.toSaveBO(request, id, operatorId));
-        return Result.ok(AdminActivitySavedVO.builder().id(id.toString()).savedAt(LocalDateTime.now()).build());
+        var value = activityService.replaceAdminActivity(
+                converter.toSaveBO(request, activityId, AdminStpUtil.STP_LOGIC.getLoginIdAsLong()), ifMatch);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .eTag(StrongEtag.of("activity", activityId, version(value))).body(converter.toDetailVO(value));
     }
 
-    @PostMapping("/{id}/publish")
-    public Result<Void> publish(@PathVariable @Positive Long id) {
-        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
-        activityService.publishAdminActivity(id, AdminStpUtil.STP_LOGIC.getLoginIdAsLong());
-        return Result.ok(null);
-    }
-
-    @PostMapping("/{id}/take-down")
-    public Result<Void> takeDown(@PathVariable @Positive Long id,
-            @RequestBody @Valid AdminActivityReasonRequest request) {
-        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
-        activityService.takeDownAdminActivity(id, AdminStpUtil.STP_LOGIC.getLoginIdAsLong(), request.getReason());
-        return Result.ok(null);
-    }
-
-    @PostMapping("/{id}/submit-review")
-    public Result<Void> submitReview(@PathVariable @Positive(message = "活动ID必须大于0") Long id) {
-        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
-        activityService.submitAdminActivityReview(id, AdminStpUtil.STP_LOGIC.getLoginIdAsLong());
-        return Result.ok(null);
-    }
-
-    @PostMapping("/{id}/pin")
-    public Result<Void> pinActivity(@PathVariable @Positive(message = "活动ID必须大于0") Long id) {
-        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
-        activityService.updateAdminActivityPinned(id, AdminStpUtil.STP_LOGIC.getLoginIdAsLong(), true);
-        return Result.ok(null);
-    }
-
-    @DeleteMapping("/{id}/pin")
-    public Result<Void> unpinActivity(@PathVariable @Positive(message = "活动ID必须大于0") Long id) {
-        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
-        activityService.updateAdminActivityPinned(id, AdminStpUtil.STP_LOGIC.getLoginIdAsLong(), false);
-        return Result.ok(null);
-    }
-
-    @PostMapping("/{id}/cancel")
-    public Result<Void> cancelActivity(
-            @PathVariable @Positive(message = "活动ID必须大于0") Long id,
-            @RequestBody @Valid AdminActivityReasonRequest request) {
-        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
-        activityService.cancelAdminActivity(
-                id,
-                AdminStpUtil.STP_LOGIC.getLoginIdAsLong(),
-                request.getReason().trim());
-        return Result.ok(null);
-    }
-
-    @PostMapping("/{id}/end-early")
-    public Result<Void> endActivityEarly(
-            @PathVariable @Positive(message = "活动ID必须大于0") Long id,
-            @RequestBody @Valid AdminActivityReasonRequest request) {
-        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
-        activityService.endAdminActivityEarly(
-                id,
-                AdminStpUtil.STP_LOGIC.getLoginIdAsLong(),
-                request.getReason().trim());
-        return Result.ok(null);
-    }
-
-    @DeleteMapping("/{id}")
-    public Result<Void> removeActivity(
-            @PathVariable @Positive(message = "活动ID必须大于0") Long id,
-            @RequestBody @Valid AdminActivityDeleteRequest request) {
-        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
-        activityService.removeAdminActivity(
-                id,
-                AdminStpUtil.STP_LOGIC.getLoginIdAsLong(),
-                request.getReason().trim());
-        return Result.ok(null);
+    private long version(cn.jualn.miniapp.module.activity.bo.AdminActivityDetailBO value) {
+        return value.getContractVersion() == null ? 1L : value.getContractVersion();
     }
 }

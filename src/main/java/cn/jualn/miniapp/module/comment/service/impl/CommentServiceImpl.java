@@ -8,14 +8,11 @@ import cn.jualn.miniapp.common.enums.UserRole;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.PageResult;
 import cn.jualn.miniapp.common.result.ResultCode;
-import cn.jualn.miniapp.infrastructure.queue.contract.QueueProducer;
 import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
 import cn.jualn.miniapp.module.activity.service.ActivityService;
 import cn.jualn.miniapp.module.audit.bo.AuditReserveBO;
 import cn.jualn.miniapp.module.audit.bo.AuditReserveResultBO;
 import cn.jualn.miniapp.module.audit.enums.AuditStatus;
-import cn.jualn.miniapp.module.audit.payload.AuditMediaBatchPayload;
-import cn.jualn.miniapp.module.audit.payload.AuditTextPayload;
 import cn.jualn.miniapp.module.audit.service.AuditReservationService;
 import cn.jualn.miniapp.module.comment.bo.CommentCreateBO;
 import cn.jualn.miniapp.module.comment.bo.AdminCommentActionBO;
@@ -76,7 +73,6 @@ public class CommentServiceImpl implements CommentService {
     private final ExamService examService;
     private final UserService userService;
     private final TargetValidator targetValidator;
-    private final QueueProducer queueProducer;
     private final InteractService interactService;
     private final AuditReservationService auditReservationService;
     private final MediaService mediaService;
@@ -147,14 +143,12 @@ public class CommentServiceImpl implements CommentService {
             // 理论上不应该发生，除非允许空内容 + 无图片评论。
             // 这里直接激活，避免评论永久 PENDING。
 //            activateCommentAfterAuditPass(comment.getId());
-        } else {
-            afterCommit(() -> enqueueCommentAudit(comment.getId(), comment.getContent(), reserveResult));
         }
 
         // 注意：评论审核通过后再增加 commentCount / replyCount，并发送评论/回复通知。
         // 这里不要提前产生对外副作用，避免审核拒绝后计数虚高、通知不可撤回。
 
-        log.info("[CommentService.createComment][完成] userId={}, commentId={}, costMs={}",
+        log.debug("[CommentService.createComment][完成] userId={}, commentId={}, costMs={}",
                 userId, comment.getId(), System.currentTimeMillis() - start);
 
         return comment.getId();
@@ -317,8 +311,8 @@ public class CommentServiceImpl implements CommentService {
             throw new BusinessException(ResultCode.DATA_CONFLICT, "评论当前状态不允许下架");
         }
         decreaseCommentCounters(state);
-        log.info("[CommentService.takeDownComment][完成] operatorId={}, commentId={}, reason={}",
-                command.getOperatorId(), command.getCommentId(), command.getReason());
+        log.info("[CommentService.takeDownComment][完成] operatorId={}, commentId={}",
+                command.getOperatorId(), command.getCommentId());
     }
 
     @Override
@@ -334,8 +328,8 @@ public class CommentServiceImpl implements CommentService {
                     "只有审核通过且由管理员下架的评论可以恢复");
         }
         increaseCommentCounters(state);
-        log.info("[CommentService.restoreComment][完成] operatorId={}, commentId={}, reason={}",
-                command.getOperatorId(), command.getCommentId(), command.getReason());
+        log.info("[CommentService.restoreComment][完成] operatorId={}, commentId={}",
+                command.getOperatorId(), command.getCommentId());
     }
 
     @Override
@@ -350,8 +344,7 @@ public class CommentServiceImpl implements CommentService {
             throw new BusinessException(ResultCode.DATA_CONFLICT, "评论当前状态不允许通过复核");
         }
         increaseCommentCounters(state);
-        log.info("[CommentService.approveCommentReview][完成] operatorId={}, commentId={}, remark={}",
-                operatorId, commentId, remark);
+        log.info("[CommentService.approveCommentReview][完成] operatorId={}, commentId={}", operatorId, commentId);
     }
 
     @Override
@@ -365,8 +358,7 @@ public class CommentServiceImpl implements CommentService {
             }
             throw new BusinessException(ResultCode.DATA_CONFLICT, "评论当前状态不允许拒绝复核");
         }
-        log.info("[CommentService.rejectCommentReview][完成] operatorId={}, commentId={}, reason={}",
-                operatorId, commentId, reason);
+        log.info("[CommentService.rejectCommentReview][完成] operatorId={}, commentId={}", operatorId, commentId);
     }
 
     private void validateReviewAction(Long commentId, Long operatorId, boolean reasonRequired, String reason) {
@@ -418,43 +410,6 @@ public class CommentServiceImpl implements CommentService {
             });
         } else {
             task.run();
-        }
-    }
-
-    private void enqueueCommentAudit(Long commentId, String content, AuditReserveResultBO reserveResult) {
-        if (reserveResult == null || !reserveResult.hasAuditTask()) {
-            return;
-        }
-
-        if (reserveResult.getTextAuditLogId() != null && StringUtils.hasText(content)) {
-            queueProducer.send(AuditTextPayload.builder()
-                    .auditLogId(reserveResult.getTextAuditLogId())
-                    .auditScene(AuditScene.COMMENT)
-                    .targetId(commentId)
-                    .scene(2)
-                    .content(content)
-                    .build()
-            );
-        }
-
-        if (!CollectionUtils.isEmpty(reserveResult.getMediaItems())) {
-            List<AuditMediaBatchPayload.AuditMediaItem> items = reserveResult.getMediaItems().stream()
-                    .filter(Objects::nonNull)
-                    .map(item -> AuditMediaBatchPayload.AuditMediaItem.builder()
-                            .auditLogId(item.getAuditLogId())
-                            .mediaType(item.getMediaType())
-                            .mediaUrl(item.getMediaUrl())
-                            .build())
-                    .toList();
-
-            if (!items.isEmpty()) {
-                queueProducer.send(AuditMediaBatchPayload.builder()
-                        .auditScene(AuditScene.COMMENT)
-                        .targetId(commentId)
-                        .scene(2)
-                        .items(items)
-                        .build());
-            }
         }
     }
 

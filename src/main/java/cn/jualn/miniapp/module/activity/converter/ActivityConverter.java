@@ -42,15 +42,10 @@ public interface ActivityConverter {
      * @param updateBO  包含更新值的BO对象（null字段将被忽略）
      */
     @Mapping(target="formSchema", ignore=true)
-    @Mapping(target="registrationLimit", ignore=true)
     @Mapping(target="cancelledAt", ignore=true)
     @Mapping(target="cancelReason", ignore=true)
     @Mapping(target = "userId", ignore = true)
     @Mapping(target = "publishStatus", ignore = true)
-    @Mapping(target = "status", ignore = true)
-    @Mapping(target = "auditStatus", ignore = true)
-    @Mapping(target = "rejectReason", ignore = true)
-    @Mapping(target = "isPinned", ignore = true)
     @Mapping(target = "commentCount", ignore = true)
     @Mapping(target = "likeCount", ignore = true)
     @Mapping(target = "viewCount", ignore = true)
@@ -70,15 +65,10 @@ public interface ActivityConverter {
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target="formSchema", ignore=true)
-    @Mapping(target="registrationLimit", ignore=true)
     @Mapping(target="cancelledAt", ignore=true)
     @Mapping(target="cancelReason", ignore=true)
     @Mapping(target = "userId", ignore = true)
     @Mapping(target = "publishStatus", ignore = true)
-    @Mapping(target = "status", ignore = true)
-    @Mapping(target = "auditStatus", ignore = true)
-    @Mapping(target = "rejectReason", ignore = true)
-    @Mapping(target = "isPinned", ignore = true)
     @Mapping(target = "commentCount", ignore = true)
     @Mapping(target = "likeCount", ignore = true)
     @Mapping(target = "viewCount", ignore = true)
@@ -96,15 +86,10 @@ public interface ActivityConverter {
     Activity toEntity(ActivityCreateBO request);
 
     @Mapping(target="formSchema", ignore=true)
-    @Mapping(target="registrationLimit", ignore=true)
     @Mapping(target="cancelledAt", ignore=true)
     @Mapping(target="cancelReason", ignore=true)
     @Mapping(target = "userId", ignore = true)
     @Mapping(target = "publishStatus", ignore = true)
-    @Mapping(target = "status", ignore = true)
-    @Mapping(target = "auditStatus", ignore = true)
-    @Mapping(target = "rejectReason", ignore = true)
-    @Mapping(target = "isPinned", ignore = true)
     @Mapping(target = "commentCount", ignore = true)
     @Mapping(target = "likeCount", ignore = true)
     @Mapping(target = "viewCount", ignore = true)
@@ -128,16 +113,27 @@ public interface ActivityConverter {
     @Mapping(target = "registrationStatus", ignore = true)
     @Mapping(target = "sections", ignore = true)
     @Mapping(target = "actions", ignore = true)
+    @Mapping(target = "liked", ignore = true)
+    @Mapping(target = "enrolled", ignore = true)
+    @Mapping(target = "contacts", ignore = true)
+    @Mapping(target = "registrationForm", ignore = true)
+    @Mapping(target = "participationState", ignore = true)
+    @Mapping(target = "submittedCount", ignore = true)
+    @Mapping(target = "evaluatedAt", ignore = true)
+    @Mapping(target = "cardTimeline", ignore = true)
     ActivityDetailBO toDetailBO(Activity activity);
 
     ActivityListVO toVO(ActivityDetailBO detailBO);
 
-    @Mapping(target = "liked", ignore = true)
-    @Mapping(target = "enrolled", ignore = true)
     ActivityDetailVO toDetailVO(ActivityDetailBO detailBO);
 
     @Mapping(target = "activityPhase", ignore = true)
     @Mapping(target = "registrationStatus", ignore = true)
+    @Mapping(target = "participationState", ignore = true)
+    @Mapping(target = "submittedCount", ignore = true)
+    @Mapping(target = "evaluatedAt", ignore = true)
+    @Mapping(target = "coverAttachment", ignore = true)
+    @Mapping(target = "cardTimeline", ignore = true)
     ActivityListBO toListBO(Activity activity);
 
     List<ActivityListBO> toListBOList(List<Activity> activities);

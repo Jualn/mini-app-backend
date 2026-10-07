@@ -8,7 +8,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -20,35 +19,22 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ExamDetailBO {
+    private TimelineItemDTO cardTimeline;
+    private String contactsJson;
+    private java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventContactBO> contacts;
+    private Long contractVersion;
+    private Integer lifecycleStatus;
+    private String sourceName;
+    private String sourceUrl;
     private Boolean liked;
     private Boolean subscribed;
     private LocalDateTime updatedAt;
-    private String organizer;
-    private String location;
-    private Integer audienceScope;
-    private String audienceSummary;
-    private String contactName;
-    private String contactPhone;
-    private Integer registrationMode;
-    private Integer participantMode;
-    private Integer capacity;
-    private Integer capacityUnit;
+    private LocalDateTime createdAt;
     private Long coverAttachmentId;
     private java.time.LocalDateTime cancelledAt;
     private String cancelReason;
 
-    private String activityPhase;
-    private String registrationStatus;
-
     private Integer publishStatus;
-
-    private Integer startPrecision;
-    private Integer endPrecision;
-    private String timeDescription;
-    private Integer registrationStartPrecision;
-    private Integer registrationEndPrecision;
-    private java.time.LocalDateTime startTime;
-    private java.time.LocalDateTime endTime;
 
     private String summary;
     private Integer eventType;
@@ -60,12 +46,6 @@ public class ExamDetailBO {
 
     private Long id;
     private String title;
-    private Integer category;
-    private String content;
-    private LocalDateTime registrationStart;
-    private LocalDateTime registrationEnd;
-    private LocalDate examDate;
-    private LocalDate examDateEnd;
     private String officialUrl;
     private Integer commentCount;
     private Integer likeCount;
