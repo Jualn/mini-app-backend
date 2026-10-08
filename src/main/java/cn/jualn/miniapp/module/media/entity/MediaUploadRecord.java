@@ -24,6 +24,8 @@ public class MediaUploadRecord {
     private Integer targetType;
     private Integer status;
     private Long boundTargetId;
+    private Long boundAttachmentId;
+    private LocalDateTime cleanupStartedAt;
     private LocalDateTime cleanupAfter;
     private Integer retryCount;
     private String lastError;

@@ -11,9 +11,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Arrays;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -103,10 +108,76 @@ public class CosService {
         try {
             String actualHost = URI.create(url).getHost();
             return actualHost != null && (actualHost.equalsIgnoreCase(hostOf(cosProperties.getPublicUrlPrefix()))
-                    || actualHost.equalsIgnoreCase(hostOf(cosProperties.getCustomDomain())));
+                    || actualHost.equalsIgnoreCase(hostOf(cosProperties.getCustomDomain()))
+                    || actualHost.equalsIgnoreCase(hostOf(bucketPublicPrefix())));
         } catch (IllegalArgumentException ex) {
             return false;
         }
+    }
+
+    /** Returns null only for an external URL; a malformed URL on a managed host is rejected. */
+    public String resolveManagedObjectKey(String url) {
+        if (!isManagedPublicUrl(url)) return null;
+        try {
+            URI actual = URI.create(url);
+            if (!List.of("http", "https").contains(actual.getScheme()) || actual.getUserInfo() != null
+                    || actual.getRawQuery() != null || actual.getRawFragment() != null
+                    || (actual.getPort() != -1 && actual.getPort() != ("https".equals(actual.getScheme()) ? 443 : 80))) {
+                throw new IllegalArgumentException();
+            }
+            for (String prefix : publicPrefixes()) {
+                URI base = URI.create(prefix);
+                if (!actual.getHost().equalsIgnoreCase(base.getHost())) continue;
+                String root = base.getRawPath() == null ? "" : base.getRawPath();
+                root = root.replaceAll("/+$", "") + "/";
+                String path = actual.getRawPath();
+                if (path == null || !path.startsWith(root)) continue;
+                String rawKey = path.substring(root.length());
+                // Decode each segment exactly once. Never reinterpret encoded path separators or traversal.
+                List<String> segments = new ArrayList<>();
+                for (String segment : rawKey.split("/", -1)) {
+                    String decoded = URLDecoder.decode(segment.replace("+", "%2B"), StandardCharsets.UTF_8);
+                    if (decoded.isBlank() || decoded.contains("..") || decoded.contains("/")
+                            || decoded.contains("\\") || decoded.contains("%")
+                            || decoded.codePoints().anyMatch(Character::isISOControl)) throw new IllegalArgumentException();
+                    segments.add(decoded);
+                }
+                String key = String.join("/", segments);
+                if (key.length() > 512) throw new IllegalArgumentException();
+                return key;
+            }
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "受管附件地址不合法");
+        }
+        throw new BusinessException(ResultCode.INVALID_OPERATION, "受管附件地址不属于配置的对象路径");
+    }
+
+    /** Exact aliases used only to protect legacy URL-only registrations from cleanup. */
+    public List<String> managedPublicUrls(String objectKey) {
+        String encoded = Arrays.stream(objectKey.split("/", -1))
+                .map(part -> URLEncoder.encode(part, StandardCharsets.UTF_8).replace("+", "%20"))
+                .collect(java.util.stream.Collectors.joining("/"));
+        List<String> urls = new ArrayList<>();
+        for (String prefix : publicPrefixes()) {
+            String root = prefix.replaceAll("/+$", "");
+            urls.add(root + "/" + objectKey);
+            urls.add(root + "/" + encoded);
+            URI base = URI.create(root);
+            String alternate = ("https".equals(base.getScheme()) ? "http" : "https") + root.substring(root.indexOf(':'));
+            urls.add(alternate + "/" + objectKey);
+            urls.add(alternate + "/" + encoded);
+        }
+        return urls.stream().distinct().toList();
+    }
+
+    private List<String> publicPrefixes() {
+        return java.util.stream.Stream.of(cosProperties.getPublicUrlPrefix(), cosProperties.getCustomDomain(), bucketPublicPrefix())
+                .filter(value -> value != null && !value.isBlank())
+                .map(value -> value.contains("://") ? value : "https://" + value).distinct().toList();
+    }
+
+    private String bucketPublicPrefix() {
+        return "https://" + cosProperties.getBucket() + ".cos." + cosProperties.getRegion() + ".myqcloud.com";
     }
 
     private String hostOf(String value) {

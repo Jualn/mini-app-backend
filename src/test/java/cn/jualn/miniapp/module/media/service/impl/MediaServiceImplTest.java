@@ -106,6 +106,18 @@ class MediaServiceImplTest {
     }
 
     @Test
+    void adminCredentialUsesExplicitOperatorEvenWhenUserContextIsDifferent() {
+        UserContext.setUserId(7L);
+        when(cosService.generateUploadCredential(any())).thenReturn(CosUploadCredentialDTO.builder().build());
+        mediaService.generateAdminUploadCredential(TargetType.EXAM, List.of("file.pdf"), 9L);
+        ArgumentCaptor<List<String>> captor = ArgumentCaptor.forClass(List.class);
+        verify(cosService).generateUploadCredential(captor.capture());
+        assertTrue(captor.getValue().get(0).startsWith("exam/9/"));
+        verify(uploadRecordService).recordPending(org.mockito.ArgumentMatchers.eq(9L),
+                org.mockito.ArgumentMatchers.eq(TargetType.EXAM), any(), any());
+    }
+
+    @Test
     void replaceAttachmentLinksValidatesRegistryBeforeReplacing() {
         var entity = MediaAttachment.builder().id(31L).registered(true).build();
         when(mediaAttachmentMapper.selectBatchIds(any())).thenReturn(List.of(entity));
@@ -171,7 +183,7 @@ class MediaServiceImplTest {
     }
 
     @Test
-    void replaceAttachments_shouldDeleteRemovedObjectOnlyAfterCommit() {
+    void replaceAttachments_shouldPersistDeletionIntentWithoutRemoteCall() {
         UserContext.setUserId(7L);
         when(mediaAttachmentMapper.selectList(any())).thenReturn(List.of(
                 MediaAttachment.builder().id(41L).type(MediaType.IMAGE.getCode())
@@ -188,11 +200,8 @@ class MediaServiceImplTest {
                 .build());
 
         verify(cosService, never()).deleteObject(any());
-        assertEquals(1, TransactionSynchronizationManager.getSynchronizations().size());
-
-        TransactionSynchronizationManager.getSynchronizations().get(0).afterCommit();
-
-        verify(cosService).deleteObject("post/7/old.jpg");
+        assertEquals(0, TransactionSynchronizationManager.getSynchronizations().size());
+        verify(uploadRecordService).requestDeletion("post/7/old.jpg", TargetType.POST, 11L);
     }
 
     @Test

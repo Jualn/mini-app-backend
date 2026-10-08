@@ -34,7 +34,7 @@
 | eventcontent | event_section、event_action；共享正文与参与入口 |
 | comment | comment |
 | interact | like_record、share_record、view_count_cache、view_log |
-| media | media_attachment、media_upload_record；媒体绑定与清理 |
+| media | media_attachment、media_upload_record、event_attachment_link；附件登记、引用持久化、媒体绑定与清理 |
 | timeline | timeline |
 | audit | content_audit_log |
 | search | search_doc |
@@ -50,6 +50,16 @@
 共享子资源由其所属 Service 处理；活动/公共事项主体负责业务资格及组合用例，不能因为一张表被共享使用就形成多个写入所有者。
 
 Activity 与 PublicEvent 分别拥有自己的 Reminder Policy、Rule Catalog 和业务 Notification Factory；notify 只拥有通用 reconcile、计划、Notification、Category × Channel Preference、Recipient/Delivery 编排。Timeline 提供业务时间事实，Async Job 提供执行状态，WeChat Integration 只消费渠道无关快照。正式渠道为 `IN_APP/WECHAT_MINI_PROGRAM/WECHAT_OFFICIAL_ACCOUNT`，两个微信渠道拥有独立 Capability。完整依赖和状态边界见 [Reminder、Notification 与 Delivery 设计](reminder-notification.md) 与 [WeChat Integration](wechat-integration.md)。
+
+### 2.1 媒体生命周期与 COS 集成
+
+`module/media` 拥有本站媒体的持久化生命周期；`third/cos` 负责 COS 协议、配置地址解析、STS 与对象操作，不决定附件是否仍有效或是否应删除。业务模块决定内容保存、媒体替换与保留资格，通过 media 的公开 Service 在本地业务事务中绑定媒体或登记删除意图，不直接操作上传记录或调用 COS 删除。
+
+当前入口分别是 `MediaService`（凭证、登记、引用及业务媒体操作）、`MediaUploadRecordService`（上传状态与清理接管）和 `AttachmentReadService`（组合主体 owner 的可见性）。`MediaUploadCleanupTask` 调用状态 owner 执行有界清理；`CosService` / `CosClient` 承接外部存储调用。文件由客户端持 STS 直传 COS，数据库事务不包含远程上传或删除。
+
+普通业务媒体在主体保存事务中绑定；管理端可复用附件在独立登记事务中接管，Activity/PublicEvent 保存只维护引用。管理凭证入口显式传入已认证 operatorId，目录数字表示上传者而非活动／事项 ID。媒体替换在业务事务内持久化删除意图，由现有清理任务在提交后执行；兼容方法 `deleteObjectsAfterCommit` 当前表达该语义，不是内存回调删除。状态与迁移说明见 [数据库入口](../src/main/resources/db/README.md)，保留规则见 [业务规则](domain.md#媒体与用户资料)，切换与历史核对见 [运维手册](operations/runbook.md#14-附件与媒体生命周期切换)，验证入口见 [commands](../governance/commands.md#media-attachment-lifecycle-focused-validation)。
+
+这套基础不等于全桶 inventory 或通用存储治理框架；COS ACL、CORS、bucket lifecycle 及实际部署配置属于环境事实，不能从媒体表或源码推断。新增媒体调用方先遵循上述 owner 与事务边界，不自行建设第二套绑定或清理机制。
 
 ## 3. 层与对象
 

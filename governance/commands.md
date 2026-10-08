@@ -136,6 +136,10 @@ CI 另有临时 MySQL 上的 Flyway migrate/validate；具体参数以 workflow 
 
 ## 专项验证入口
 
+### Media attachment lifecycle focused validation
+
+复用 tools/validate-event-information.ps1，显式选择 `MediaAttachmentLifecycleDatabaseTest,CosAttachmentUrlTest,MediaServiceImplTest,MediaUploadRecordServiceTest,MediaProfileSnapshotTest,AttachmentReadServiceTest,UserProfileUpdateTest,ProfileMediaCallbackTest,PostServiceImplTest,CommentServiceImplTest`。数据库测试只接受 `jdbc:mysql://127.0.0.1:<port>/media_attachment_lifecycle_test`，必须是已执行 V1..V30 的本次一次性独占 schema，root/空密码；测试会清除该 schema 的媒体表并提交 synthetic 数据，绝不能使用业务库。未提供 JdbcUrl 时数据库测试跳过，不报告数据库 PASS。真实 MySQL/Mapper/Spring 事务验证登记、复用、竞争、回滚、历史保护和删除意图恢复；COS 使用替身，不证明真实对象上传／删除或生产回填。
+
 ### Admin QR Login v2 focused validation
 
 复用 `tools/validate-event-information.ps1`，显式选择 `AdminQrLoginRedisTest,AdminQrLoginMvcTest,WxMiniProgramCodeTest,GlobalExceptionHandlerTest`。Redis 测试仅从 `admin.qr.test.port` 接收一次性 loopback Redis；未提供时跳过，不能报告 Redis PASS。`admin.qr.test.container=jualn-admin-qr-v2-test` 显式允许测试重启本次创建的同名 AOF 容器；不能替换为业务容器。测试不读取应用 Redis/MySQL 配置，微信使用 loopback 模拟 HTTP，独立 JVM 崩溃使用 synthetic 数据。运行与恢复限制见 [运维手册](../docs/operations/runbook.md#12-admin-扫码登录运行与恢复)；本节登记验证方法，不记录历史执行结果。

@@ -59,8 +59,8 @@ class MediaUploadRecordServiceTest {
                 .retryCount(0)
                 .cleanupAfter(LocalDateTime.now().minusMinutes(1))
                 .build();
-        when(recordMapper.selectList(any())).thenReturn(List.of(candidate));
-        when(recordMapper.update(any(), any())).thenReturn(0, 1);
+        when(recordMapper.selectExpiredCandidates(any(), anyLong(), anyInt())).thenReturn(List.of(candidate));
+        when(recordMapper.claimCleanup(anyLong(), any(), any())).thenReturn(1);
 
         assertEquals(1, service.cleanupExpiredBatch());
 
@@ -71,11 +71,11 @@ class MediaUploadRecordServiceTest {
     @Test
     void cleanupExpiredBatch_shouldSkipObjectWhenClaimIsLost() {
         MediaUploadRecordService service = new MediaUploadRecordService(recordMapper, cosService);
-        when(recordMapper.selectList(any())).thenReturn(List.of(MediaUploadRecord.builder()
+        when(recordMapper.selectExpiredCandidates(any(), anyLong(), anyInt())).thenReturn(List.of(MediaUploadRecord.builder()
                 .id(1L)
                 .objectKey("post/7/bound.jpg")
                 .build()));
-        when(recordMapper.update(any(), any())).thenReturn(0);
+        when(recordMapper.claimCleanup(anyLong(), any(), any())).thenReturn(0);
 
         assertEquals(0, service.cleanupExpiredBatch());
 

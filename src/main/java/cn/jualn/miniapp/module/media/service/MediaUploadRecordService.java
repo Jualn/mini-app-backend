@@ -11,6 +11,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.CollectionUtils;
 
 import java.time.LocalDateTime;
@@ -29,6 +30,8 @@ public class MediaUploadRecordService {
 
     private final MediaUploadRecordMapper recordMapper;
     private final CosService cosService;
+    // Fair traversal only; correctness lives in the conditional claim, not this process-local cursor.
+    private final java.util.concurrent.atomic.AtomicLong cleanupCursor = new java.util.concurrent.atomic.AtomicLong();
 
     /** Preflight only; the short commit transaction repeats eligibility when binding. */
     public void assertPendingProfileUpload(Long userId, String objectKey) {
@@ -37,6 +40,7 @@ public class MediaUploadRecordService {
                 .eq(MediaUploadRecord::getUserId, userId)
                 .eq(MediaUploadRecord::getTargetType, TargetType.USER.getCode())
                 .eq(MediaUploadRecord::getStatus, PENDING)
+                .isNull(MediaUploadRecord::getCleanupStartedAt)
                 .gt(MediaUploadRecord::getCleanupAfter, LocalDateTime.now()))) {
             throw new BusinessException(ResultCode.INVALID_OPERATION, "上传引用不可用");
         }
@@ -89,18 +93,16 @@ public class MediaUploadRecordService {
     public int cleanupExpiredBatch() {
         LocalDateTime now = LocalDateTime.now();
         resetStaleCleaning(now.minusMinutes(30), now);
-        List<MediaUploadRecord> candidates = recordMapper.selectList(
-                new LambdaQueryWrapper<MediaUploadRecord>()
-                        .select(MediaUploadRecord::getId, MediaUploadRecord::getObjectKey,
-                                MediaUploadRecord::getRetryCount)
-                        .eq(MediaUploadRecord::getStatus, PENDING)
-                        .le(MediaUploadRecord::getCleanupAfter, now)
-                        .orderByAsc(MediaUploadRecord::getId)
-                        .last("LIMIT " + CLEANUP_BATCH_SIZE));
+        List<MediaUploadRecord> candidates = recordMapper.selectExpiredCandidates(now, cleanupCursor.get(), CLEANUP_BATCH_SIZE);
+        if (candidates.isEmpty() && cleanupCursor.get() != 0) {
+            cleanupCursor.set(0);
+            candidates = recordMapper.selectExpiredCandidates(now, 0, CLEANUP_BATCH_SIZE);
+        }
 
         int cleaned = 0;
         for (MediaUploadRecord candidate : candidates) {
-            if (!claim(candidate.getId(), now)) {
+            cleanupCursor.set(candidate.getId());
+            if (recordMapper.claimCleanup(candidate.getId(), now, cosService.managedPublicUrls(candidate.getObjectKey())) != 1) {
                 continue;
             }
             try {
@@ -114,31 +116,51 @@ public class MediaUploadRecordService {
         return cleaned;
     }
 
-    public void removeRecord(String objectKey) {
-        recordMapper.delete(new LambdaQueryWrapper<MediaUploadRecord>()
-                .eq(MediaUploadRecord::getObjectKey, objectKey));
+    /** Locks the same row cleanup claims; caller owns the registration transaction. */
+    public MediaUploadRecord lockAttachmentUpload(Long operatorId, String objectKey) {
+        requireTransaction();
+        MediaUploadRecord record = recordMapper.selectForUpdate(objectKey);
+        if (record == null || !java.util.Objects.equals(record.getUserId(), operatorId)
+                || !(java.util.Objects.equals(record.getTargetType(), TargetType.ACTIVITY.getCode())
+                     || java.util.Objects.equals(record.getTargetType(), TargetType.EXAM.getCode()))
+                || !objectKey.startsWith((java.util.Objects.equals(record.getTargetType(), TargetType.ACTIVITY.getCode())
+                     ? "activity/" : "exam/") + operatorId + "/")) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "附件上传不属于当前运营身份");
+        }
+        boolean pending = java.util.Objects.equals(record.getStatus(), PENDING)
+                && record.getCleanupStartedAt() == null && record.getBoundTargetId() == null
+                && record.getBoundAttachmentId() == null && record.getCleanupAfter().isAfter(LocalDateTime.now());
+        boolean registered = java.util.Objects.equals(record.getStatus(), BOUND)
+                && record.getBoundTargetId() == null && record.getBoundAttachmentId() != null;
+        if (!pending && !registered) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "附件上传已过期、进入清理或被其他资源绑定");
+        }
+        return record;
     }
 
-    public void scheduleDeletionRetry(String objectKey, RuntimeException ex) {
-        LocalDateTime now = LocalDateTime.now();
-        String error = truncateError(ex.getMessage());
-        recordMapper.update(null, new LambdaUpdateWrapper<MediaUploadRecord>()
-                .set(MediaUploadRecord::getStatus, PENDING)
-                .set(MediaUploadRecord::getBoundTargetId, null)
-                .set(MediaUploadRecord::getCleanupAfter, now.plusMinutes(10))
-                .set(MediaUploadRecord::getLastError, error)
-                .set(MediaUploadRecord::getUpdatedAt, now)
-                .setSql("retry_count = retry_count + 1")
-                .eq(MediaUploadRecord::getObjectKey, objectKey)
-                .eq(MediaUploadRecord::getStatus, BOUND));
+    public void bindRegisteredAttachment(MediaUploadRecord record, Long attachmentId) {
+        requireTransaction();
+        if (record.getBoundAttachmentId() != null) return; // Duplicate metadata registrations retain the first owner.
+        if (attachmentId == null || recordMapper.bindAttachment(record.getId(), attachmentId, LocalDateTime.now()) != 1) {
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "附件上传无法绑定");
+        }
     }
 
-    private boolean claim(Long id, LocalDateTime now) {
-        return recordMapper.update(null, new LambdaUpdateWrapper<MediaUploadRecord>()
-                .set(MediaUploadRecord::getStatus, CLEANING)
-                .set(MediaUploadRecord::getUpdatedAt, now)
-                .eq(MediaUploadRecord::getId, id)
-                .eq(MediaUploadRecord::getStatus, PENDING)) == 1;
+    /** Persist deletion intent in the caller's transaction; the existing worker performs COS deletion later. */
+    public void requestDeletion(String objectKey, TargetType targetType, Long targetId) {
+        requireTransaction();
+        int rows = recordMapper.requestDeletion(objectKey, targetType.getCode(), targetId, LocalDateTime.now(),
+                cosService.managedPublicUrls(objectKey));
+        if (rows != 1) {
+            log.warn("[MediaUploadRecordService] 删除意图未接管，targetType={}, targetId={}, objectKey={}",
+                    targetType, targetId, objectKey);
+        }
+    }
+
+    private void requireTransaction() {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new cn.jualn.miniapp.common.exception.SystemException("媒体状态必须在业务事务内修改");
+        }
     }
 
     private void scheduleRetry(MediaUploadRecord candidate, RuntimeException ex, LocalDateTime now) {
