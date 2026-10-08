@@ -37,8 +37,11 @@ public class CanonicalActivityController {
             @RequestParam(name = "q", required = false) @Size(max = 200) String query,
             @RequestParam(defaultValue = "-publishedAt") String sort,
             @RequestParam(required = false) String category,
-            @RequestParam(required = false) String lifecycleStatus) {
-        var page = service.pageActivityResources(converter.query(cursor, pageSize, query, sort, category, lifecycleStatus));
+            @RequestParam(required = false) String lifecycleStatus,
+            @RequestParam(required = false) String audienceFilter,
+            @RequestParam(required = false) String departmentId) {
+        var page = service.pageActivityResources(converter.query(cursor, pageSize, query, sort, category,
+                lifecycleStatus, audienceFilter, departmentId));
         return new CursorPageVO<>(page.items().stream().map(converter::summary).toList(), page.nextCursor());
     }
 

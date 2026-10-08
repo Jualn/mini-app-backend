@@ -2,6 +2,7 @@ package cn.jualn.miniapp.module.activity.converter;
 
 import cn.jualn.miniapp.common.enums.ActivityCategory;
 import cn.jualn.miniapp.common.exception.BusinessException;
+import cn.jualn.miniapp.common.exception.ContractProblemException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.module.activity.bo.ActivityDetailBO;
 import cn.jualn.miniapp.module.activity.bo.ActivityListBO;
@@ -31,22 +32,41 @@ import cn.jualn.miniapp.module.timeline.service.TimelineSchedulePolicy;
 @RequiredArgsConstructor
 public class ActivityResourceConverter {
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final Set<String> DISCOVERY_DEPARTMENTS =
+            Set.of("information", "science", "finance", "humanities", "foundation");
     private final ObjectMapper objectMapper;
 
     public ActivityPageBO query(String cursor, int pageSize, String query, String sort,
             String category, String lifecycleStatus) {
+        return query(cursor, pageSize, query, sort, category, lifecycleStatus, null, null);
+    }
+
+    public ActivityPageBO query(String cursor, int pageSize, String query, String sort,
+            String category, String lifecycleStatus, String audienceFilter, String departmentId) {
         if (!"-publishedAt".equals(sort)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "sort only supports -publishedAt");
+            throw queryError("sort", "sort only supports -publishedAt");
+        }
+        if (audienceFilter != null && !Set.of("ALL", "CAMPUS", "DEPARTMENT").contains(audienceFilter)) {
+            throw queryError("audienceFilter", "invalid audienceFilter");
+        }
+        if ("DEPARTMENT".equals(audienceFilter)) {
+            if (departmentId == null || !DISCOVERY_DEPARTMENTS.contains(departmentId)) {
+                throw queryError("departmentId", "DEPARTMENT requires a canonical departmentId");
+            }
+        } else if (departmentId != null) {
+            throw queryError("departmentId", "departmentId is only allowed with DEPARTMENT");
         }
         var result = new ActivityPageBO();
         if (query != null && query.isBlank()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "q must not be blank");
+            throw queryError("q", "q must not be blank");
         }
         result.setCursor(cursor);
         result.setPageSize(pageSize);
         result.setKeyword(query == null ? null : query.trim());
         // The current identity model has no confirmed department fact. Contract fallback is campus-only discovery.
-        result.setCampusAudienceOnly(true);
+        result.setCampusAudienceOnly(audienceFilter == null || "CAMPUS".equals(audienceFilter));
+        result.setAudienceFilter(audienceFilter);
+        result.setDepartmentId(departmentId);
         result.setCategory(category == null ? null : switch (category) {
             case "LECTURE" -> ActivityCategory.ACADEMIC_SEMINAR.getCode();
             case "SPORTS" -> ActivityCategory.SPORTS_EVENT.getCode();
@@ -54,15 +74,20 @@ public class ActivityResourceConverter {
             case "THEMED" -> ActivityCategory.POLITICAL_THEME.getCode();
             case "COMPETITION" -> ActivityCategory.TALENT_SHOW.getCode();
             case "OTHER" -> ActivityCategory.OTHER.getCode();
-            default -> throw new BusinessException(ResultCode.BAD_REQUEST, "invalid category");
+            default -> throw queryError("category", "invalid category");
         });
         result.setLifecycleStatus(lifecycleStatus == null ? null : switch (lifecycleStatus) {
             case "ACTIVE" -> 0;
             case "ENDED" -> 1;
             case "CANCELLED" -> 2;
-            default -> throw new BusinessException(ResultCode.BAD_REQUEST, "invalid lifecycleStatus");
+            default -> throw queryError("lifecycleStatus", "invalid lifecycleStatus");
         });
         return result;
+    }
+
+    private static ContractProblemException queryError(String field, String detail) {
+        return ContractProblemException.validation(
+                new ContractProblemException.Violation("query", "/" + field, "INVALID", detail));
     }
 
     public ActivitySummaryVO summary(ActivityListBO value) {

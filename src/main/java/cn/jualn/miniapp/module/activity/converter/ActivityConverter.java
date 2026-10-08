@@ -31,6 +31,9 @@ public interface ActivityConverter {
 
     ActivityUpdateBO toUpdateBO(ActivityUpdateRequest request);
 
+    @Mapping(target = "audienceFilter", ignore = true)
+    @Mapping(target = "departmentId", ignore = true)
+    @Mapping(target = "audienceUserId", ignore = true)
     ActivityPageBO toPageBO(ActivityPageQuery query);
 
     /**

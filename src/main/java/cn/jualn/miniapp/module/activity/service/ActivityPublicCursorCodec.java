@@ -20,7 +20,7 @@ public final class ActivityPublicCursorCodec {
         if (id == null) {
             return null;
         }
-        String raw = String.join("|", VERSION, id.toString(), fingerprint(query));
+        String raw = String.join("|", version(query), id.toString(), fingerprint(query));
         return Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(raw.getBytes(StandardCharsets.UTF_8));
     }
@@ -37,7 +37,7 @@ public final class ActivityPublicCursorCodec {
             String raw = new String(Base64.getUrlDecoder().decode(encoded), StandardCharsets.UTF_8);
             String[] parts = raw.split("\\|", -1);
             long id = parts.length == 3 ? Long.parseLong(parts[1]) : -1;
-            if (parts.length != 3 || !VERSION.equals(parts[0]) || id <= 0
+            if (parts.length != 3 || !version(query).equals(parts[0]) || id <= 0
                     || !fingerprint(query).equals(parts[2])) {
                 throw new IllegalArgumentException("cursor mismatch");
             }
@@ -51,6 +51,10 @@ public final class ActivityPublicCursorCodec {
         String canonical = String.join("\n", SORT,
                 value(query.getKeyword()), value(query.getCategory()),
                 value(query.getLifecycleStatus()), Boolean.toString(query.isCampusAudienceOnly()));
+        if (query.getAudienceFilter() != null) {
+            canonical += "\n" + String.join("\n", query.getAudienceFilter(), value(query.getDepartmentId()),
+                    value(query.getAudienceUserId()));
+        }
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
                     .digest(canonical.getBytes(StandardCharsets.UTF_8));
@@ -62,6 +66,10 @@ public final class ActivityPublicCursorCodec {
 
     private static String value(Object value) {
         return value == null ? "" : value.toString();
+    }
+
+    private static String version(ActivityPageBO query) {
+        return query.getAudienceFilter() == null ? VERSION : "v2";
     }
 
     private static ContractProblemException invalidCursor() {

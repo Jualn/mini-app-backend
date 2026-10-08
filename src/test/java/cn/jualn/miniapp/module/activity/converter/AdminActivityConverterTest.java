@@ -71,6 +71,22 @@ class AdminActivityConverterTest {
     }
 
     @Test
+    void preservesCanonicalAndLegacyDepartmentIdsWithoutInventingAliases() throws Exception {
+        var request = validRequest();
+        request.getAudienceScope().setType("DEPARTMENTS");
+        for (List<String> ids : List.of(List.of("information", "finance"), List.of("1", "unknown-department"))) {
+            request.getAudienceScope().setDepartmentIds(ids);
+            var saved = converter.toSaveBO(request, 7L, 9L);
+            assertEquals(0, saved.getAudienceScope());
+            assertEquals(ids, new ObjectMapper().readValue(saved.getAudienceDepartmentIds(),
+                    new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {}));
+            var detail = AdminActivityDetailBO.builder().id(7L)
+                    .audienceScope(saved.getAudienceScope()).audienceDepartmentIds(saved.getAudienceDepartmentIds()).build();
+            assertEquals(ids, converter.toDetailVO(detail).draft().getAudienceScope().departmentIds());
+        }
+    }
+
+    @Test
     void adminSavedActionsKeepTheirTypesWhenReadAsPublicDetail() {
         var request = validRequest();
         var types = List.of("OFFICIAL_SITE", "JOIN_GROUP", "EMAIL_SUBMISSION", "OFFICIAL_NOTICE",

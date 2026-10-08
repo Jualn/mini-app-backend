@@ -238,6 +238,7 @@ public class ActivityServiceImpl implements ActivityService {
 
     @Override
     public ActivityResourcePageBO pageActivityResources(ActivityPageBO query) {
+        query.setAudienceUserId(UserContext.getUserId());
         query.setLastId(ActivityPublicCursorCodec.decode(query));
         PageResult<ActivityListBO> page = pageActivityList(query);
         var coverIds = page.getList().stream().map(ActivityListBO::getCoverAttachmentId)
@@ -251,7 +252,7 @@ public class ActivityServiceImpl implements ActivityService {
                         page.getList().stream().map(ActivityListBO::getId).toList());
         LocalDateTime now = LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"));
         for (ActivityListBO item : page.getList()) {
-            MediaAttachmentBO cover = covers.get(item.getCoverAttachmentId());
+            MediaAttachmentBO cover = item.getCoverAttachmentId() == null ? null : covers.get(item.getCoverAttachmentId());
             if (cover != null && Integer.valueOf(TargetType.ACTIVITY.getCode()).equals(cover.getTargetType())
                     && item.getId().equals(cover.getTargetId())) {
                 item.setCoverAttachment(cover);
@@ -285,6 +286,7 @@ public class ActivityServiceImpl implements ActivityService {
                 command.getKeyword(),
                 command.getLastId(),
                 command.isCampusAudienceOnly(),
+                command.getDepartmentId(),
                 pageSize + 1
         );
         boolean hasMore = activities.size() > pageSize;

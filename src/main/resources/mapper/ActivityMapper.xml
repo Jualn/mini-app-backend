@@ -45,6 +45,13 @@
             AND (audience_department_ids IS NULL OR JSON_LENGTH(audience_department_ids) = 0)
             AND (audience_scope IS NULL OR audience_scope = 0 OR (audience_scope &amp; 1) = 1)
         </if>
+        <if test="departmentId != null">
+            AND (
+                ((audience_department_ids IS NULL OR JSON_LENGTH(audience_department_ids) = 0)
+                 AND (audience_scope IS NULL OR audience_scope = 0 OR (audience_scope &amp; 1) = 1))
+                OR JSON_CONTAINS(audience_department_ids, JSON_QUOTE(#{departmentId}))
+            )
+        </if>
         <if test="lastId != null">
             AND (published_at &lt; (SELECT published_at FROM activity WHERE id = #{lastId})
                 OR (published_at = (SELECT published_at FROM activity WHERE id = #{lastId}) AND id &lt; #{lastId}))
