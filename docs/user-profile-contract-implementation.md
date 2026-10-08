@@ -1,6 +1,6 @@
 # User/Profile provider implementation — 2026-10-07
 
-本轮实现依据为 contracts 的 2026-10-02 review 及 2026-10-07 POST 方法调整后的 canonical Profile；没有修改 contracts、提交 Git、部署应用或访问共享/生产数据库。实现和本地验证已完成；目标环境切换与真实微信/COS 验证仍是启用门槛。`app.user-profile.writes-enabled` 缺省 false，新 POST 和旧 PUT 都返回 503，不能让旧入口继续不安全写入。
+本轮实现依据为 contracts 的 2026-10-02 review 及 2026-10-07 POST 方法调整后的 canonical Profile；没有修改 contracts、提交 Git、部署应用或访问共享/生产数据库。按用户要求移除资料写入总开关，新 POST 和旧 PUT 直接使用同一检查后原子生效链路。只有具体检查拒绝或不可用才返回 422/503；目标环境迁移与真实微信/COS 验证仍未执行。
 
 ## 固定协议来源
 
@@ -9,9 +9,9 @@
 | 文件（相对 contracts） | SHA-256 |
 |---|---|
 | api/openapi.yaml | E34F64250B145440D1D1EE5FB08606221448CF76CC14A521E0F8CE005B4DA9EB |
-| api/paths/profile.yaml | D527635A01F70844DBF4CE1392CE904197F79C11C19C278CA55FC0A394ADCF28 |
-| api/schemas/profile.yaml | F0C51E8184DBA8A9EB59A29EA94C53C68059A7700492C3298311E0BC016BE1B7 |
-| docs/coordination/user-profile-homepage.md | 67DAE34908E0E3601633A1A0FD8EC4869A58F7DD85A3B4E19146E21823458F05 |
+| api/paths/profile.yaml | D7C47BBAD5A148655A72359E3F1E8853B5038A17A0E14A6E60F66A804F160708 |
+| api/schemas/profile.yaml | E71E057D92537D8CEF57701320F462ABBC617F60F9B72D13821DF2A1FBDAC30A |
+| docs/coordination/user-profile-homepage.md | C3AD52B2F4C620FD4186D805B5D2C28E9FE9A082D2D4BE6AD859D9A351D9579F |
 
 ## 旧执行链与问题
 
@@ -27,9 +27,9 @@ BEFORE_COMMIT 只保证任务预约与资料事务一致，不能保证安全检
 |---|---|---|---|
 | GET /v1/users/me/profile | UserController.getMyProfile → UserService.getEffectiveProfile；身份来自 UserContext，直接读 DB | MVC 五字段/string userId/no-store；真实 Mapper 本人与目标本人一致 | 真实 Sa-Token/HTTP/反向代理端到端未跑 |
 | GET /v1/users/{userId}/profile | 同表示、相同登录 actor 检查；目标缺失/逻辑删除 404 | MVC 和 MySQL；不返回 role/openid/account status/领域列表 | 目标环境历史资料 preflight |
-| POST /v1/users/me/profile | closed DTO → updateEffectiveProfile → 共享 updateCurrentProfile → 检查 →短事务 → 条件更新 | Service/MySQL、MVC、多字段失败、并发、媒体、拒绝/不可用、保护字段测试 | 默认关闭；真实媒体 provider 与切换后才启用 |
+| POST /v1/users/me/profile | closed DTO → updateEffectiveProfile → 共享 updateCurrentProfile → 检查 →短事务 → 条件更新 | Service/MySQL、MVC、多字段失败、并发、媒体、拒绝/不可用、保护字段测试 | 直接进入安全检查；目标环境与真实 provider 尚未验证 |
 
-成功为直接 application/json，字段只有 `userId,nickname,avatarUrl,bio,isPlatformOperator`，无头像为 null、无简介为空串。nickname 为非 null 历史事实；历史 NULL 不用虚构默认名字掩盖，preflight 要求修复，否则读取失败而不输出无效表示。POST 只接受 nickname/avatarObjectKey/bio，省略保留、null 拒绝、空请求 400、空 bio 清空；长度按 code point 验证。未知/保护字段 400，非法媒体引用的 errors 为 `/avatarObjectKey` + `INVALID_REFERENCE`。
+成功为直接 application/json，字段为 `userId,nickname,avatarUrl,backgroundUrl,bio,isPlatformOperator`，无头像或背景为 null、无简介为空串。nickname 为非 null 历史事实；历史 NULL 不用虚构默认名字掩盖，preflight 要求修复，否则读取失败而不输出无效表示。POST 只接受 nickname/avatarObjectKey/backgroundObjectKey/bio，省略保留、null 拒绝、空请求 400、空 bio 清空；长度按 code point 验证。未知/保护字段 400，非法媒体引用的 errors 为 `/avatarObjectKey` + `INVALID_REFERENCE`。
 
 统一 GlobalExceptionHandler 继续适配 Problem Details：401 unauthorized、403 forbidden、404 resource-not-found、400 validation-error、422 profile-content-rejected、503 profile-safety-check-unavailable。没有新包装或客户端可写的身份字段。nickname 无唯一约束；普通 role=1 标志 false，OPR=2/ADMIN=3 true，不查询 Activity，也不据昵称判断。已存在的有效封禁禁止资料操作，禁言保留 profile:edit；到期封禁不继续阻止。未增加治理状态机或 RBAC。
 
@@ -49,7 +49,7 @@ V29 增加非空 BIGINT profile_revision（历史默认 0）以及 nullable avat
 
 四个字段 callback 对 PASS/REJECT 均不再写 user_profile，也不发送“已清空/已重置”的过时通知。审核事实和 Outbox 机制保留。旧 UserProfileUpdatedEvent listener 不再预约第二套写后审核。遗留 Job、已提交 trace、重试及 replay 因此都不能覆盖之后的新资料。
 
-旧 GET 本人保留 Result/UserProfileVO、旧公开 GET 保留匿名政策和 UserPublicProfileVO；canonical GET 不沿用匿名白名单。旧 PUT 保留请求/响应 wire 和背景/性别字段，但委派同一 updateCurrentProfile；文本、头像、背景共同检查成功才一次提交，legacy writer 不能绕过 gate 或检查。没有删除旧 endpoint：当前小程序 transport 已迁移，但不能证明外部/已发布旧客户端依赖解除；管理端认证仍内部调用旧 UserService 资料读取，不能改掉旧账户/权限表示。
+旧 GET 本人保留 Result/UserProfileVO、旧公开 GET 保留匿名政策和 UserPublicProfileVO；canonical GET 不沿用匿名白名单。旧 PUT 保留请求/响应 wire 和背景/性别字段，但委派同一 updateCurrentProfile；文本、头像、背景共同检查成功才一次提交，legacy writer 不能绕过检查。没有删除旧 endpoint：当前小程序 transport 已迁移，但不能证明外部/已发布旧客户端依赖解除；管理端认证仍内部调用旧 UserService 资料读取，不能改掉旧账户/权限表示。
 
 ## Like 与作者
 
@@ -88,19 +88,33 @@ Like 越权确认存在：PostService.pageUserLikedPosts 传入客户端 userId�
 ## 启用、blocker 与 deferred
 
 1. 核对目标数据库/备份、固定上述契约内容；停止所有旧应用实例的资料 HTTP writer、Job worker 和审核 callback，禁止旧新版本混跑。运行 preflight 并逐项处理历史 pending/rejected/unknown 和 NULL nickname。旧日志未持久化候选/旧有效版本，不能仅凭它自动恢复旧资料或自动认定当前值已通过；没有可证据化结论的资料必须由 owner 明确处置后开放消费者。
-2. 在已核对的目标执行 V29，启动新代码，保持 `app.user-profile.writes-enabled=false`。读取应只在历史资料验收后作为 canonical effective profile 启用。媒体历史源对象不自动转成“已审核快照”，需核对旧 STS 已过期和历史有效引用，不伪造 backfill。
-3. 用明确授权的非敏感测试数据验证微信文本权限、图片 Job 调度、signature callback、稳定且可访问的 COS 快照 URL、服务端 COPY 权限和客户端无法写 `profile-effective/*`；确认微信整体结论和回调时延能在选定 HTTP/代理预算内完成。10 秒只是当前 bounded 等待预算，不是微信完成时延承诺；无法完成就 503，不能加自动生效或改为 202。头像能力未验证前保持写 gate 关闭。
-4. 已完成安全切换的记录与真实验证通过后才设置 `app.user-profile.writes-enabled=true`，新旧写入口一起打开。审核 Job 后续只保留事实，不需要删除真实队列；未知远程提交不盲重发。处置 dead/unknown 遵循既有 Async 的明确 owner 与运维授权。
-5. 当前小程序 transport/表示已迁移到 POST，现有工作已移除消费者本地编辑门禁；目标写能力仍受 provider 开关控制，真实 HTTP、会话隔离和 provider 联调须在目标启用前验收。原权限仍从其所属账户边界读取。作者摘要 Contract、Like/Post 完整 canonical、旧路径弃用和 Activity publisher 语义继续 deferred。
+2. 在已核对的目标执行 V29，启动新代码；资料写入直接进入安全检查，不再依赖总开关。读取应只在历史资料验收后作为 canonical effective profile 启用。媒体历史源对象不自动转成“已审核快照”，需核对旧 STS 已过期和历史有效引用，不伪造 backfill。
+3. 用明确授权的非敏感测试数据验证微信文本权限、图片 Job 调度、signature callback、稳定且可访问的 COS 快照 URL、服务端 COPY 权限和客户端无法写 `profile-effective/*`；确认微信整体结论和回调时延能在选定 HTTP/代理预算内完成。10 秒只是当前 bounded 等待预算，不是微信完成时延承诺；无法完成就 503，不能加自动生效或改为 202。具体请求缺少通过结论时返回 503，原资料不变。
+4. 按用户确认直接替换旧逻辑，新旧写入口共享检查后原子生效保证；没有独立启用配置。审核 Job 后续只保留事实，不需要删除真实队列；未知远程提交不盲重发。处置 dead/unknown 遵循既有 Async 的明确 owner 与运维授权。
+5. 当前小程序 transport/表示已迁移到 POST，现有工作已移除消费者本地编辑门禁；实际提交由 provider 对该次请求执行检查后决定，真实 HTTP、会话隔离和 provider 联调须在目标启用前验收。原权限仍从其所属账户边界读取。作者摘要 Contract、Like/Post 完整 canonical、旧路径弃用和 Activity publisher 语义继续 deferred。
 
 不能直接回滚到旧乐观 writer/callback JAR：它会绕过版本、快照和审核保护。回滚须停写并设计受控兼容方案；恢复应用不撤销 MySQL DDL，不自动删除已绑定快照。
 
-**小程序可开始依赖吗？** 可以以固定契约开展接入开发和本地受控验证；目前不能宣称已可依赖目标环境的 canonical 写能力。阻塞项是历史有效资料确认、目标环境 V29/实例切换、真实微信/COS 边界和客户端 POST 验证，写 gate 因而缺省关闭。没有发现须改 Contract 的实现矛盾。
+**小程序可开始依赖吗？** 可以以固定契约开展接入开发和本地受控验证；目前不能宣称已可依赖目标环境的 canonical 写能力。阻塞项是历史有效资料确认、目标环境 V29/实例切换、真实微信/COS 边界和客户端 POST 验证，没有默认关闭的写 gate；具体失败按 422/503 处理。没有发现须改 Contract 的实现矛盾。
 
 ## 2026-10-07 Profile 方法同步
 
 当前 canonical 唯一写操作为 POST /v1/users/me/profile，operationId 与 DTO/Service/安全检查/原子生效不变。工作区已改为 POST 的 Controller、消费者 API 和回归脚本予以保留；本次增加旧 PATCH 返回 405 且不进入 Service 的 MVC 验证。没有已部署 PATCH 消费者的证据；若发布前发现旧方法依赖，须按协调文档增加有界兼容后迁移。旧 PUT 保留原兼容政策。
 
-PASS：EffectiveProfileMvcTest 5 项，2026-10-07 17:22:58；小程序 test-profile-contract.mjs、test-current-user.mjs 和 pnpm typecheck。此前 58 项及真实 MySQL 证据对应方法调整前；本次未重跑数据库测试，没有变更 Service 或数据库。真实微信/COS、目标部署、DevTools/真机仍 NOT RUN，后端写 gate 仍 false。小程序现有工作已移除本地编辑门禁，实际写能力仍由目标 provider 安全开关决定，不能把本地可发送 POST 当作目标环境已可用。未修改 QR Login。
+PASS：EffectiveProfileMvcTest 5 项，2026-10-07 17:22:58；小程序 test-profile-contract.mjs、test-current-user.mjs 和 pnpm typecheck。此前 58 项及真实 MySQL 证据对应方法调整前；本次未重跑数据库测试，没有变更 Service 或数据库。该次验证时真实微信/COS、目标部署、DevTools/真机仍 NOT RUN，后端总开关尚未移除（后续变更见下节）。小程序现有工作已移除本地编辑门禁，该次验证时实际写能力仍由目标 provider 安全开关决定（后续已移除），不能把本地可发送 POST 当作目标环境已可用。未修改 QR Login。
 
 补充消费者 HTTP 证据：ProfileConsumerHttpTest 启动随机端口的临时 127.0.0.1 HTTP 服务，将请求送入真实 UserController/Jackson/Advice，再运行相邻小程序 test-profile-http-flow.mjs。实际 Page → Action/Store → Service/API → request 使用 POST；验证只提交改动字段、头像引用、重复点击单次写入、422/503 保留全部旧有效资料及草稿、成功用最终表示同步而不追加 GET。UserService、登录/平台及媒体上传均为替身，不含生产鉴权拦截器，不证明真实数据库提交或微信/COS 接受。与 EffectiveProfileMvcTest、ProfileSafetyCheckTest、ProfileCallbackIsolationTest 共 13 tests、0 failures/errors/skipped，2026-10-07 17:26:35 PASS。DevTools 自动化启动被 IDE service port disabled 阻塞；目标写 gate 保持关闭。
+
+## 2026-10-07 移除资料写入总开关
+
+用户明确要求不使用开关，直接替换旧逻辑。本次删除 UserServiceImpl 的 profileWritesEnabled 配置字段和入口拒绝；新 POST 与旧 PUT 无需额外配置即可进入同一安全检查链。保留文本/图片检查、媒体所有权、短事务、revision 并发保护及旧 callback 隔离；检查拒绝 422、检查不可用 503 仍保证原资料不变。无需配置 app.user-profile.writes-enabled，旧配置即使保留也不再生效。V29 仍是代码依赖的数据库结构。没有修改 contracts 或 QR Login。
+
+PASS：本次定向 6 类、36 项测试，0 failures/errors/skipped（2026-10-07 23:17:14）；含真实 MySQL 20 项，验证无需开关的新旧写入、422/503 零资料修改、提交/回滚、revision 竞争和 callback 隔离。数据库为新建 localhost:33989/user_profile_contract_write_gate，先以 mysql CLI 重放 V1–V29；微信/COS/Redis 使用替身。没有执行目标部署或真实云联调。
+
+## 2026-10-07 背景图 Contract 补漏同步
+
+canonical closed request 新增可选 backgroundObjectKey；本人/他人 GET 和 POST 最终响应均增加必返回、可为 null 的 backgroundUrl。使用现有背景持久化、USER_BACKGROUND 检查、服务端快照与短事务，不新增迁移或开关，不清空历史数据。保留当前引用无须重新上传或检查。新增/null/type/direct-URL 等校验沿用现有边界。
+
+本次文件：EffectiveProfileUpdateRequest、EffectiveProfileBO/VO、UserController、UserServiceImpl 与 Profile MVC/数据库测试；小程序 profile-contract/types、services/user、actions/user、编辑页 TS/WXML、user-profile WXML 与两组回归/资料说明。编辑背景使用现有 Media 上传，失败保留本地预览，成功通过最终响应更新唯一 currentProfile；两个主页共用背景展示，不增加另一资料 owner。
+
+PASS：定向 6 类 44 tests，0 failures/errors/skipped，2026-10-07 23:27:51；其中真实 MySQL 26 tests，MockMvc 7 tests。新增背景单改、四字段组合成功、背景拒绝/不可用全不落库、引用错误、保留当前引用、他人可读及迟到背景回调隔离。小程序两组回归、typecheck、定向 ESLint 和文档完整性通过。目标微信/COS、真实 HTTP/DevTools/设备展示仍 NOT RUN；本地图片选择和网络由替身模拟。其他 Notification/QR Contract 变动未纳入本轮。

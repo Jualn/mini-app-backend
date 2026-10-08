@@ -28,7 +28,6 @@ import org.springframework.context.annotation.*;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.*;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -53,8 +52,6 @@ class EffectiveProfileDatabaseTest {
         context = new AnnotationConfigApplicationContext(Config.class);
         jdbc = new JdbcTemplate(context.getBean(DataSource.class));
         service = context.getBean(UserService.class);
-        Object target = org.springframework.test.util.AopTestUtils.getTargetObject(service);
-        ReflectionTestUtils.setField(target, "profileWritesEnabled", true);
         safety = context.getBean(ProfileSafetyCheckService.class);
         media = context.getBean(MediaService.class);
         jdbc.update("DELETE FROM user_profile WHERE id BETWEEN ? AND ?", id, id + 2);
@@ -158,6 +155,64 @@ class EffectiveProfileDatabaseTest {
         when(media.resolveOwnedUploadUrl(TargetType.USER, "user/test/avatar")).thenReturn("https://media.example/source");
         when(media.prepareProfileSnapshot("user/test/avatar")).thenReturn(new ProfileMediaSnapshotBO("profile-effective/test/copy", "https://media.example/frozen"));
     }
+    private void backgroundSnapshot() {
+        when(media.resolveOwnedUploadUrl(TargetType.USER, "user/test/background")).thenReturn("https://media.example/background-source");
+        when(media.prepareProfileSnapshot("user/test/background")).thenReturn(new ProfileMediaSnapshotBO("profile-effective/test/background", "https://media.example/background"));
+    }
+    @Test void backgroundOnlyUpdatePreservesOtherFieldsAndIsPublicAfterChecks() {
+        backgroundSnapshot();
+        doAnswer(call -> { unchanged(); assertNull(field("background_url")); return null; })
+                .when(safety).checkMedia(id, AuditScene.USER_BACKGROUND, "https://media.example/background");
+        var result = service.updateEffectiveProfile(UserProfileUpdateBO.builder().backgroundObjectKey("user/test/background").build());
+        assertEquals("https://media.example/background", result.getBackgroundUrl());
+        assertEquals("原昵称", result.getNickname()); assertEquals("原简介", result.getBio());
+        assertEquals(result.getBackgroundUrl(), service.getEffectiveProfile(null).getBackgroundUrl());
+        UserContext.setUserId(id + 1);
+        assertEquals(result.getBackgroundUrl(), service.getEffectiveProfile(id).getBackgroundUrl());
+        assertNull(service.getEffectiveProfile(null).getBackgroundUrl());
+        assertEquals("profile-effective/test/background", field("background_snapshot_key"));
+        verify(media).bindPendingUploads(TargetType.USER, id, List.of("user/test/background", "profile-effective/test/background"));
+    }
+    @Test void mixedBackgroundAndAvatarPassCommitTogether() {
+        snapshot(); backgroundSnapshot();
+        var result = service.updateEffectiveProfile(UserProfileUpdateBO.builder().nickname("新昵称").bio("新简介")
+                .avatarObjectKey("user/test/avatar").backgroundObjectKey("user/test/background").build());
+        assertEquals("新昵称", result.getNickname()); assertEquals("新简介", result.getBio());
+        assertEquals("https://media.example/frozen", result.getAvatarUrl());
+        assertEquals("https://media.example/background", result.getBackgroundUrl());
+        assertEquals("1", field("profile_revision"));
+        verify(safety).checkMedia(id, AuditScene.USER_AVATAR, result.getAvatarUrl());
+        verify(safety).checkMedia(id, AuditScene.USER_BACKGROUND, result.getBackgroundUrl());
+    }
+    @Test void backgroundFailureLeavesAllSubmittedFieldsUnchanged() {
+        snapshot(); backgroundSnapshot();
+        for (var failure : List.of(ProfileSafetyCheckService.rejected(), ProfileSafetyCheckService.unavailable())) {
+            doThrow(failure).when(safety).checkMedia(id, AuditScene.USER_BACKGROUND, "https://media.example/background");
+            assertThrows(ContractProblemException.class, () -> service.updateEffectiveProfile(UserProfileUpdateBO.builder()
+                    .nickname("新昵称").bio("新简介").avatarObjectKey("user/test/avatar").backgroundObjectKey("user/test/background").build()));
+            unchanged(); assertNull(field("avatar_url")); assertNull(field("background_url"));
+        }
+        verify(media, never()).bindPendingUploads(any(), any(), any());
+    }
+    @Test void retainedBackgroundDoesNotUploadOrCheckAgain() {
+        jdbc.update("UPDATE user_profile SET background_object_key='user/test/background',background_url='https://media.example/old-background' WHERE id=?", id);
+        backgroundSnapshot();
+        assertEquals("https://media.example/old-background", service.updateEffectiveProfile(UserProfileUpdateBO.builder()
+                .backgroundObjectKey("user/test/background").build()).getBackgroundUrl());
+        verify(media, never()).prepareProfileSnapshot(anyString()); verify(safety, never()).checkMedia(any(), any(), any());
+    }
+    @Test void backgroundReferenceValidationKeepsPreviousProfile() {
+        for (String key : List.of("", " ", "x".repeat(513))) {
+            assertThrows(ContractProblemException.class, () -> service.updateEffectiveProfile(UserProfileUpdateBO.builder().backgroundObjectKey(key).build()));
+            unchanged();
+        }
+        doThrow(new BusinessException(cn.jualn.miniapp.common.result.ResultCode.INVALID_OPERATION))
+                .when(media).resolveOwnedUploadUrl(any(), anyString());
+        var failure = assertThrows(ContractProblemException.class, () -> service.updateEffectiveProfile(
+                UserProfileUpdateBO.builder().backgroundObjectKey("https://untrusted.example/image").nickname("新昵称").build()));
+        assertEquals(400, failure.getStatus().value()); assertEquals("/backgroundObjectKey", failure.getErrors().get(0).pointer());
+        assertEquals("INVALID_REFERENCE", failure.getErrors().get(0).code()); unchanged();
+    }
     @Test void imagePassCommitsTheCheckedSnapshotAndBindsItAtomically() {
         snapshot();
         doAnswer(call -> { assertNull(field("avatar_url")); assertFalse(TransactionSynchronizationManager.isActualTransactionActive()); return null; })
@@ -165,6 +220,17 @@ class EffectiveProfileDatabaseTest {
         assertEquals("https://media.example/frozen", service.updateEffectiveProfile(UserProfileUpdateBO.builder().avatarObjectKey("user/test/avatar").build()).getAvatarUrl());
         assertEquals("profile-effective/test/copy", field("avatar_snapshot_key"));
         verify(media).bindPendingUploads(TargetType.USER, id, List.of("user/test/avatar", "profile-effective/test/copy"));
+    }
+    @Test void lateBackgroundAuditDoesNotClearTheCurrentEffectiveBackground() {
+        backgroundSnapshot();
+        service.updateEffectiveProfile(UserProfileUpdateBO.builder().backgroundObjectKey("user/test/background").build());
+        var callback = new cn.jualn.miniapp.module.user.audit.UserBackgroundAuditCallback(
+                context.getBean(UserProfileMapper.class), context.getBean(RedisService.class),
+                mock(cn.jualn.miniapp.module.notify.service.NotifyService.class));
+        callback.onReject(id, 1L, "late result"); callback.onPass(id, 1L);
+        assertEquals("https://media.example/background", field("background_url"));
+        assertEquals("profile-effective/test/background", field("background_snapshot_key"));
+        assertEquals("1", field("profile_revision"));
     }
     @Test void imageRejectOrUnavailableKeepsTextAndImageUnchanged() {
         snapshot();
@@ -229,12 +295,14 @@ class EffectiveProfileDatabaseTest {
         service.updateEffectiveProfile(UserProfileUpdateBO.builder().bio("新简介").build());
         verify(cache, times(3)).delete(anyString());
     }
-    @Test void legacyAndCanonicalWritesStayClosedUntilRolloutIsEnabled() {
-        Object target = org.springframework.test.util.AopTestUtils.getTargetObject(service);
-        ReflectionTestUtils.setField(target, "profileWritesEnabled", false);
-        assertThrows(ContractProblemException.class, () -> service.updateEffectiveProfile(UserProfileUpdateBO.builder().bio("x").build()));
-        assertThrows(ContractProblemException.class, () -> service.updateCurrentProfile(UserProfileUpdateBO.builder().bio("x").build()));
-        unchanged(); verifyNoInteractions(safety);
+    @Test void canonicalAndLegacyWritesUseSafetyChecksWithoutAnEnableSetting() {
+        service.updateEffectiveProfile(UserProfileUpdateBO.builder().nickname("新昵称").build());
+        service.updateCurrentProfile(UserProfileUpdateBO.builder().bio("新简介").build());
+        assertEquals("新昵称", field("nickname"));
+        assertEquals("新简介", field("bio"));
+        assertEquals("2", field("profile_revision"));
+        verify(safety).checkText(anyString(), eq("新昵称"));
+        verify(safety).checkText(anyString(), eq("新简介"));
     }
 
     @Configuration(proxyBeanMethods = false) @EnableTransactionManagement(proxyTargetClass = true)
@@ -261,7 +329,7 @@ class EffectiveProfileDatabaseTest {
             var service = new UserServiceImpl(mapper, mock(UserAgreementMapper.class), cache,
                     Mappers.getMapper(UserConverter.class), mock(ApplicationEventPublisher.class), media,
                     mock(AdminOperationLogService.class), safety, transactions);
-            ReflectionTestUtils.setField(service, "profileWritesEnabled", true); return service;
+            return service;
         }
     }
 }

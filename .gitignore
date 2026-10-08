@@ -8,6 +8,7 @@ ssl/
 
 # agent配置文件
 .agents
+.codex-remote-attachments
 
 target/
 .mvn/wrapper/maven-wrapper.jar
