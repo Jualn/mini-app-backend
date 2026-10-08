@@ -8,7 +8,6 @@ import cn.jualn.miniapp.module.audit.service.ProfileSafetyCheckService;
 import cn.jualn.miniapp.module.media.bo.ProfileMediaSnapshotBO;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Propagation;
 
 import cn.dev33.satoken.stp.StpUtil;
@@ -69,9 +68,6 @@ public class UserServiceImpl implements UserService {
     private final ProfileSafetyCheckService profileSafety;
     private final PlatformTransactionManager transactionManager;
 
-    @Value("${app.user-profile.writes-enabled:false}")
-    private boolean profileWritesEnabled;
-
     @Override
     public EffectiveProfileBO getEffectiveProfile(Long userId) {
         Long actorId = requireUserId();
@@ -84,12 +80,13 @@ public class UserServiceImpl implements UserService {
     @Transactional(propagation = Propagation.NEVER)
     public EffectiveProfileBO updateEffectiveProfile(UserProfileUpdateBO command) {
         if (command == null || command.getAvatarUrl() != null || command.getBackgroundUrl() != null
-                || command.getBackgroundObjectKey() != null || command.getGender() != null) {
-            throw invalidProfile("/", "INVALID", "仅允许修改昵称、头像引用和简介");
+                || command.getGender() != null) {
+            throw invalidProfile("/", "INVALID", "仅允许修改昵称、头像引用、背景引用和简介");
         }
         UserProfileBO saved = updateCurrentProfile(command);
         return EffectiveProfileBO.builder().userId(saved.getId()).nickname(saved.getNickname())
                 .avatarUrl(StringUtils.hasText(saved.getAvatarUrl()) ? saved.getAvatarUrl() : null)
+                .backgroundUrl(StringUtils.hasText(saved.getBackgroundUrl()) ? saved.getBackgroundUrl() : null)
                 .bio(Objects.requireNonNullElse(saved.getBio(), ""))
                 .platformOperator(saved.getRole() == UserRole.OPR || saved.getRole() == UserRole.ADMIN).build();
     }
@@ -106,6 +103,7 @@ public class UserServiceImpl implements UserService {
         }
         return EffectiveProfileBO.builder().userId(profile.getId()).nickname(profile.getNickname())
                 .avatarUrl(StringUtils.hasText(profile.getAvatarUrl()) ? profile.getAvatarUrl() : null)
+                .backgroundUrl(StringUtils.hasText(profile.getBackgroundUrl()) ? profile.getBackgroundUrl() : null)
                 .bio(Objects.requireNonNullElse(profile.getBio(), ""))
                 .platformOperator(Objects.equals(profile.getRole(), UserRole.OPR.getCode())
                         || Objects.equals(profile.getRole(), UserRole.ADMIN.getCode())).build();
@@ -601,7 +599,6 @@ public class UserServiceImpl implements UserService {
         }
         assertProfileAllowed(existingProfile);
         validateProfileFields(bo);
-        if (!profileWritesEnabled) throw ProfileSafetyCheckService.unavailable();
         List<String> removedObjectKeys = normalizeProfileMediaUpdate(bo, existingProfile);
         List<String> newObjectKeys = new ArrayList<>(2);
         collectNewObjectKey(newObjectKeys, existingProfile.getAvatarObjectKey(), bo.getAvatarObjectKey());

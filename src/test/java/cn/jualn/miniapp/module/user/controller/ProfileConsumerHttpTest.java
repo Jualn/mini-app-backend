@@ -47,6 +47,7 @@ class ProfileConsumerHttpTest {
                     .nickname(command.getNickname() == null ? old.getNickname() : command.getNickname())
                     .bio(command.getBio() == null ? old.getBio() : command.getBio())
                     .avatarUrl(command.getAvatarObjectKey() == null ? old.getAvatarUrl() : "https://example.com/final-avatar")
+                    .backgroundUrl(command.getBackgroundObjectKey() == null ? old.getBackgroundUrl() : "https://example.com/final-background")
                     .platformOperator(old.isPlatformOperator()).build();
             state.set(saved);
             return saved;
@@ -80,7 +81,7 @@ class ProfileConsumerHttpTest {
             assertTrue(process.waitFor(30, TimeUnit.SECONDS), "Consumer HTTP test must finish within its budget");
             System.out.print(Files.readString(output));
             assertEquals(0, process.exitValue(), "Consumer pipeline assertions failed");
-            verify(service, times(5)).updateEffectiveProfile(any());
+            verify(service, times(7)).updateEffectiveProfile(any());
         } finally {
             if (process != null && process.isAlive()) process.destroyForcibly();
             server.stop(0);

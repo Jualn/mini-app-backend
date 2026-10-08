@@ -71,7 +71,7 @@ public class UserController {
             EffectiveProfileBO profile) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(new EffectiveProfileVO(String.valueOf(profile.getUserId()),
-                        profile.getNickname(), profile.getAvatarUrl(), profile.getBio(), profile.isPlatformOperator()));
+                        profile.getNickname(), profile.getAvatarUrl(), profile.getBackgroundUrl(), profile.getBio(), profile.isPlatformOperator()));
     }
 
     /**

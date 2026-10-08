@@ -28,10 +28,11 @@ class EffectiveProfileMvcTest {
     private EffectiveProfileBO profile() {
         return EffectiveProfileBO.builder().userId(7L).nickname("同学").avatarUrl(null).bio("").platformOperator(false).build();
     }
-    @Test void readsReturnExactlyFiveFieldsWithStringIdentityAndNoStore() throws Exception {
+    @Test void readsReturnExactlySixFieldsWithStringIdentityAndNoStore() throws Exception {
         when(service.getEffectiveProfile(any())).thenReturn(profile());
         mvc.perform(get("/v1/users/me/profile")).andExpect(status().isOk())
-                .andExpect(header().string("Cache-Control", "no-store")).andExpect(jsonPath("$.length()").value(5))
+                .andExpect(header().string("Cache-Control", "no-store")).andExpect(jsonPath("$.length()").value(6))
+                .andExpect(jsonPath("$.backgroundUrl").hasJsonPath())
                 .andExpect(jsonPath("$.userId").value("7")).andExpect(jsonPath("$.avatarUrl").hasJsonPath())
                 .andExpect(jsonPath("$.bio").value("")).andExpect(jsonPath("$.isPlatformOperator").value(false));
         mvc.perform(get("/v1/users/7/profile")).andExpect(status().isOk()).andExpect(jsonPath("$.role").doesNotExist());
@@ -64,6 +65,25 @@ class EffectiveProfileMvcTest {
         mvc.perform(patch("/v1/users/me/profile").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bio\":\"candidate\"}"))
                 .andExpect(status().isMethodNotAllowed());
+        verifyNoInteractions(service);
+    }
+    @Test void backgroundReferenceBindsAndFinalResponseContainsBackground() throws Exception {
+        when(service.updateEffectiveProfile(any())).thenAnswer(call -> {
+            cn.jualn.miniapp.module.user.bo.UserProfileUpdateBO command = call.getArgument(0);
+            org.junit.jupiter.api.Assertions.assertEquals("user/7/background", command.getBackgroundObjectKey());
+            return EffectiveProfileBO.builder().userId(7L).nickname("同学").bio("")
+                    .backgroundUrl("https://example.com/effective-background").build();
+        });
+        mvc.perform(post("/v1/users/me/profile").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"backgroundObjectKey\":\"user/7/background\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.backgroundUrl").value("https://example.com/effective-background"));
+    }
+    @Test void nullBackgroundAndDirectBackgroundUrlAreRejected() throws Exception {
+        for (String body : new String[]{"{\"backgroundObjectKey\":null}", "{\"backgroundObjectKey\":123}",
+                "{\"backgroundUrl\":\"https://example.com/candidate\"}"}) {
+            mvc.perform(post("/v1/users/me/profile").contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest());
+        }
         verifyNoInteractions(service);
     }
     @Test void authForbiddenAndMissingRemainStandardProblems() throws Exception {

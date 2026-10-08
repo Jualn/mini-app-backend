@@ -11,12 +11,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 public final class EffectiveProfileUpdateRequest {
     private String nickname;
     private String avatarObjectKey;
+    private String backgroundObjectKey;
     private String bio;
 
     @JsonSetter(nulls = Nulls.FAIL)
     public void setNickname(JsonNode value) { nickname = stringValue(value, "/nickname"); }
     @JsonSetter(nulls = Nulls.FAIL)
     public void setAvatarObjectKey(JsonNode value) { avatarObjectKey = stringValue(value, "/avatarObjectKey"); }
+    @JsonSetter(nulls = Nulls.FAIL)
+    public void setBackgroundObjectKey(JsonNode value) { backgroundObjectKey = stringValue(value, "/backgroundObjectKey"); }
     @JsonSetter(nulls = Nulls.FAIL)
     public void setBio(JsonNode value) { bio = stringValue(value, "/bio"); }
 
@@ -36,6 +39,7 @@ public final class EffectiveProfileUpdateRequest {
     }
 
     public UserProfileUpdateBO toCommand() {
-        return UserProfileUpdateBO.builder().nickname(nickname).avatarObjectKey(avatarObjectKey).bio(bio).build();
+        return UserProfileUpdateBO.builder().nickname(nickname).avatarObjectKey(avatarObjectKey)
+                .backgroundObjectKey(backgroundObjectKey).bio(bio).build();
     }
 }

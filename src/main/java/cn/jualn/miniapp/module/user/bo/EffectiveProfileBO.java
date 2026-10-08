@@ -10,6 +10,7 @@ public class EffectiveProfileBO {
     Long userId;
     String nickname;
     String avatarUrl;
+    String backgroundUrl;
     String bio;
     boolean platformOperator;
 }
