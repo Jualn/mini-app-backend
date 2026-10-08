@@ -1,5 +1,9 @@
 # 数据库演进入口
 
+`V30__bind_registered_attachment_uploads.sql` 增加 `bound_attachment_id`（独立附件生命周期接管者，首次登记 ID）与 `cleanup_started_at`（首次清理接管事实）。`bound_target_id` 仍表示旧业务目标；附件归属与业务归属互斥，重复元数据登记共用对象的首次接管关系。登记元数据与 PENDING → BOUND 在同一事务提交，清理抢占同一上传行；已进入过删除的对象不得按普通新上传重新绑定。媒体替换的删除意图在业务事务内持久化到现有上传记录，提交后由清理任务处理。
+
+V30 不从历史 URL 或目录数字伪造上传归属，也不批量认定 COS 对象存在。切换前先运行只读 [附件 preflight](validation/media_attachment_lifecycle_preflight.sql)，停写并排空旧清理实例，再执行迁移及受控 [附件 repair](validation/media_attachment_lifecycle_repair.sql)；repair 只接受带对象存在／来源证据的显式映射，默认 ROLLBACK。历史直接业务 BOUND、缺上传记录、来源不明及已缺失对象另行核对，不能强行转换。新 worker 对独立附件、已有业务归属及真实事件引用的精确 key／配置 URL 别名做删除保护；非规范编码、旧域名、带 query 的历史 URL 必须在重新开放清理前分类解决。不能混跑旧清理／writer，也不能直接恢复旧 JAR；生产迁移、回填未由源码或隔离测试证明完成。步骤见 [运维手册](../../../../docs/operations/runbook.md#14-附件与媒体生命周期切换)。
+
 `V29__protect_effective_user_profiles.sql` 为资料写入增加单调 `profile_revision` 和头像/背景的服务端快照 key。历史行 revision 从 0 开始，历史资料与媒体引用不自动改写；快照 key 初始 NULL，不伪造已审核事实。所有新旧资料 writer 与 callback 必须切换同一应用版本，不能混跑旧乐观 writer。资料与审核历史分类使用 [Profile preflight](validation/user_profile_contract_preflight.sql)；运行与恢复限制见 [运维手册](../../../../docs/operations/runbook.md#13-用户资料安全检查与恢复)。
 
 旧审核日志未保存候选与旧有效版本，不能只按 pending/rejected/unknown 状态自动恢复资料或认定当前值已审核通过；历史 NULL nickname、媒体引用和未知审核结果由资料 owner 按可追溯证据处理。旧媒体源对象不自动成为已审核快照。不能直接回滚至旧乐观 writer/callback JAR；恢复须停止资料写入、明确数据兼容方案，不自动撤销 DDL 或删除已绑定快照。

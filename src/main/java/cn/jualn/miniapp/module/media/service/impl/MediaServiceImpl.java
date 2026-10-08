@@ -28,7 +28,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -228,12 +227,16 @@ public class MediaServiceImpl implements MediaService {
             case "LINK" -> MediaType.URL;
             default -> throw new IllegalStateException();
         };
+        String objectKey = cosService.resolveManagedObjectKey(url.trim());
+        var upload = objectKey == null ? null : uploadRecordService.lockAttachmentUpload(operatorId, objectKey);
         MediaAttachment entity = MediaAttachment.builder().type(type.getCode()).kind(kind)
-                .registered(Boolean.TRUE).registeredBy(operatorId).url(url.trim())
+                .registered(Boolean.TRUE).registeredBy(operatorId).objectKey(objectKey)
+                .url(objectKey == null ? url.trim() : cosService.buildPublicUrl(objectKey))
                 .originalName(name.trim()).sortOrder(0).build();
         if (mediaAttachmentMapper.insert(entity) != 1) {
             throw new SystemException("登记附件失败");
         }
+        if (upload != null) uploadRecordService.bindRegisteredAttachment(upload, entity.getId());
         return mediaConverter.toBO(entity);
     }
 
@@ -355,15 +358,10 @@ public class MediaServiceImpl implements MediaService {
     /**
      * 生成前端直传 COS 的 STS 上传凭证。
      * <p>
-     * 当前设计：
-     * 1. 前端选择图片/文件时不调用本接口；
-     * 2. 仅在用户确认发布 post/comment/activity/exam 时调用；
-     * 3. 前端上传 COS 成功后，将 objectKey 与展示元数据随业务内容一起提交；
-     * 4. 服务端验证 objectKey 归属，并按服务端配置生成访问地址。
+     * 调用方直传 COS 后，普通媒体在业务保存事务中绑定目标；
+     * 管理端可复用附件在独立登记事务中接管，主体只引用附件 ID。
      * <p>
-     * TODO:
-     * 生成凭证后登记 PENDING 上传记录；业务保存事务负责将对应 objectKey 绑定到目标数据，
-     * 超时未绑定的对象由定时任务清理。前端仍保持“最终提交时才上传”，减少无效上传。
+     * 生成凭证后登记 PENDING 上传记录；超时未接管对象由定时任务清理。
      *
      * @param targetType 目标类型
      * @param fileNames  原始文件名
@@ -372,7 +370,19 @@ public class MediaServiceImpl implements MediaService {
      */
     @Override
     public CosUploadCredentialDTO generateUploadCredential(TargetType targetType, List<String> fileNames) {
-        Long userId = requireUserId();
+        return generateCredential(targetType, fileNames, requireUserId());
+    }
+
+    @Override
+    public CosUploadCredentialDTO generateAdminUploadCredential(TargetType targetType, List<String> fileNames, Long operatorId) {
+        if (operatorId == null || operatorId <= 0) throw new BusinessException(ResultCode.UNAUTHORIZED);
+        if (targetType != TargetType.ACTIVITY && targetType != TargetType.EXAM) {
+            throw new BusinessException(ResultCode.MEDIA_TARGET_TYPE_UNSUPPORTED);
+        }
+        return generateCredential(targetType, fileNames, operatorId);
+    }
+
+    private CosUploadCredentialDTO generateCredential(TargetType targetType, List<String> fileNames, Long userId) {
         assertTargetTypeAllowed(targetType);
         if (CollectionUtils.isEmpty(fileNames)) {
             throw new BusinessException(ResultCode.INVALID_OPERATION, "fileNames 不能为空");
@@ -478,15 +488,8 @@ public class MediaServiceImpl implements MediaService {
      * 当前直接按业务类型归档：
      * post/{userId}/{timestamp}_{uuid}_{fileName}
      * <p>
-     * TODO:
-     *  如果后续增加临时上传保护，可以改为：
-     *  temp/post/{userId}/{timestamp}_{uuid}_{fileName}
-     *  并在业务提交成功后标记为 USED，或迁移为正式对象。
-     * <p>
-     * 现阶段为了减少数据库表、定时任务和额外服务器负担，
-     * 暂不引入上传生命周期管理。
-     *
-     * <p>路径格式：{category}/{userId}/{timestamp}_{uuid}_{fileName}</p>
+     * <p>路径格式：{category}/{userId}/{timestamp}_{uuid}_{fileName}。
+     * 上传记录负责生命周期，目录数字仅表示上传者，不表示绑定目标。</p>
      *
      * @param type     目标类型
      * @param userId   用户 ID
@@ -581,7 +584,7 @@ public class MediaServiceImpl implements MediaService {
     }
 
     /**
-     * 数据库提交成功后再删除已解除引用的 COS 对象。删除失败只记录，避免出现数据库已提交但接口报失败。
+     * 在业务事务中持久化已解除引用对象的删除意图；现有清理任务在提交后执行并恢复失败。
      */
     @Override
     public void deleteObjectsAfterCommit(Collection<String> objectKeys, TargetType targetType, Long targetId) {
@@ -592,30 +595,7 @@ public class MediaServiceImpl implements MediaService {
                 .filter(StringUtils::hasText)
                 .distinct()
                 .toList();
-        Runnable deletion = () -> keysToDelete.forEach(objectKey -> {
-            try {
-                cosService.deleteObject(objectKey);
-                uploadRecordService.removeRecord(objectKey);
-                log.debug("[MediaService.deleteObject][完成] targetType={}, targetId={}, objectKey={}",
-                        targetType, targetId, objectKey);
-            } catch (RuntimeException ex) {
-                uploadRecordService.scheduleDeletionRetry(objectKey, ex);
-                log.error("[MediaService.deleteObject][失败] targetType={}, targetId={}, objectKey={}",
-                        targetType, targetId, objectKey, ex);
-            }
-        });
-
-        if (TransactionSynchronizationManager.isSynchronizationActive()
-                && TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    deletion.run();
-                }
-            });
-        } else {
-            deletion.run();
-        }
+        keysToDelete.forEach(objectKey -> uploadRecordService.requestDeletion(objectKey, targetType, targetId));
     }
 
     /**

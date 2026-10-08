@@ -22,11 +22,74 @@
         WHERE user_id = #{userId}
           AND target_type = #{targetType}
           AND status = 0
+          AND cleanup_started_at IS NULL
+          AND bound_attachment_id IS NULL
           AND cleanup_after &gt; #{now}
           AND object_key IN
         <foreach collection="objectKeys" item="objectKey" open="(" separator="," close=")">
             #{objectKey}
         </foreach>
+    </update>
+
+    <select id="selectForUpdate" resultType="cn.jualn.miniapp.module.media.entity.MediaUploadRecord">
+        SELECT id, object_key, user_id, target_type, status, bound_target_id, bound_attachment_id,
+               cleanup_started_at, cleanup_after, retry_count, last_error, created_at, updated_at
+        FROM media_upload_record WHERE object_key = #{objectKey} AND BINARY object_key = BINARY #{objectKey} FOR UPDATE
+    </select>
+
+    <select id="selectExpiredCandidates" resultType="cn.jualn.miniapp.module.media.entity.MediaUploadRecord">
+        SELECT id, object_key, retry_count FROM media_upload_record
+        WHERE status = 0 AND cleanup_after &lt;= #{now} AND id &gt; #{afterId}
+        ORDER BY id LIMIT #{limit}
+    </select>
+
+    <update id="bindAttachment">
+        UPDATE media_upload_record
+        SET status = 1, bound_attachment_id = #{attachmentId}, updated_at = #{now}, last_error = NULL
+        WHERE id = #{id} AND status = 0 AND bound_target_id IS NULL
+          AND bound_attachment_id IS NULL AND cleanup_started_at IS NULL AND cleanup_after &gt; #{now}
+    </update>
+
+    <!-- registered alone is insufficient: require an independent resource or an actual retained owner/reference. -->
+    <sql id="registeredResource">
+        ((a.registered = 1 AND a.target_type IS NULL AND a.target_id IS NULL)
+         OR (a.target_type IS NOT NULL AND a.target_id IS NOT NULL)
+         OR EXISTS (SELECT 1 FROM event_attachment_link l WHERE l.attachment_id = a.id))
+    </sql>
+
+    <sql id="unprotectedObject">
+        NOT EXISTS (
+            SELECT 1 FROM media_attachment a
+            WHERE a.object_key = media_upload_record.object_key
+              AND BINARY a.object_key = BINARY media_upload_record.object_key
+              AND <include refid="registeredResource"/>
+        )
+        <if test="urls != null and !urls.isEmpty()">
+        AND NOT EXISTS (
+            SELECT 1 FROM media_attachment a
+            WHERE a.url IN
+                <foreach collection="urls" item="url" open="(" separator="," close=")">#{url}</foreach>
+              AND a.url COLLATE utf8mb4_bin IN
+                <foreach collection="urls" item="url" open="(" separator="," close=")">#{url}</foreach>
+              AND <include refid="registeredResource"/>
+        )
+        </if>
+    </sql>
+
+    <update id="claimCleanup">
+        UPDATE media_upload_record
+        SET status = 2, cleanup_started_at = COALESCE(cleanup_started_at, #{now}), updated_at = #{now}
+        WHERE id = #{id} AND status = 0 AND cleanup_after &lt;= #{now}
+          AND bound_target_id IS NULL AND bound_attachment_id IS NULL AND <include refid="unprotectedObject"/>
+    </update>
+
+    <update id="requestDeletion">
+        UPDATE media_upload_record
+        SET status = 0, bound_target_id = NULL, cleanup_after = #{now},
+            cleanup_started_at = COALESCE(cleanup_started_at, #{now}), updated_at = #{now}, last_error = NULL
+        WHERE object_key = #{objectKey} AND BINARY object_key = BINARY #{objectKey} AND status = 1
+          AND target_type = #{targetType} AND bound_target_id = #{targetId}
+          AND bound_attachment_id IS NULL AND <include refid="unprotectedObject"/>
     </update>
 
 </mapper>

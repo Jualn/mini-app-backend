@@ -68,12 +68,15 @@ public interface MediaService {
      */
     CosUploadCredentialDTO generateUploadCredential(TargetType targetType, List<String> fileNames);
 
+    /** 管理端以已认证 operatorId 申请活动／公共事项上传，不借用普通用户 ThreadLocal 身份。 */
+    CosUploadCredentialDTO generateAdminUploadCredential(TargetType targetType, List<String> fileNames, Long operatorId);
+
     /** 校验对象属于当前小程序用户及业务类型，并生成服务端可信访问地址。 */
     String resolveOwnedUploadUrl(TargetType targetType, String objectKey);
 
     /** 在业务事务内把当前用户的待绑定上传记录绑定到目标。 */
     void bindPendingUploads(TargetType targetType, Long targetId, Collection<String> objectKeys);
 
-    /** 在当前事务提交后尽力删除已解除引用的 COS 对象。 */
+    /** 在当前业务事务内持久化删除意图；提交后由清理任务执行。软删除不调用此方法。 */
     void deleteObjectsAfterCommit(Collection<String> objectKeys, TargetType targetType, Long targetId);
 }
