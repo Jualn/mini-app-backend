@@ -69,6 +69,7 @@ public interface ActivityMapper extends BaseMapper<Activity> {
                                         @Param("keyword") String keyword,
                                         @Param("lastId") Long lastId,
                                         @Param("campusAudienceOnly") boolean campusAudienceOnly,
+                                        @Param("departmentId") String departmentId,
                                         @Param("limit") Integer limit);
 
     List<AdminActivityListRow> selectAdminActivityPage(

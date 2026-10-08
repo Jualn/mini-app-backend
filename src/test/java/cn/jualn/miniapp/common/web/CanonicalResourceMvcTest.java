@@ -58,6 +58,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /** Real MVC binding/serialization; Service doubles do not claim database or authentication proof. */
 class CanonicalResourceMvcTest {
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule())
+            .addMixIn(org.springframework.http.ProblemDetail.class, org.springframework.http.converter.json.ProblemDetailJacksonMixin.class)
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     private final ActivityService activities = mock(ActivityService.class);
     private final ActivityEnrollmentService subscriptions = mock(ActivityEnrollmentService.class);
@@ -136,6 +137,53 @@ class CanonicalResourceMvcTest {
                 .andExpect(jsonPath("$.contacts.length()").value(2))
                 .andExpect(jsonPath("$.contacts[1].contactKey").value("two"))
                 .andExpect(jsonPath("$.lifecycleStatus").value("ENDED"));
+    }
+
+    @Test
+    void discoveryBindsExplicitQueriesAndKeepsOmittedAudienceFallback() throws Exception {
+        when(activities.pageActivityResources(any())).thenReturn(new ActivityResourcePageBO(List.of(), null));
+        mvc.perform(get("/v1/activities").param("audienceFilter", "DEPARTMENT")
+                .param("departmentId", "information").param("category", "COMPETITION")
+                .param("lifecycleStatus", "ACTIVE").param("q", "robot"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items").isArray());
+        var captor = org.mockito.ArgumentCaptor.forClass(cn.jualn.miniapp.module.activity.bo.ActivityPageBO.class);
+        org.mockito.Mockito.verify(activities).pageActivityResources(captor.capture());
+        var query = captor.getValue();
+        org.junit.jupiter.api.Assertions.assertEquals("DEPARTMENT", query.getAudienceFilter());
+        org.junit.jupiter.api.Assertions.assertEquals("information", query.getDepartmentId());
+        org.junit.jupiter.api.Assertions.assertEquals("robot", query.getKeyword());
+        org.junit.jupiter.api.Assertions.assertEquals(0, query.getLifecycleStatus());
+        org.junit.jupiter.api.Assertions.assertFalse(query.isCampusAudienceOnly());
+        mvc.perform(get("/v1/activities")).andExpect(status().isOk());
+        org.mockito.Mockito.verify(activities, org.mockito.Mockito.times(2)).pageActivityResources(captor.capture());
+        org.junit.jupiter.api.Assertions.assertTrue(captor.getValue().isCampusAudienceOnly());
+        org.junit.jupiter.api.Assertions.assertNull(captor.getValue().getAudienceFilter());
+    }
+
+    @Test
+    void discoveryRejectsInvalidCombinationsWithQueryViolations() throws Exception {
+        String[][] invalid = {
+                {"DEPARTMENT", null, "departmentId"}, {"DEPARTMENT", "1", "departmentId"},
+                {"DEPARTMENT", "unknown", "departmentId"}, {"DEPARTMENT", "", "departmentId"},
+                {"CAMPUS", "information", "departmentId"}, {"ALL", "information", "departmentId"},
+                {null, "information", "departmentId"}, {"unknown", null, "audienceFilter"},
+                {"", null, "audienceFilter"}
+        };
+        for (String[] values : invalid) {
+            var request = get("/v1/activities");
+            if (values[0] != null) request.param("audienceFilter", values[0]);
+            if (values[1] != null) request.param("departmentId", values[1]);
+            mvc.perform(request).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.type").value("/problems/validation-error"))
+                    .andExpect(jsonPath("$.errors[0].in").value("query"))
+                    .andExpect(jsonPath("$.errors[0].pointer").value("/" + values[2]));
+        }
+        for (String field : List.of("category", "lifecycleStatus", "sort", "q")) {
+            mvc.perform(get("/v1/activities").param(field, field.equals("q") ? " " : "unknown"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].pointer").value("/" + field));
+        }
+        org.mockito.Mockito.verifyNoInteractions(activities);
     }
 
     @Test

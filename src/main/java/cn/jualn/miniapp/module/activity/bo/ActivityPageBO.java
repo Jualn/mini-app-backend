@@ -23,8 +23,12 @@ public class ActivityPageBO {
     private Integer lifecycleStatus;
     /** Unknown department identity may discover campus-wide activities only. */
     private boolean campusAudienceOnly;
+    /** Null preserves the legacy discovery mode. */
+    private String audienceFilter;
+    private String departmentId;
+    private Long audienceUserId;
     /**
-     * 关键词，模糊匹配活动标题或组织者名称。
+     * 关键词，模糊匹配活动标题或简介。
      */
     private String keyword;
 }

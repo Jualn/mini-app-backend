@@ -112,6 +112,10 @@ CI 另有临时 MySQL 上的 Flyway migrate/validate；具体参数以 workflow 
 
 ## 尚未登记的运维操作
 
+### Activity discovery focused validation
+
+活动发现列表使用上方定向脚本，显式选择 `CanonicalResourceMvcTest,ActivityPublicCursorCodecTest,ActivityServiceImplTest,AdminActivityConverterTest,ActivityLegacyRepresentationTest`。MySQL 集合/分页验证另加 `ActivityDiscoveryDatabaseTest` 并传入 `jdbc:mysql://127.0.0.1:<本次一次性端口>/activity_discovery_test`；仅接受该专用 loopback schema、root/空密码，创建 synthetic activity 表，表已存在则失败，结束时只删除本次创建的表，不执行迁移。不传 JdbcUrl 时数据库测试跳过，不报告数据库 PASS。实现与推送后清理边界见 [活动发现](../docs/activity-discovery.md)。
+
 ### Notification Contract focused validation
 
 复用上述选择测试脚本，指定 `-TestNames`；不要直接运行全仓测试替代受影响边界。真实数据库测试只允许专用 disposable localhost schema，禁止指向业务库。
