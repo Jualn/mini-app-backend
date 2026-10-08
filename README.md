@@ -37,7 +37,7 @@
 数据库结构只由迁移历史重建；若日后需要结构视图，应从实际迁移或验证库生成并标明来源，不再手工维护第二份 DDL。
 测试次数、阶段进度和部署结果放在任务/发布证据中，不写进长期标准。运行环境和生产状态不从旧文档推断。
 已完成任务的执行 Prompt、交接清单、preflight 分析与实施报告不留在开发文档树中，也不另建旧文档归档；先把仍有效的设计、命令和恢复限制收口到对应长期来源，再删除一次性材料并更新引用。SQL migration 与仍被验证流程使用的 validation SQL 按数据库职责保留。
-新增文件前先判断现有职责是否已覆盖，避免再出现多套 GUIDE、接口快照和并行开发规范。
+代码与文档同步、同主题原文维护及新增文档条件统一按 [maintenance-map §46.1](governance/maintenance-map.md#461-本项目代码与文档同步约束) 执行，避免多套 GUIDE、接口快照和并行开发规范。
 
 Reminder/Notification/Delivery 的当前设计见上表专题来源，对外协议见 [共享 contracts](../contracts/README.md)，运行排障见运维手册。Admin QR Login 的协议见 [共享 Contract](../contracts/docs/coordination/admin-qr-login.md)，内部机制见上表内部设计。
 
