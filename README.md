@@ -15,7 +15,9 @@
 | [Async Processing Architecture](docs/async-processing.md) | Outbox、Durable Job、Stream、Worker、retry/dead/recovery 与异步迁移边界 |
 | [业务规则](docs/domain.md) | 当前业务决定，不包含接口清单或阶段进度 |
 | [Reminder / Notification / Delivery](docs/reminder-notification.md) | 提醒策略与计划、用户通知事实、渠道投递状态及三者边界 |
-| [WeChat Integration](docs/wechat-integration.md) | 微信目标结构、账号/凭据/身份/许可、回调与消息产品、维护流程和分批验收；[整理执行 Prompt](docs/WECHAT_REFACTOR_PROMPT.md) |
+| [WeChat Integration](docs/wechat-integration.md) | 微信目标结构、账号/凭据/身份/许可、回调与消息产品、维护流程和验收边界 |
+| [Admin QR Login 内部设计](docs/admin-qr-login.md) | 扫码登录内部存储、状态转换与固定登录结果恢复；对外协议仍归 contracts |
+| [运维手册](docs/operations/runbook.md) | 运行排障、受控恢复、部署配置与兼容限制 |
 | [数据库说明](src/main/resources/db/README.md) | 迁移目录使用与本项目数据库演进约束 |
 | [AGENTS](AGENTS.md) | 代理默认读取路由及任务工作方式 |
 | [commands](governance/commands.md) | 常用命令、前提、副作用与验证边界 |
@@ -34,8 +36,9 @@
 协议只在 contracts 维护；目前未覆盖的接口须在实际变更时确认，不能假定所有接口已经迁移或验收。
 数据库结构只由迁移历史重建；若日后需要结构视图，应从实际迁移或验证库生成并标明来源，不再手工维护第二份 DDL。
 测试次数、阶段进度和部署结果放在任务/发布证据中，不写进长期标准。运行环境和生产状态不从旧文档推断。
+已完成任务的执行 Prompt、交接清单、preflight 分析与实施报告不留在开发文档树中，也不另建旧文档归档；先把仍有效的设计、命令和恢复限制收口到对应长期来源，再删除一次性材料并更新引用。SQL migration 与仍被验证流程使用的 validation SQL 按数据库职责保留。
 新增文件前先判断现有职责是否已覆盖，避免再出现多套 GUIDE、接口快照和并行开发规范。
 
-当前 Reminder/Notification/Delivery 设计的审查依据、后续实施顺序、可复用执行任务和实际完成边界分别记录在 [架构审查报告](docs/architecture-review-activity-public-event-notification.md)、[Implementation Handoff](docs/IMPLEMENTATION_HANDOFF.md)、[Execution Prompt](docs/IMPLEMENTATION_PROMPT.md) 和 [实施报告](docs/REMINDER_NOTIFICATION_IMPLEMENTATION_REPORT.md)。它们是决策/交接与验证证据，不替代上表的长期权威来源；其中 V20–V22 或代码存在不等于目标数据库迁移、D2/D3 实际切换、真实微信或生产发布完成。D1 产品语义已确定为只影响未来规划、不追溯历史消息。
+Reminder/Notification/Delivery 的当前设计见上表专题来源，对外协议见 [共享 contracts](../contracts/README.md)，运行排障见运维手册。Admin QR Login 的协议见 [共享 Contract](../contracts/docs/coordination/admin-qr-login.md)，内部机制见上表内部设计。
 
-Admin QR Login v2 的编码依据为 [共享 Contract](../contracts/docs/coordination/admin-qr-login.md) + [Backend Internal Design](docs/admin-qr-login-v2-backend-design.md)，实现及分边界验证见 [实现记录](docs/admin-qr-login-v2-implementation.md)。后端提供扫码绑定、固定登录结果恢复和既有 Admin Auth 激活保护；仅保留新流程并默认启用，复用现有小程序 AppID；正式环境默认 release，dev profile 默认 develop，可用 ADMIN_QR_LOGIN_ENV_VERSION 覆盖。用户已确认 AppID 和确认页就绪；真实请求与部署证据仍单独报告。
+部署确认、配置和恢复限制见 [运维手册](docs/operations/runbook.md)。文档命名使用主题明确的 lowercase-kebab-case；阶段号、Prompt/Report 和实施日期不作为长期主题文件名。

@@ -1,64 +1,28 @@
-# Admin QR Login v2 Backend Internal Design
+# Admin QR Login 内部设计
 
-设计日期：2026-10-07。状态：**READY_FOR_IMPLEMENTATION**，仅表示内部设计可进入编码，不表示实现、微信集成或上线验收完成。
+本文维护扫码登录的内部存储、状态转换、凭证隔离与固定结果恢复设计；对外协议归共享 contracts，运行配置与恢复归运维手册。
 
-2026-10-07 后续实现已交付，用户确认 AppID/确认页后配置已默认启用，见 [实现与验证记录](admin-qr-login-v2-implementation.md)。用户随后确认旧方案未上线并授权移除，当前单一新流程见 §13。下文的源码现状、待实现清单与本轮结论保留为设计时点证据，不作为当前实现状态或上线完成声明。
+当前单一新流程见 §13，运行配置和恢复限制见 [运维手册](operations/runbook.md#12-admin-扫码登录运行与恢复)。本文不维护任务进度或部署完成声明。
 
 ## 1. Context 与权威边界
 
-本设计兑现已经 READY 的 [Admin QR Login v2 Contract](../../contracts/docs/coordination/admin-qr-login.md)。后续实施必须同时读取 Contract、本设计和项目规范；本文件不拥有对外 API、状态、错误或三端启动协议。Java 17、Spring Boot 3.5.13、现有 Sa-Token 1.45.0、MyBatis、MySQL 和 Redis 不变。
+本设计遵循 [Admin QR Login v2 Contract](../../contracts/docs/coordination/admin-qr-login.md)。维护该链路时同时读取 Contract、本设计和项目规范；本文件不拥有对外 API、状态、错误或三端启动协议。Java 17、Spring Boot 3.5.13、现有 Sa-Token 1.45.0、MyBatis、MySQL 和 Redis 不变。
 
 旧二维码是 `jualn-admin-login:` 加随机 sessionId，**不是最终 Admin token**。升级解决微信扫一扫进入小程序确认页、真实扫码绑定、公开/私有凭证隔离，以及旧 GET 领取丢结果无法恢复的问题；不得将旧版描述为直接泄露管理员 token。
 
 依据：[架构](architecture.md)、[Reliability](reliability.md)、[Observability](observability.md)、[WeChat Integration](wechat-integration.md)、[Async](async-processing.md)、三份 [Backend](../standards/backend-engineering.md) / [Java](../standards/java-engineering.md) / [Spring](../standards/spring-boot-engineering.md) 标准及 [commands](../governance/commands.md)。通用规则不在这里复制。
 
-### 1.1 Contract 修订定位
-
-当前 contracts 无可报告的 Git commit/tag。本次完整读取 canonical operation、schema（含 examples）、security schemes、Problem Details、coordination、Backend Handoff、compatibility/migration 后，以以下 SHA-256 固定本次输入。实施者必须核对同一修订；若变化，重新审查受影响部分，不自行改 Contract。
-
-以下散列为原设计修订快照；协调文档随后按用户的未上线移除决定作说明性更新，八操作 paths/schema 未变。
-
-| 相对 contracts 的文件 | SHA-256 |
-|---|---|
-| `api/openapi.yaml` | `E34F64250B145440D1D1EE5FB08606221448CF76CC14A521E0F8CE005B4DA9EB` |
-| `api/paths/admin-qr-login.yaml` | `7110D9D92F551E4D6B843DC6F84D506284D90C311A15E1F11168985D42EAD4FF` |
-| `api/schemas/admin-qr-login.yaml` | `D98F2371551CCA79050BF964E51FB3B1994F3C1632850D6FAB02C40AE8F3C2FB` |
-| `docs/coordination/admin-qr-login.md` | `2CE8B20B20F9A4315BCE8723D5C53921591D37076DAADFC74E539B23FA6375B3` |
-
-共享 ResourceId、ProblemDetails、ValidationProblem 和 root responses 通过 canonical entry 引用；实施时仍需读取完整入口，不把上述散列当作所有依赖的独立 bundle。
-
-### 1.2 已确定的外部事实
+### 1.1 对外协议摘要
 
 最终名称是 `sessionId`、`sceneCode`、`pollSecret`，私有 Header 是 `X-Admin-Login-Secret`。scene 为独立 192-bit 随机值的 32 字符 Base64URL；pollSecret 为独立 256-bit 随机值的 43 字符 Base64URL。sessionId 只标识资源。
 
 **first authenticated scan wins**，不是 first confirm wins。必须先 scan 才能 confirm；其他 subject 不能读取绑定后的状态、确认或拒绝。状态为 PENDING、SCANNED、CONFIRMED、CONSUMED、EXPIRED、REJECTED、CANCELLED；后四者终态。CONFIRMED 不是已登录。
 
-有效期固定、最多五分钟；终态至少保留至 expiresAt 后五分钟。consume 在有效期内凭相同私有凭证返回同一个 token/profile；到期不重放、不换 token、不续期。新响应直接业务对象，错误使用 `/problems/...` 的 type，**没有新增 ErrorCode enum**。全部成功/错误响应 `Cache-Control: no-store`。
+有效期固定、最多五分钟；终态至少保留至 expiresAt 后五分钟。consume 在有效期内凭相同私有凭证返回同一个 token/profile；到期不重放、不换 token、不续期。新响应直接业务对象，错误使用 `/problems/...` 的 type，**没有ErrorCode enum**。全部成功/错误响应 `Cache-Control: no-store`。
 
 手机页为 `subpkg_setting/pages/admin-login-confirm/index`；微信 scene 仅是 sceneCode，无前缀、无键值包装。页面/环境发布是启用门槛，不由后端动态接受客户端指定。
 
-## 2. Current Backend：源码证据
-
-以下为当前本地工作树事实，包含用户已有改动；没有推断生产部署或运行配置。
-
-| 边界 | 实际入口与当前行为 | v2 复用/差距 |
-|---|---|---|
-| Admin HTTP | [AdminAuthController](../src/main/java/cn/jualn/miniapp/module/admin/auth/controller/AdminAuthController.java)：POST `/v1/admin/auth/qr-sessions`、GET/DELETE `qr-sessions/{sessionId}`、POST `qr-confirmations/{sessionId}`、GET me、POST logout | 旧 Result envelope 与 routes 保持；v2 新 Controller |
-| 旧编排 | `AdminAuthServiceImpl` (设计时点历史源码，已移除)：16-byte sessionId、32-byte pollSecret、create/confirm 限流、权限检查、GET claim 后 issue | 没有 scan/reject/独立 consume；不能搬用 GET 副作用 |
-| 旧存储 | [AdminAuthStore](../src/main/java/cn/jualn/miniapp/infrastructure/cache/AdminAuthStore.java)：StringRedisTemplate + Lua，`jualn:admin:qr-login:`、`jualn:admin:auth:rate:`、`jualn:admin:auth:revoked:` | secret hash 比较可借鉴；claim/cancel 删除；poll 到期删除，保留机制不满足 v2 |
-| 旧状态/期限 | `旧 enum` (设计时点历史源码，已移除)、[配置](../src/main/java/cn/jualn/miniapp/module/admin/auth/config/AdminAuthProperties.java)：PENDING/SCANNED/CONFIRMED/DENIED/EXPIRED；默认 2m、保留 1m、poll 1500ms、Admin token 8h | SCANNED 无实际 scan writer；DENIED 不是 v2 REJECTED；新配置不能改变旧 wire |
-| 管理身份 | [AdminStpUtil](../src/main/java/cn/jualn/miniapp/common/security/AdminStpUtil.java) `StpLogicJwtForSimple("admin")`；[AdminTokenService](../src/main/java/cn/jualn/miniapp/module/admin/auth/service/AdminTokenService.java) login、revocation blacklist、当前用户重新准入、logout | 复用同一内部 userId、同一 admin loginType 与登录/注销路径；旧 issue 返回带前缀 Authorization 值 |
-| 授权 | [AdminPermissionPolicy](../src/main/java/cn/jualn/miniapp/module/admin/auth/support/AdminPermissionPolicy.java)：NORMAL 且 OPR/ADMIN；[SaPermissionProvider](../src/main/java/cn/jualn/miniapp/config/SaPermissionProvider.java) 动态读取 user profile | 没有独立 AdminUser 表；不得使用公开 isPlatformOperator 或旧 session role 快照作准入 |
-| Mini 身份 | [AuthController](../src/main/java/cn/jualn/miniapp/module/auth/controller/AuthController.java) → [AuthServiceImpl](../src/main/java/cn/jualn/miniapp/module/auth/service/impl/AuthServiceImpl.java) → WxClient.getMiniSession(code).openid → [UserServiceImpl.getUserInfo](../src/main/java/cn/jualn/miniapp/module/user/service/impl/UserServiceImpl.java) → user_profile.openid 查询/事务创建 → assertLoginAllowed → 普通 StpUtil.login | 普通 token 映射内部 userId；手机 Controller 直接从普通 StpUtil 取 subject，不能接受客户端身份 |
-| unionid / 绑定 | [MiniSessionResponse](../src/main/java/cn/jualn/miniapp/third/wx/dto/MiniSessionResponse.java) 有 unionid；当前登录仅取 openid，首次注册不写 unionid；[WxBindService](../src/main/java/cn/jualn/miniapp/module/wx/service/WxBindService.java) 用临时 scene 关联服务号身份 | unionid 不是 QR 登录必需映射。未找到独立 bind-phone 登录链；不新增手机号/服务号登录依赖 |
-| 当前 profile | UserService.getUserProfile 直接 Mapper.selectById → BO，无该读取路径的 Redis profile cache | 授权重新读取可直接复用；只将 USER_NOT_FOUND 视为准入失败，不吞掉其他业务/基础设施错误 |
-| Web 安全 | [WebMvcConfig](../src/main/java/cn/jualn/miniapp/config/WebMvcConfig.java) 仅特判旧手机确认与匿名旧 Web routes；[ContextInterceptor](../src/main/java/cn/jualn/miniapp/common/interceptor/ContextInterceptor.java) 先普通后 admin | 新 mobile 路由必须精确区分；私有 Web routes 不要求已有 Admin token。CORS 已 allowedHeaders(*)，但未 expose Retry-After |
-| Redis / DB | [RedisService](../src/main/java/cn/jualn/miniapp/infrastructure/cache/RedisService.java)、[RedisConfig](../src/main/java/cn/jualn/miniapp/config/RedisConfig.java)、[RedisKeyConstant](../src/main/java/cn/jualn/miniapp/common/constant/RedisKeyConstant.java)；MyBatis Plus + XML + Flyway | 普通缓存会吞 Redis 故障/返回 miss，不能用于认证 truth。专用 store 采用既有严格 AdminAuthStore 模式；键常量集中登记 |
-| 微信 | [WxClient](../src/main/java/cn/jualn/miniapp/third/wx/client/WxClient.java)：小程序登录、独立 ma/mp access token cache、单 JVM monitor、token 失效刷新一次；有服务号 `cgi-bin/qrcode/create` | **没有**小程序 `wxa/getwxacodeunlimit` 能力；不能用服务号 ticket QR 替代 |
-| HTTP client | [WebClientConfig](../src/main/java/cn/jualn/miniapp/config/WebClientConfig.java)：connect 5s、response/read/write 10s、body 2MiB；URL 日志去 query | 复用 Client/连接池；新增二进制/JSON 错误辨识与整体 deadline，无 SDK/Feign 新依赖 |
-| File/COS | [CosService](../src/main/java/cn/jualn/miniapp/third/cos/service/CosService.java) / [MediaUploadRecordService](../src/main/java/cn/jualn/miniapp/module/media/service/MediaUploadRecordService.java)：STS、objectKey、PENDING/BOUND/CLEANING、持久清理 | 临时认证 PNG 不进入 Attachment/媒体审核/上传清理链 |
-| 可观测性 | [RequestLogFilter](../src/main/java/cn/jualn/miniapp/common/filter/RequestLogFilter.java)、[ObservabilityContext](../src/main/java/cn/jualn/miniapp/common/observability/ObservabilityContext.java)、[GlobalExceptionHandler](../src/main/java/cn/jualn/miniapp/common/exception/GlobalExceptionHandler.java)、Actuator/Micrometer | 复用 trace、Problem Details、registry；不新增日志框架 |
-| 审计/测试 | [AdminOperationLogServiceImpl](../src/main/java/cn/jualn/miniapp/module/admin/operation/service/impl/AdminOperationLogServiceImpl.java) 目前只写角色变更；`AdminAuthServiceImplTest` (设计时点历史源码，已移除) 使用 mock store | 没有已实现的登录安全审计；旧 mock 测试不证明 Lua/并发/恢复 |
+## 2. Sa-Token 登录副作用与恢复依据
 
 ### 2.1 Sa-Token 的真实副作用（决定 consume 的依据）
 
@@ -69,19 +33,19 @@
 - `SaLoginParameter` 支持 `setToken` 指定 token；SaSession.addTerminal 按 token 替换已有 terminal，重复会更新历史计数，不等同无副作用。
 - Simple 的四参数 createTokenValue 没有自动将 timeout 写入 JWT 的 eff；有效期限由既有 Sa-Token Redis mapping 管理。v2 额外保存固定绝对 tokenExpiresAt，不能通过重复 login 延长它。
 
-[官方 JWT 集成文档](https://sa-token.com/plugin/jwt-extend.html) 也区分 Simple 与 Stateless；在线文档目前示例为 1.46.0，不作为升级授权，本设计依赖本地 1.45.0 证据。源码未发现项目自定义 SaTokenListener。将来新增 listener 时必须兼容固定 token 恢复，不能借其发送非幂等通知/审计。
+[官方 JWT 集成文档](https://sa-token.com/plugin/jwt-extend.html) 也区分 Simple 与 Stateless；在线文档目前示例为 1.46.0，不作为升级授权，本设计依赖本地 1.45.0 证据。源码未发现项目自定义 SaTokenListener。将来listener 时必须兼容固定 token 恢复，不能借其发送非幂等通知/审计。
 
-## 3. Target Architecture 与对象边界
+## 3. 内部链路与对象边界
 
-下面带“新增”的名称是目标职责，不声称它们已经存在。不新增第二套 AdminAuth、通用 QR 框架或 Repository 接口套壳。
+内部链路与职责如下；不新增第二套 AdminAuth、通用 QR 框架或 Repository 接口套壳。
 
 ```text
-新增 AdminQrLoginController（HTTP/DTO/VO，Web 与手机精确路由）
-  → 新增 AdminQrLoginService / impl（唯一 v2 状态与用例 owner）
-    → 新增 AdminQrLoginStore（infrastructure/cache，严格 Redis/Lua）
+AdminQrLoginController（HTTP/DTO/VO，Web 与手机精确路由）
+  → AdminQrLoginService / impl（唯一 v2 状态与用例 owner）
+    → AdminQrLoginStore（infrastructure/cache，严格 Redis/Lua）
     → UserService.getUserProfile → AdminPermissionPolicy（已有）
-    → WxClient.generateMiniProgramCode（新增 provider 方法，纯 page/scene→PNG）
-    → AdminTokenService（已有，新增固定候选/恢复/验证能力）
+    → WxClient.generateMiniProgramCode（provider 方法，纯 page/scene→PNG）
+    → AdminTokenService（既有固定候选/恢复/验证能力）
       → AdminStpUtil.STP_LOGIC / Sa-TokenDao（已有 admin success path）
 ```
 
@@ -102,16 +66,16 @@ Data Flow：普通 token→服务端 userId；sceneHash→sessionId；pollSecret
 | `module/admin/auth/controller/AdminQrLoginController` | 新八个 operation 的 HTTP 适配，可分 Web/mobile 方法但无需两个空 Controller |
 | `module/admin/auth/dto/qrlogin/`、`vo/qrlogin/`、`bo/qrlogin/` | 严格 scene request，具名 Created/Session/Scan/LoginResult；Service 不返回 VO |
 | `module/admin/auth/converter/AdminQrLoginConverter` | BO→canonical 投影；终态省略规则、固定 ADMIN_WEB、裸 token 表示 |
-| `module/admin/auth/service/AdminQrLoginService`、`impl/AdminQrLoginServiceImpl` | 状态、权限、恢复、限流编排；保留旧 AdminAuthService |
-| `module/admin/auth/enums/AdminQrLoginV2Status` | 独立七状态，不修改 legacy enum |
-| `module/admin/auth/config/AdminQrLoginProperties` | `admin-auth.qr-login-v2`；避免复用旧 1m retention |
-| `module/admin/auth/support/AdminAuthCrypto`（扩展已有） | 复用 SecureRandom/Base64URL/SHA-256；固定长度安全比较，无 Utils/Manager 新类 |
+| `module/admin/auth/service/AdminQrLoginService`、`impl/AdminQrLoginServiceImpl` | 状态、权限、恢复、限流编排；me/logout 由 AdminAuthController 和既有 Token 服务处理 |
+| `module/admin/auth/enums/AdminQrLoginV2Status` | 七状态；旧扫码状态模型不作为兼容入口 |
+| `module/admin/auth/config/AdminQrLoginProperties` | `admin-auth.qr-login-v2`；TTL 与终态保留分别配置 |
+| `module/admin/auth/support/AdminAuthCrypto` | 复用 SecureRandom/Base64URL/SHA-256；固定长度安全比较，无 Utils/Manager 新类 |
 | `infrastructure/cache/AdminQrLoginStore` | 一个具体 store，无预建 Repository interface；内部 typed record 可以嵌套，业务 BO 由 auth owner 定义 |
-| `module/admin/auth/service/AdminTokenService`（扩展已有） | candidate、固定 token materialization、显式 token validation、激活检查及 logout 配合；旧 issue 外观不变 |
+| `module/admin/auth/service/AdminTokenService` | candidate、固定 token materialization、显式 token validation、激活检查及 logout 配合 |
 | `third/wx/client/WxClient`、`third/wx/dto/`（扩展已有） | ma 小程序码协议 DTO/二进制响应与脱敏错误；不依赖 auth model |
 | `common/constant/RedisKeyConstant`、`config/WebMvcConfig` | 新 key factories、精确安全/CORS/no-store；不改普通登录 |
 
-不新增 scheduled cleanup：临时 session/index/PNG/gate 都由 Redis TTL 清理。PNG 放 store 的独立 binary value；不能用带 Java 类型信息的 JSON serializer 序列化原始图像。
+不scheduled cleanup：临时 session/index/PNG/gate 都由 Redis TTL 清理。PNG 放 store 的独立 binary value；不能用带 Java 类型信息的 JSON serializer 序列化原始图像。
 
 ## 4. Storage Decision：Redis 为短期 Truth
 
@@ -130,7 +94,7 @@ Data Flow：普通 token→服务端 userId；sceneHash→sessionId；pollSecret
 | TTL owner | AdminQrLoginStore 创建时设置绝对期限；Sa-Token owner 管理正常登录 TTL |
 | Cleanup owner | Redis TTL；未激活的 Sa-Token 残留 mapping/session 按既有 TTL，Service 尽力清理单候选 token |
 
-当前应用 YAML 是 host/port Redis 配置，未见 cluster 配置。**本方案依赖同一个非 Cluster Redis primary**：finalize 脚本需要检查既有 Sa-Token mapping/revocation key，不能与当前不同 hash slot 的 Sa-Token keys 在 Redis Cluster 执行。实施时校验实际 connection factory；发现 Cluster 时 BLOCKED，不改写框架 key 或假称支持 Cluster。目标环境 Redis/SaTokenDao 必须指向同实例同 database；运行验证之前不声称已满足。
+**本方案依赖同一个非 Cluster Redis primary**：finalize 脚本需要检查既有 Sa-Token mapping/revocation key，不能与当前不同 hash slot 的 Sa-Token keys 在 Redis Cluster 执行。实施时校验实际 connection factory；发现 Cluster 时 BLOCKED，不改写框架 key 或假称支持 Cluster。目标环境 Redis/SaTokenDao 必须指向同实例同 database；运行验证之前不声称已满足。
 
 ### 4.1 Redis key/value schema
 
@@ -215,19 +179,19 @@ fresh profile 读取失败为500且状态不改；只有明确 USER_NOT_FOUND/�
 | 固定候选、恢复既有login、Lua提交激活与消费 | **选择**。最小增加v2 activation检查，使中间login不能提前成为有效Admin登录 |
 | MySQL事务/分布式锁包裹issue | 不解决跨存储Unknown Outcome或先签发的有效性；不选 |
 
-### 7.2 实际顺序
+### 7.2 固定候选的提交顺序
 
 1. 私有凭证验证并读取 CONFIRMED。若 CONSUMED，直接走下节 replay。fresh准入检查；已知失效只原子拒绝仍为CONFIRMED的会话。
-2. AdminTokenService 新增 `prepareQrCandidate(userId, sessionId, profile)`：使用**现有** AdminStpUtil.STP_LOGIC.createTokenValue 准备 token，包含服务端签名 extra `qrLoginV2SessionId=sessionId`；不调用 login、不写 HTTP Cookie/Header。构建具名登录 BO/profile快照与绝对 tokenExpiresAt（已有admin tokenTtl，默认8h）。
+2. AdminTokenService `prepareQrCandidate(userId, sessionId, profile)`：使用**现有** AdminStpUtil.STP_LOGIC.createTokenValue 准备 token，包含服务端签名 extra `qrLoginV2SessionId=sessionId`；不调用 login、不写 HTTP Cookie/Header。构建具名登录 BO/profile快照与绝对 tokenExpiresAt（已有admin tokenTtl，默认8h）。
 3. reserve script 原子写完整候选。只有保存的 token 允许 materialize；准备但未保存的token没有Sa-Token mapping/activation，不能访问管理端。未知reserve结果先read，**不能先对本地候选login**。
-4. AdminTokenService 新增 `materializeQrCandidate`：调用同一 AdminStpUtil.STP_LOGIC.login(userId, SaLoginParameter.setToken(savedToken))，继续既有8h策略、无lasting cookie，剩余TTL从冻结tokenExpiresAt计算，不延长截止；禁止重新调用issue或重新生成token。使用同 token 更新既有mapping/账号session，而不是新增独立身份。
+4. AdminTokenService `materializeQrCandidate` 调用同一 `AdminStpUtil.STP_LOGIC.createLoginSession`，用 `SaLoginParameter.setToken(savedToken)` 执行框架登录持久化路径，关闭 Cookie/Header 交付。剩余 TTL 从冻结 tokenExpiresAt 计算，不延长截止；使用同 token 更新 mapping/账号 session，不重新签发凭证。
 5. 无论login返回成功还是丢结果，按保存token显式查询既有Sa-Token mapping/session就绪状况。部分写可以通过同token恢复，失败返回500；对外仍CONFIRMED。恢复允许重复框架写/terminal历史计数，不承诺只调用一次Java login；承诺只有一个可用token和逻辑登录效果。
 6. 再查当前准入，finalize script一次校验deadline、status、candidateHash、该token的SaToken mapping/剩余TTL、revocation，写activation+CONSUMED+consumedAt。Sa-Token keys由框架公开key factory提供，不硬编码内部key格式；专用store用与SaTokenDao兼容的string值/serializer读取，不拿JSON template猜格式。脚本不能写SaSession序列化对象。
-7. 返回冻结结果前，AdminTokenService 显式验证savedToken的签名extra、mapping、activation、revocation、绝对tokenExpiresAt，以及当前准入。不得用请求上下文getTokenValue误拿小程序/Web Header中的token。v2只输出裸token；旧issue仍输出旧Authorization值。
+7. 返回冻结结果前，AdminTokenService 显式验证savedToken的签名extra、mapping、activation、revocation、绝对tokenExpiresAt，以及当前准入。不得用请求上下文getTokenValue误拿小程序/Web Header中的token。只输出裸 token，HTTP 消费者按共享契约构造 Authorization。
 
 ### 7.3 Activation 是有效性条件，不是第二种 token
 
-扩展已有 `AdminTokenService.requireValidLogin`：原Sa-Token checkLogin→可信已验签QR extra（仅v2 token有）→activation存在，userId/tokenHash匹配且未到tokenExpiresAt→既有revocation与当前准入。无marker的legacy token保留原路径。标记非法/activation丢失为未授权；Redis不可用为内部故障，不能当未激活miss。
+扩展已有 `AdminTokenService.requireValidLogin`：原Sa-Token checkLogin→可信已验签QR extra（仅v2 token有）→activation存在，userId/tokenHash匹配且未到tokenExpiresAt→既有revocation与当前准入。无 marker 的 Token 拒绝管理认证，不保留旧兼容路径。标记非法/activation丢失为未授权；Redis不可用为内部故障，不能当未激活miss。
 
 所有管理HTTP入口继续经过WebMvcConfig这个服务校验；admin permission仍是现有SaPermissionProvider。不能让直接Stp checkLogin/ContextInterceptor/新后台入口绕过activation。candidate token 即使框架mapping暂时存在，在项目管理认证边界也无效。候选失败不写Cookie/Authorization响应，不通过listener交付凭证。
 
@@ -259,7 +223,7 @@ Redis连接丢失不能判定已回滚；恢复前先读同session/candidate。R
 
 扩展WxClient最小方法 `generateMiniProgramCode(page, sceneCode, envVersion, checkPath)`，返回受限PNG bytes；不引入完整SDK或重写微信模块。访问 ma AppID/secret/getMiniAccessToken(false)，**不是mp**。目标provider调用为POST `https://api.weixin.qq.com/wxa/getwxacodeunlimit`，token仅provider query，body为具名page/scene等参数。
 
-page固定为Contract路径，scene原32字符，无URL编码包装；用户澄清确认页目前仅本地完成：`check_path` 由 Backend 配置持有，正式环境默认 true、dev 默认 false，可用 ADMIN_QR_LOGIN_CHECK_PATH 覆盖以生成未发布页面的开发/体验码。此决定取代原先固定 true 的内部实现限制；页面路径仍固定，客户端不能提供 page/check_path。环境由部署配置 `release/trial/develop` 允许集控制，不凭客户端传入。width初始430，opaque标准码。既有WebClient默认Accept JSON需在此请求适配为二进制/JSON错误均可接收。
+page 固定为 Contract 路径，scene 为原 32 字符，无 URL 编码包装；`check_path` 由 Backend 配置持有，正式环境默认 true、dev 默认 false，可用 ADMIN_QR_LOGIN_CHECK_PATH 覆盖以生成未发布页面的开发/体验码。页面路径仍固定，客户端不能提供 page/check_path。环境由部署配置 `release/trial/develop` 允许集控制，不凭客户端传入。width初始430，opaque标准码。既有WebClient默认Accept JSON需在此请求适配为二进制/JSON错误均可接收。
 
 复用connect5s、response/read/write10s与2MiB body上限；本次create整个token获取+生成链总deadline25s，token刷新一次也必须在同budget内。先按有限content-type/文件signature区分JSON错误与图像；允许可解码PNG/JPEG，必要时用Java17 ImageIO规范化为PNG（不改变page/scene内容）。先读取尺寸元数据并限制每边<=2048、总像素<=4Mi，再完整解码，输出PNG仍<=2MiB，防止小压缩体占用无界heap。不能把HTTP200 JSON错误/JPEG原始bytes直接标成image/png；其他格式/损坏内容拒绝。JSON错误只解析errcode等受控字段，不透传errmsg/body/token URL。
 
@@ -285,7 +249,7 @@ image GET仅PENDING/SCANNED、now<expiresAt；读取state和binary通过同原�
 
 ### 8.3 官方能力证据门槛
 
-本轮尝试读取[微信官方小程序码文档](https://developers.weixin.qq.com/miniprogram/dev/OpenApiDoc/qrcode-link/qr-code/getUnlimitedQRCode.html)及新版官方路径，工具返回不可读取；没有用第三方文章替代官方规格。本设计采用Contract确定的page/scene和目标API，不声称当前微信限制/QPS/环境可达已验证。**实现中的provider集成验收与启用v2 create前必须**读取届时官方文档、核对errcode/PNG/环境参数并真实调用验证目标AppID/分包页面；若发现与READY Contract冲突，BLOCKED并走contract协调，不自行改scene/页面。
+维护 provider 集成时核对 [微信官方小程序码文档](https://developers.weixin.qq.com/miniprogram/dev/OpenApiDoc/qrcode-link/qr-code/getUnlimitedQRCode.html)、目标 AppID/env/page、响应及错误语义；真实调用与设备验证单独记录。若与共享 Contract 冲突，明确阻塞边界并走契约协调，不自行改变 scene 或页面。
 
 ## 9. Polling、Expiry、Cancel
 
@@ -355,13 +319,7 @@ Replay保护：scene只允许手机绑定流程不能换token；其他subject无
 
 ## 12. Observability 与Audit
 
-复用HTTP `http.server.requests`（MVC模板URI、status、latency），不再建每operationHTTP计时。下面为**待实现/登记**的meter，不声称已存在；实施时在observability.md登记精确枚举和成本。
-
-| meter | 类型/有限tags | owner、成本、消费与移除 |
-|---|---|---|
-| `jualn.admin.qr.login.transition` | Counter；from/to为七状态允许边集合 | store提交成功后Service计数，幂等读不计；运维registry，v2退休时移除 |
-| `jualn.admin.qr.login.consume` | Counter；result=`committed,replayed,recovered,denied,conflict` | 每次consume观察结果；重复请求不是新登录数；O(1) |
-| `jualn.admin.qr.login.wechat.code.duration` | Timer；result=`success,failure`，error.category来自既有taxonomy有限集合 | WxClient一次生成链（含允许token refresh）；秒；复用registry，适配器退休时移除 |
+HTTP 指标复用 `http.server.requests`（MVC 模板 URI、status、latency），不另建每操作计时。扫码登录自定义 meter 的唯一登记在 [Observability §6.1](observability.md#61-当前自定义-meters)；本文不维护第二份 metric 名称或 tag 枚举。
 
 Counter进程内、提交后可能因crash少计，不作为审计truth。expiry只统计被请求lazy发现的迁移，不声称所有自然过期数量。首版无active-session Gauge、无Redis全量SCAN、无time-to-scan/confirm多套Timer；若运营需要再增加受控采集。
 
@@ -371,17 +329,17 @@ HTTP RequestLogFilter安装traceId；consume逻辑operationId可取稳定session
 
 ### 12.1 Audit Decision
 
-现有admin_operation_log及其Service只提供角色变更写入，不是通用登录审计能力。当前Contract/业务文档没有要求durable登录审计，因此本版保留脱敏登录事件与现有观测，**不创建QR专用表、不将普通log说成持久审计**。若后来确定合规/安全审计需求，应扩展admin/operation的action与service，记录内部user、WECHAT_QR、时间/结果/可靠client来源，并明确可靠投递/去重；该需求不能悄悄作为登录主链MySQL双存储依据。本轮不引入async audit。
+现有admin_operation_log及其Service只提供角色变更写入，不是通用登录审计能力。当前Contract/业务文档没有要求durable登录审计，因此本版保留脱敏登录事件与现有观测，**不创建QR专用表、不将普通log说成持久审计**。若后来确定合规/安全审计需求，应扩展admin/operation的action与service，记录内部user、WECHAT_QR、时间/结果/可靠client来源，并明确可靠投递/去重；该需求不能悄悄作为登录主链MySQL双存储依据。不因扫码登录自行引入 async audit。
 
 ## 13. 单一新流程与启用门槛
 
-2026-10-07 用户确认旧流程从未上线并授权删除。此决定取代本设计原先的并存/观测/弃用计划：仅保留 v2，删除旧 Controller 的 QR 操作、旧编排/状态/VO/存储脚本/配置、无 marker Token 兼容和小程序旧设置页扫码。me/logout 与 Token 撤销记录继续保留。
+仅保留新扫码登录流程；旧 QR 操作、状态/存储模型、无 marker Token 兼容和旧扫码调用已退出。me/logout 与 Token 撤销记录继续保留，所有管理认证入口遵守 activation。
 
-Web 新 adapter 与小程序新确认页已存在；用户已确认小程序 AppID 与确认页就绪，create 配置默认启用并复用 wx.ma；正式环境默认 release、dev 默认 develop，环境变量可覆盖。真实调用和端到端证据仍须单独报告。所有管理认证实例必须部署 activation gate，不能回退至绕过 gate 的版本。QR 有效期结束不撤销已消费 Token 的正常寿命。
+环境配置、确认页、Redis 拓扑/容量、Token 生命周期与恢复要求统一维护在 [运维手册 §12](operations/runbook.md#12-admin-扫码登录运行与恢复)，本文不重复维护部署检查点。
 
 ## 14. Testing Strategy 与验收证据
 
-使用[commands](../governance/commands.md)已有定向Java17/Wrapper流程，按Backend§9/Spring§12选验证，不从全仓测试开始。以下是后续必需测试计划，**本轮未实现/执行**。
+使用 [commands](../governance/commands.md) 的定向 Java 17/Wrapper 流程，按 Backend §9 / Spring §12 选择受影响验证边界。下表维护必须验证的性质，不记录历史执行结果。
 
 | 边界 | 必须证明的性质 |
 |---|---|
@@ -395,9 +353,9 @@ Web 新 adapter 与小程序新确认页已存在；用户已确认小程序 App
 
 并发使用latch/barrier而非任意sleep：100不同subject同时scan→恰一个boundUser；再100不同subjectconfirm→只有绑定者可确认；100同subjectconfirm→一个CONFIRMED迁移；100私有同sessionconsume→**同一个token/profile、一个activation、一个CONSUMED承诺**，不要求所有attempt都恰HTTP200（限流单独测试，机制测试适当配置预算）。同token materialization多次不能增加独立有效凭证。
 
-竞争矩阵至少confirm/reject、confirm/cancel、confirm/expire、consume/cancel、consume/expire、consume/revoke；loser不能覆盖终态。故障注入用独立process/代理在明确边界断连接/停进程，恢复读不能用mock猜。保存token以合成隔离数据验证，不打印值。Redis/MySQL测试必须独立本地disposable环境，不用业务/生产DB。Repository不存在完整v2测试，旧mock测试不替代此集合。
+竞争矩阵至少confirm/reject、confirm/cancel、confirm/expire、consume/cancel、consume/expire、consume/revoke；loser不能覆盖终态。故障注入用独立process/代理在明确边界断连接/停进程，恢复读不能用mock猜。保存token以合成隔离数据验证，不打印值。Redis/MySQL测试必须独立本地disposable环境，不用业务/生产DB。旧 mock 测试不能替代真实并发与恢复验证。
 
-### 14.1 Contract→实现入口→证据映射
+### 14.1 Contract 与内部入口映射
 
 | operationId | Controller→Service/持久化 | 后续验收重点 |
 |---|---|---|
@@ -409,47 +367,3 @@ Web 新 adapter 与小程序新确认页已存在；用户已确认小程序 App
 | rejectAdminQrLoginSession | reject→rejectSession→store.CAS | 本人SCANNED限定、幂等REJECTED、不覆盖CONFIRMED |
 | consumeAdminQrLoginSession | consume→consumeSession→AdminTokenService+store.reserve/finalize | 固定token/profile、一次有效登录、丢结果恢复/withdrawal/replay期限 |
 | cancelAdminQrLoginSession | cancel→cancelSession→store.CAS | 幂等当前状态、终态不删、不依赖unload |
-
-## 15. Implementation Sequence
-
-| 顺序 | 修改模块/新增职责 | 前置依赖 | 完成证据 |
-|---|---|---|---|
-| 1 | auth BO/DTO/VO/v2enum/converter、typed config、key factories | 固定Contract修订/本设计 | Unit projection/unknown属性/配置边界，与Contract examples对应 |
-| 2 | AdminQrLoginStore：publish/read/scenebind/confirm/reject/cancel/expiry；扩展AdminAuthCrypto | 1 | 真实Redis并发scan/状态/ownership/TTL/WRONGTYPE；不写全Lua框架 |
-| 3 | AdminTokenService准备固定token、materialize与explicitvalidation；store reserve/finalize/activation；logout gate | 1–2、本地1.45.0语义 | 真实Sa-Token+Redis固定token恢复、crash/cancel/expire、现有登录兼容；这是上线硬门槛，不能放到最后补救 |
-| 4 | WxClient/具名provider DTO新增ma PNG能力；配置env/page启用校验 | 1、官方provider规格核实 | mockHTTP二进制/JSON/timeout/tokenrefresh/no泄密；无SDK升级 |
-| 5 | AdminQrLoginService create/scan/confirm/reject/query/code/cancel/consume编排、限流 | 2–4 | Service语义+真实store组合，准入错误区分/候选不替换 |
-| 6 | 新Controller+局部请求验证、WebMvc精确鉴权、no-store/CORS/Problem适配 | 5、gate-aware AdminTokenService | 八path MVC/security matrix；API读取保持落库语义，裸token无旧包装 |
-| 7 | auth Counter/provider Timer/安全事件，observability.md登记；README/WeChat/可靠性事实必要联动 | 5–6 | Micrometer tag白名单、MDC作用域、日志脱敏；不建metrics API或审计表 |
-| 8 | 相关package测试、真实Redis/SaToken崩溃与并发、旧能力移除回归 | 2–7 | §14关键invariant、固定结果、终态保留、旧 routes 已移除；报告分边界PASS/FAIL/BLOCKED |
-| 9 | 部署全部gate-aware后端，Mini确认页先发布，再真实微信/三端联调enablev2 | 8、三owner交付 | 真实AppID/env/page/微信扫一扫/弱网恢复；Redis拓扑/容量/持久化/代理缓存校验 |
-| 10 | 未上线旧能力移除（用户已授权） | 新两端源码已就绪 | 删除旧接口及调用方，验证 activation 和 me/logout |
-
-没有DBDDL/DML或migration步骤，若后续确立durable audit新需求，先更新其业务authority再扩展该计划。
-
-## 16. Review Report 与本轮Completion Evidence
-
-| 项 | 结论 |
-|---|---|
-| A Contract Compatibility | 七状态、firstauthenticatedscanwins、独立privateHeader、PNG、裸token、错误/保留/安全恢复均按已READY Contract设计；无外部协议修改 |
-| B Existing Capability Reuse | UserService、AdminPermissionPolicy、AdminStpUtil/AdminTokenService、严格Redis/Lua模式、AdminAuthCrypto、WxClient ma凭据/WebClient、Micrometer/trace/Problem复用；媒体/COS不接入 |
-| C Storage Decision | Redis临时truth；用户权限MySQL；无replica/DB表；业务expiry与物理TTL分离 |
-| D Concurrency Decision | scan绑定CAS；confirm/reject状态CAS；reserve固定candidate+existinglogin恢复+Lua activation/CONSUMED原子承诺 |
-| E Credential Decision | 三独立随机值；scene/pollSecret hash-at-rest；固定token短期可恢复存储；日志/metric禁凭证 |
-| F WeChat Code Decision | 同步ma API，先PNG成功再publish；201对象+Header保护BackendURL；RedisPNG到expiresAt，不用COS |
-| G Failure/Recovery | timeout不判失败；同token恢复；cancel/expire未激活不能有效登录；replay期限/撤权/token失效禁止替代 |
-| H Observability | 现有HTTP+trace，三个低基数待登记meter和脱敏事件；不新增全套日志、Gauge或audit表 |
-| I Legacy Migration | 用户确认未上线，旧能力已直接移除；真实微信、页面发布与环境启用另验收 |
-| J Implementation Sequence | §15；consume机制必须先证实再做可启用HTTP流，不能只补controller200 |
-
-本轮交付仅内部设计和README入口，未改Contract/Java/配置/DDL/三端代码，未add/commit/push或操作生产/共享环境。
-
-| 本轮边界 | 状态与证据 |
-|---|---|
-| 来源/设计检查 | PASS：本地源码扫描、Sa-Token1.45.0字节码检查、Contract READY与四个输入SHA-256定位；此PASS不是provider实现验收 |
-| 文档检查 | PASS：本设计全部本地Markdown链接目标存在、八个canonical operationId覆盖、七状态覆盖、README入口；新文档及受影响README的diff/空白检查 |
-| Contract工具 | NOT RUN：未修改contracts；此前31/31通过仅为coordination记录，本轮没有重跑 |
-| Java/Redis/Sa-Token行为测试 | NOT RUN：本轮仅设计，尚无v2实现；§14是后续必需验证，不宣称并发/恢复已PASS |
-| 微信/部署/三端联调 | NOT RUN：真实调用、页面发布、生产拓扑与端到端未执行；官方微信页面在线读取失败，保留§8.3门槛 |
-
-**READY_FOR_IMPLEMENTATION**。没有已知Contract冲突需要重定义协议。真实微信provider文档/页面验证、Redis同primary拓扑以及全部服务gateaware rollout是实现验收/启用门槛；若实际条件不满足，按明确边界BLOCKED，不绕开本设计的correctness承诺。

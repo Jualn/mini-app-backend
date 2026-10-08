@@ -186,8 +186,9 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ExternalServiceException.class)
     public ResponseEntity<ProblemDetail> handleExternalService(ExternalServiceException exception) {
         ApiProblemCatalog.Definition definition = ApiProblemCatalog.forResultCode(exception.getResultCode());
-        log.error("result=failure errorCategory=remote provider={} code={} exceptionType={}",
-                exception.getProvider(), exception.getCode(), exception.getClass().getSimpleName());
+        log.error("result=failure errorCategory=remote provider={} code={} providerCode={} exceptionType={}",
+                exception.getProvider(), exception.getCode(), safeProviderCode(exception.getProviderCode()),
+                exception.getClass().getSimpleName());
         return problem(definition.status(), definition.type(),
                 definition.title(), exception.getClientMessage());
     }
@@ -217,6 +218,10 @@ public class GlobalExceptionHandler {
         log.error("result=failure errorCategory=internal exceptionType={}",
                 exception.getClass().getSimpleName(), exception);
         return internalError();
+    }
+
+    private String safeProviderCode(String code) {
+        return code != null && code.matches("[A-Za-z0-9_.-]{1,64}") ? code : "unknown";
     }
 
     private ResponseEntity<ProblemDetail> validationProblem(List<ValidationProblem> errors) {

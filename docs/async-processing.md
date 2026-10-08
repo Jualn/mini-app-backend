@@ -6,7 +6,7 @@
 
 当前目标是 Java 17、Spring Boot 3.5.13、MySQL 8.4、Redis、单体、Linux 单服务器、小规模和有限资源。本文不是通用消息平台设计，不引入 Kafka、RabbitMQ、Quartz、JobRunr、ShedLock、工作流引擎或 exactly-once 承诺。
 
-> 状态：仓库已完成 V17/V18、producer/consumer 切换和旧代码删除，并通过本地真实 MySQL/Redis 集成验证；目标环境迁移、部署、重启与灾难恢复演练仍未证明。第 16 节保留实施批次和环境验收边界。
+实现进度与发布结果记录在任务/发布证据中；当前部署确认与运行限制见 [运维手册](operations/runbook.md)。本文维护有效机制，不保留已完成实施批次。
 
 ## 1. 核心结论
 
@@ -65,45 +65,22 @@ Message 是版本化 wire contract，用于传输一个已存在的事件。Redi
 
 “可重建”必须有真实 durable source 和再次扫描入口；仅仅希望下一次能恢复不算可重建。
 
-## 3. Phase 1 — 当前异步场景盘点
+## 3. 当前异步职责
 
-以下是迁移设计开始时对旧实现的审计快照，用于保留迁移依据；不等于当前代码或生产部署证明。
-
-| 场景 | 创建者与当前事实 | 时效 / 外部效果 | 当前存储与消费 | 必须性与当前缺口 |
-|---|---|---|---|---|
-| 帖子、评论、用户资料文本/媒体审核 | 业务写入后创建 `content_audit_log` 预占记录，再由 `QueueProducer` 投递 `audit.text` / `audit.media.batch` | 可短暂延迟；调用微信审核；媒体审核还有异步 provider callback | Redis List `QUEUE_MAIN`，`BRPOP` 后线程池执行 Handler | 必须跨重启。after-commit 到 Redis 存在永久丢失窗；pop 后 crash 丢失；外部提交 timeout 可能 Unknown Outcome |
-| 单媒体审核与批量媒体审核 | Audit Handler 调用 `AuditService`；DB 中已有 audit log ID | 必须；微信外部副作用；回调可能迟到或缺失 | Redis List + 微信回调；trace binding 在 Redis，DB audit log 可部分回源 | 需要 Durable Job；回调更新需条件幂等；无 provider 查询能力时不能盲重发 unknown submission |
-| 审核通过后的评论/回复通知 | 审核 callback 构造 `NotifyPayload` 并入队 | 可延迟；站内通知必须，微信推送是附加外部效果 | Redis List -> `NotifyHandler` -> `notification` insert + Redis unread + 微信调用 | 站内通知无 dedupe；DB transaction 中混入 Redis/微信；commit/ACK 间重复会制造重复通知 |
-| 用户资料审核结果通知 | profile audit callback 构造 `NotifyPayload` | 同上 | 同上 | 同上 |
-| 活动/公共事项提醒计划 | 业务事务内写 `notify_plan(status=0, send_at)`，afterCommit 写 Redis ZSet；启动时扫描 pending 重投 | 必须按计划执行，允许分钟级延迟；fan-out 后可能微信推送 | MySQL `notify_plan` + Redis ZSet/body key；ZSet consumer 先 remove 再处理 | `notify_plan` 是部分 durable source，但两 Redis key 可部分成功、claim 后 crash 会丢；status=1 不能表达 partial fan-out |
-| 通知计划 fan-out | `broadcast.plan` 到期后分页查询用户，为每人向 Redis List 投 `NotifyPayload`，最后把 plan 标为已发 | 必须；允许批处理延迟 | Redis delay -> List -> per-user handler | 中途 crash 会部分发布；重跑会重复；无 durable cursor / recipient dedupe |
-| 个人站内通知 | `NotifyHandler` 插入 `notification`，修改 unread Redis counter | 用户可查询的业务事实 | MySQL notification + Redis derived counter | `notification` 是业务数据，不是 Message；需要稳定来源 dedupe。计数应由 DB 正确性主导、提交后更新或失效缓存 |
-| 微信服务号通知 delivery | 当前与 notification insert 同一方法内调用，异常被吞掉 | 外部写；允许按产品定义降级，但 outcome 可能 unknown | 无独立持久状态 | 应与 inbox record 分离为 delivery Job；retry 必须基于 provider 能力，不能默认重发 timeout |
-| 互动计数每 5 分钟回写 | `InteractCountSyncTask` 扫 Redis dirty/count 并更新 DB | 允许延迟；无第三方调用 | Spring `@Scheduled` 直接扫描 | 属于可重建/周期 repair，不为每个计数建 Job；仍需单独解决 dirty marker 与回写 crash/late write 的现有可靠性问题 |
-| 上传记录清理 | `MediaUploadCleanupTask` 每 10 分钟扫描过期 `media_upload_record` 并清理对象 | 允许延迟；COS delete 是外部副作用 | MySQL durable upload state + `@Scheduled` batch scan | 扫描触发可丢，事实可重建。保留 scheduler；每个清理状态和未知 COS 删除结果继续服从现有 media lifecycle / Reliability |
-| 文档导入与 AI extraction | HTTP 上传后提交 `aiTaskExecutor`，结果只经 SSE 返回；连接关闭/timeout 即取消 | 与连接同生命周期；用户可重新上传；不写业务事实 | 进程内 Future + SseEmitter | Ephemeral。不得伪装成 durable；若以后支持后台导入历史/状态查询，再单独建 Job |
-| 微信媒体审核 callback | provider 调用 HTTP callback，按 traceId 更新 DB 并执行业务 callback | provider 驱动；可能重复/迟到/缺失 | HTTP + Redis binding，DB audit log 回源 | 不是 Redis consumer。DB 条件更新承担幂等；pending 超龄扫描是 reconciliation candidate，不是普通 retry |
-| 活动报名成功后的副作用 | 当前 enrollment service 只持久化报名/订阅及通知开关，未发现“报名成功即异步通知”的已实现链路 | 当前无必须外部效果 | MySQL activity enrollment | 不凭示例虚构事件。以后若产品要求可靠副作用，在报名事务内创建 `activity.enrolled` Outbox，而不是 afterCommit 直接入 Redis |
-| 普通同步微信/COS/token 调用 | 请求线程内完成 | 用户等待，语义由具体接口决定 | 同步 WebClient / SDK | 不因存在远程调用就自动异步；仅在可延迟且需隔离/恢复时迁移到 Job |
-| Cache warmup / 普通派生缓存失效 | 当前未发现必须持久执行的独立任务 | 只影响性能 | Redis / 请求线程 | Ephemeral 或提交后 best-effort；不进入 Outbox / Job，除非产品正确性依赖它 |
-
-### 3.1 当前实现与迁移结果（2026-09-23）
-
-| 旧组件 / 场景 | 当前实现 | 代码迁移状态 |
+| 场景 | 持久事实与执行路径 | 保护边界 |
 |---|---|---|
-| `QueueMessage<T>`、自动类名 topic、Redis List Producer、`BRPOP` Consumer、dead List | `MessageEnvelope(topic, schemaVersion, messageId, createdAt, operationId?, payload)` + 显式 `EventHandler` registry | 已删除；生产代码引用为零 |
-| `audit.text` / `audit.media(.batch)` List 消息 | audit reservation 与 `async_job` 同事务；typed Job Handler 直接 claim | 已切换 |
-| 审核结果直接调用 callback | 审核结果条件更新与 `audit.completed` Outbox 同事务；Stream Handler 以 `(consumer_name,message_id)` 消费记录和 callback effect 同事务提交，成功后 ACK | 已切换；首条 Outbox -> Stream 纵向链路 |
-| `broadcast.plan` 与 reminder ZSet/body | `notify_plan` 与 `notification.plan.fanout` Job 同事务；取消使用 Job CAS | 已切换 |
-| `NotifyHandler` | `notification.source_key` UNIQUE；站内通知与 `notification.wechat-deliver` Job 同事务 | 已切换 |
-| Stream poison / unsupported delivery | `async_dead_message` 持久 terminal evidence，成功落库后 ACK；不保存 payload | 已切换（V19） |
-| 微信 delivery 在 inbox 事务内远程调用 | 独立 Durable Job；无法判定的远程写转 DEAD / manual recovery，不盲重发 | 已切换 |
-| Redis `consumerExecutor` | `jobExecutor` 与 `eventConsumerExecutor` 分责、均有界 | 旧 executor 已删除 |
-| AI 文档导入、计数回写、媒体清理 | 仍分别为连接内 ephemeral 或可重建 bounded scan | 按分类保留，不迁成 Job |
+| 审核提交 | audit reservation 与 async_job 同事务；typed Job Handler direct claim | provider unknown 不盲重发；结果回调由 audit 条件收尾 |
+| 审核结果传播 | audit 结果与 audit.completed Outbox 同事务；Stream Handler 的消费记录与业务效果同事务 | DB commit 后 ACK，重复 delivery 不重复效果 |
+| Reminder fan-out | notify_plan 与 fan-out Job 同事务；短批次生成 Notification | 计划 generation、lease/token、资格重检与稳定来源去重 |
+| Notification / Delivery | Notification、IN_APP 生效及外部 Delivery/Job 按本地事务边界提交 | 外部写在事务外，UNKNOWN 与 terminal repair 分责 |
+| Stream terminal evidence | async_dead_message 持久记录关联身份、错误分类与次数 | 不保存原始 payload；证据提交后才 ACK |
+| 媒体清理、互动计数投影 | durable source 与 bounded scheduled scan | 扫描触发不是持久事实；恢复能力须由真实源与认领/重扫机制证明 |
+| AI 文档导入 / SSE | 连接内 ephemeral executor | 断线取消，不承诺跨重启恢复 |
+| 用户资料图片检查 | 复用 audit Job/callback 保留审核结果；HTTP writer 有界等待后决定提交 | 迟到 Job 不自动提交资料，见 Runbook §13 |
 
-旧 List/ZSet 已由用户确认排空，旧 producer、consumer、startup rebuild、payload、key 常量和 List queue API 已删除。目标 Redis 环境中的物理旧 key 删除属于部署操作，本次未对未指明环境执行 `DEL`。生产数据库是否已执行 V17、线上 JAR 是否已切换仍须以环境证据确认。
+不保留 Redis List/ZSet producer、consumer 或 startup rebuild 作为目标执行路径。历史 Redis key 的实际处置属于指定环境的运维动作，不能由源码删除推导已清理。
 
-## 4. Phase 2 — 目标分类
+## 4. 目标分类
 
 | 业务场景 | 默认分类 | durable identity | 执行路径 | 幂等/恢复基准 |
 |---|---|---|---|---|
@@ -117,7 +94,7 @@ Message 是版本化 wire contract，用于传输一个已存在的事件。Redi
 | 互动计数同步、上传清理 | Reconstructable scheduled scan | 扫描 run 的 trace；无需逐条 jobId | Spring Scheduling -> bounded batch | durable source/dirty marker、条件更新；下次扫描恢复 |
 | SSE AI extraction | Ephemeral Async | importId 仅本次连接相关，不是 durable jobId | in-process executor | 断线取消、用户显式重试 |
 
-## 5. Phase 3 — 有价值的方案比较
+## 5. 有价值的方案比较
 
 ### 5.1 MySQL Job direct claim（选择为默认）
 
@@ -152,7 +129,7 @@ Job -> direct claim Worker
 
 当 Event Handler 识别出未来必须执行的 command 时，在 Handler 本地事务创建 Job。强制 `Outbox -> Job -> Message` 会把传播状态和执行状态混合，并增加无价值写入。
 
-## 6. Phase 4 — Target Architecture
+## 6. Target Architecture
 
 ```text
 HTTP / callback / domain service
@@ -210,9 +187,9 @@ infrastructure/async/
 - 不引入 ShedLock：Job claim 已提供并发安全；可重建 scheduler 用幂等扫描，当前单实例也没有额外锁需求。
 - 不引入 Kafka / RabbitMQ：没有多服务事件流、高吞吐、broker retention/replay 或复杂 routing 证据。
 
-## 7. Phase 5 — Schema 与状态机
+## 7. Schema 与状态机
 
-以下结构已经由 V17 落为可执行 migration；本节保留字段与状态设计说明。当前 checkout 已完成临时库 migration replay 和关键访问路径 `EXPLAIN`，目标环境 upgrade 仍须独立验证。
+持久字段与索引以 [Flyway migration](../src/main/resources/db/migration/) 为准；本节定义状态、认领和事务语义。重放、升级及访问路径的验证按实际变更执行，不保留旧 checkout 的执行结论。
 
 ### 7.1 `outbox_event`
 
@@ -377,7 +354,7 @@ cleanup 本身采用可重建 scheduled batch，每批有限行数；不创建�
 
 上述天数不是忽略业务引用的强制删除时间。通知关联 Job、Outbox 与 Notification 去重证据须一起满足 [通知 §7.6](reminder-notification.md#76-清理与去重窗口)：业务结果未收尾、人工处理未完成或仍允许 replay 时不得先清掉唯一恢复依据。超过保留窗口的历史重发不属于普通 retry。
 
-## 8. Phase 6 — Message Contract 与 Redis Streams
+## 8. Message Contract 与 Redis Streams
 
 ### 8.1 Envelope v1
 
@@ -423,7 +400,7 @@ Stream entry 可以把 envelope 字段展开为固定 field，`payload` 为 JSON
 | `broadcast.plan` | 历史 sourceType=3 兼容期仍由 `notification.plan.fanout` 消费；新系统广播 producer 尚未迁到独立直接 fan-out Job，不能继续把 ReminderPlan 当目标语义 |
 | 自动推导的 notify topic | 明确事件 handler 创建 notification；外部 delivery 为 Job |
 
-`notification.wechat-deliver` 在兼容窗口同时注册两个 schema version：v1 payload 仍携带旧收件人/类型/数据且不补写虚构 Delivery 结果；v2 payload 只携带 `deliveryId`，执行时重读 `NotificationDelivery + Notification` 冻结快照。2026-09-29 恢复既有服务号发送时，v1 因缺逐次 Delivery 历史按 UnknownOutcome 停止普通 retry，保持 reader 并等待 backlog/preflight 和受控处置，不随 v2 恢复自动重发。业务决定见 [WeChat §17](wechat-integration.md#17-恢复既有服务号订阅通知的决定2026-09-29)。确认 v1 Job 已处理且有明确终局后才能删除旧 decoder/handler。
+`notification.wechat-deliver` 的 v1 payload 仍携带旧收件人/类型/数据且不补写虚构 Delivery；v2 payload 只携带 `deliveryId`，执行时重读 `NotificationDelivery + Notification` 冻结快照。v1 缺逐次 Delivery 历史，按 UnknownOutcome 停止普通 retry，保持 reader 并由受控处置决定终局，不随 v2 或模板配置恢复自动重发。适用规则见 [WeChat §17](wechat-integration.md#17-服务号订阅通知适用范围)。确认 v1 backlog 为零或有明确终局后才能删除旧 decoder/handler。
 
 ### 8.3 Stream / group
 
@@ -529,7 +506,7 @@ Redis 完全丢失后：重建 group，再从 Outbox retention window replay PUB
 - 微信调用独立限制并发（初始 1–2），不占用 claim transaction。
 - 当前主要风险是 retry storm、fan-out 瞬时写放大、无限 Stream/表增长和长事务，而不是极端 TPS。
 
-## 11. Phase 7 — Failure Matrix
+## 11. Failure Matrix
 
 | 故障点 | durable / transport 状态 | 丢失或重复 | 恢复 owner 与机制 |
 |---|---|---|---|
@@ -570,98 +547,45 @@ Redis 完全丢失后：重建 group，再从 Outbox retention window replay PUB
 
 禁止把 messageId/jobId/operationId/userId/subjectId/异常文本作为 metric tag。具体实例写日志关联字段。正常每条消息不打 INFO；中间 retry 用 metric 或无堆栈 WARN；DEAD 由最终 owner 打一次 ERROR。
 
-## 13. Phase 8 — 历史实现迁移计划
+## 13. 兼容切换与回滚约束
 
-不采用长时间 dual-write。List 与 Stream/Job 同时执行同一 command 会放大重复；切换采用“新生产者单写 + 旧队列排空”的分段方式。下列步骤保留为实施记录；当前仓库已完成 producer switch 与 legacy code cleanup。
+重要异步意图以 MySQL durable source 为准，不长期 dual-write 到旧队列。版本切换须核对 producer、payload reader、Worker 和在途状态的兼容性；旧消息只有稳定业务身份与可追溯来源时才可受控恢复。
 
-### Expand
-
-1. 新增 `outbox_event`、`async_job` 及 notification source dedupe；不删除旧列或 Redis key。
-2. 实现 claim CAS、lease recovery、Envelope codec 和 context scope。
-3. 建 Stream/group、publisher、consumer/reclaimer；旧 List consumer 暂时仍运行。
-4. 增加 targeted integration tests、metrics 和受控 dead inspection 命令。
-
-### Migrate / switch
-
-5. 第一批 audit：audit reservation 与 Job 同事务；新 producer 停写 List。核对旧 `audit.*` 消息排空后关闭旧 topic。
-6. 第二批 inbox：notification source UNIQUE；event handler 本地事务写 inbox + optional delivery Job。comment/profile callback 依据真实事务 owner 选择 Outbox 或同事务直接记录。
-7. 第三批 reminder：保留 `notify_plan` 业务表，创建唯一 fan-out Job；停止写新 ZSet。旧 ZSet/body 全部核对到 DB 后停 delay consumer。
-8. 第四批微信 delivery：从 notification transaction 移除远程写，启用 job-specific unknown/recovery。
-
-### Drain / cleanup
-
-9. rollout window 内旧消息只用显式 legacy decoder，不让新 Envelope 假装兼容泛型 `QueueMessage<T>`。
-10. 按 topic、DB 状态和 dead item 核对旧 List/ZSet，不以“长度为 0”单独证明业务完成。
-11. 停旧 consumers/startup rebuild，保留一个发布周期的只读诊断。
-12. 取得环境授权后受控删除旧 Redis keys；不由 Flyway 自动删除。
-13. 删除 `QueueMessage<T>`、自动类名 topic、旧 adapter 和无用 executor。
-14. 更新部署/恢复文档；Flyway expand 与收缩 migration 分开发版。
-
-应用回滚不会撤销 Flyway。producer 切换后回滚旧 JAR 前必须核对旧版本能否理解新状态，不能依赖 Redis dual-write。
+应用回滚不会撤销 Flyway。回退前核对旧版本是否理解新状态、payload 与去重约束，不能恢复旧 List/ZSet producer 或依赖 Redis dual-write 规避数据兼容。移除旧 reader 前确认对应 backlog 已为零或有明确终局；运行操作见 [Runbook](operations/runbook.md)。
 
 ## 14. Migration 数据处理
 
-- 不修改已发布 V1–V16；使用下一个可用 Flyway version，创建新表并兼容新增 notification 字段。
+- 不修改已经进入永久环境的迁移；新增数据演进使用下一个可用 Flyway version，并明确 reader/writer 兼容。
 - 先查询目标环境 `flyway_schema_history`、真实结构和数据量；仓库文件不能证明生产版本。
 - `notify_plan status=0` backfill 为 Job 时使用 `dedupe_key=plan:{id}:fanout`，可重跑；status=1 不自动 replay。
 - `content_audit_log` PENDING 需区分未提交、已提交等待 callback、unknown。当前证据不足的记录不能全部自动建 submit Job，只生成 report/manual repair candidate。
 - 旧 Redis List/ZSet 只在切换窗口用于核对尚未反映到 DB 的 item；无法映射稳定业务身份的消息不得盲 replay。
 - backfill 分批、可重跑、带计数校验；DDL/DML 与应用开关分开。
 
-## 15. Phase 9 — Documentation 与权威边界
+## 15. Documentation 与权威边界
 
 - 本文是 Async Processing 唯一 Source of Truth；AGENTS 只负责把相关任务路由到本文，不复制规则。
 - Reliability 继续拥有 failure、retryability、Unknown Outcome、idempotency、compensation 和 reconciliation 的含义；本文只选择异步机制。
 - Observability 继续拥有 traceId / operationId / messageId / jobId、MDC、日志、metric 和 cardinality；本文只列接入点。
-- Flyway migration 是表结构的可执行事实；本文 SQL 在 implementation 前只是候选设计。
+- Flyway migration 是表结构的可执行事实；本文维护状态与机制含义，不维护第二份可重建 DDL。
 - 跨应用消息若未来出现，先进入 contracts；当前 Redis Stream 是本应用内部协议。
 - 运行参数、Redis/MySQL 实际版本、生产数据量、部署和告警必须以目标环境证据核验，不能由本文推断已上线。
 
-## 16. Phase 10 — Async Implementation & Migration Plan
+## 16. 验证边界
 
-### Batch 1：Foundation（不接业务流量）
+按受影响机制选择验证，不将已完成批次重新列为实施待办。命令与测试环境约束见 [commands](../governance/commands.md)。
 
-- Flyway expand：两张表和 notification dedupe foundation。
-- MyBatis mapper：due claim、conditional complete、lease recovery、cleanup。
-- Envelope v1、显式 registry、payload size limit、legacy decoder 隔离。
-- Streams adapter：group init、XADD、XREADGROUP、XACK、XPENDING/XAUTOCLAIM、safe trim。
-- Worker lifecycle：bounded executor、graceful stop、不在事务内 sleep。
-- 测试：空库 replay、现有库 upgrade fixture、真实 MySQL 双 worker claim、lease/stale-owner CAS、真实 Redis reclaim、context scope、unknown version/dead。
+| 机制 | 必须验证的性质 |
+|---|---|
+| 本地事务与 durable intent | 业务事实和 intent 同提交/同回滚；唯一约束及版本升级保持语义 |
+| Job ownership | 双 Worker claim、续租/过期恢复、旧 owner CAS 拒绝、最后一次 crash 的 terminal 收尾 |
+| Stream delivery | commit-before-ACK、重复 effect、PEL reclaim、unknown version/poison 的持久终局 |
+| Outbox publish | XADD unknown 使用同 messageId；恢复窗口与 retention 保持一致 |
+| fan-out / 取消 | 短批次、资格/generation/token 重验、部分结果恢复、从头重扫仍去重 |
+| 外部 Delivery | provider 调用前认领、迟到结果保护、UNKNOWN 不盲重发、受控 retry/cancel/accept |
+| 生命周期与容量 | 实例重启、graceful stop、积压推进、Redis 丢失后的受控 replay、索引和有界资源 |
 
-### Batch 2：Audit Job pilot
-
-- reservation + Job 同事务；payload 只含 auditLogId、scene、targetId 与最小执行快照。
-- text/media Handler 从 List 迁到 typed Job Handler。
-- 明确微信 API timeout、idempotency/status-query 和 unknown owner。
-- 测试：原子性、重复创建、provider call 前后 crash、callback duplicate、restart recovery、旧 List drain。
-
-### Batch 3：Notification event/inbox
-
-- 确认 comment/profile callback 的事务 owner；同事务创建 Outbox 或 notification intent。
-- notification source UNIQUE；inbox 与 delivery Job 同事务。
-- Stream consumer commit-before-ACK。
-- 测试：XADD unknown 同 messageId、commit/XACK fail、duplicate event、Redis flush + replay、unread cache。
-
-### Batch 4：Reminder/fan-out
-
-- `notify_plan` 与唯一 fan-out Job 一致提交；取消使用条件状态/Job CAS。
-- 每批最多 100 人并在批次边界重验计划/主体；recipient notification UNIQUE；cursor 仅作优化。
-- 测试：到期顺序、取消竞态、中途 crash、从头 replay、部分已存在、restart。
-
-### Batch 5：External delivery 与 recovery
-
-- 微信远程调用从 inbox transaction 拆出；目标形态以 `notification_delivery` 记录渠道状态并与 Job attempt 分离，按 provider contract 实现 retry 或 unknown/manual reconciliation。
-- pending audit callback 超龄扫描与 operator repair interface。
-- 测试：known 5xx、timeout unknown、status reconciliation、DEAD 停止、manual retry 审计。
-
-### Batch 6：Retire legacy
-
-- 核对 producer cutoff、旧队列 drain 和 DB reconciliation report。
-- 停删 List/ZSet consumers、startup rebuild、QueueMessage 和 dead List。
-- 受控删旧 Redis keys；更新运行/恢复文档。
-- 测试：旧引用为零、旧 key 无新写、重启只启动新 lifecycle、shutdown 释放资源。
-
-当前仓库已完成上述 Batch 1–6 所指的旧 List/ZSet 到 MySQL Async/Stream 基础设施切换与旧路径删除；这不代表 [Reminder、Notification 与 Delivery 设计](reminder-notification.md) 中新定义的业务 Policy、reconcile、`notification_delivery`、取消再校验和微信稳定快照已经实现。应用完整重启、Redis flush/replay、目标环境 migration 与生产 rollout 仍须按验证状态单独报告，不能由代码或本地局部集成推断为环境 PASS。
+数据库迁移完成、应用已部署与这些专项性质通过是不同证据边界；运行中系统仍需按实际变更验证。
 
 ## 17. When to use / when not to use
 
@@ -692,4 +616,4 @@ Redis 完全丢失后：重建 group，再从 Outbox retention window replay PUB
 - DEAD 后自动执行停止，由 operator 验证状态后 retry/cancel/accept。
 - 主要索引是 Outbox `(status,next_attempt_at,id)`、Job `(status,next_run_at,id)` 与 lease 索引。
 - 当前主要性能风险是 retry storm、fan-out burst、无限增长和长事务，不是极端 TPS。
-- List 迁移先建 foundation，再按 audit/notification/reminder 单 producer switch，排空核对后删除，不做无条件双写。
+- 版本切换保持单一 producer；旧 reader 的移除需要 backlog 与兼容证据，不做无条件双写。

@@ -16,6 +16,8 @@ import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.module.activity.bo.AdminActivitySaveBO;
+import cn.jualn.miniapp.module.eventcontent.bo.EventActionBO;
+import cn.jualn.miniapp.common.exception.ContractProblemException;
 import cn.jualn.miniapp.module.activity.converter.AdminActivityConverter;
 import cn.jualn.miniapp.module.activity.converter.ActivityConverter;
 import cn.jualn.miniapp.module.activity.entity.Activity;
@@ -42,6 +44,12 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.Arguments;
+import java.util.stream.Stream;
+import java.util.stream.IntStream;
 
 class ActivityFormVersionServiceTest {
     private static final long ACTIVITY_ID = 17L;
@@ -185,6 +193,87 @@ class ActivityFormVersionServiceTest {
         verify(activities, never()).update(any(), any());
         verify(activities, never()).initializeFormVersionIfAbsent(anyLong(), any());
         assertEquals(FORM_VERSION, before.getFormVersion());
+    }
+
+    @ParameterizedTest
+    @MethodSource("externalParticipationModesAndTypes")
+    void publishesExternalParticipationWithAnyLegalActionType(int mode, int type) {
+        Activity draft = activity(0, mode, null);
+        when(activities.selectForUpdate(ACTIVITY_ID)).thenReturn(draft);
+        when(timelines.listTimelinesByTarget(TargetType.ACTIVITY, ACTIVITY_ID)).thenReturn(registrationTimeline());
+        when(content.actions(TargetType.ACTIVITY, ACTIVITY_ID)).thenReturn(List.of(participationAction(type)));
+        String version = mode == 4 ? FORM_VERSION : null;
+        when(activities.publishDirectly(ACTIVITY_ID, version)).thenReturn(1);
+
+        service.publishAdminActivity(ACTIVITY_ID, 9L);
+
+        verify(activities).publishDirectly(ACTIVITY_ID, version);
+    }
+
+    @ParameterizedTest
+    @MethodSource("externalParticipationModesAndTypes")
+    void publishedEditAcceptsAnyLegalActionType(int mode, int type) {
+        String version = mode == 4 ? FORM_VERSION : null;
+        when(activities.selectForUpdate(ACTIVITY_ID)).thenReturn(
+                activity(1, mode, version), activity(1, mode, version));
+        when(timelines.listTimelinesByTarget(TargetType.ACTIVITY, ACTIVITY_ID)).thenReturn(registrationTimeline());
+        var actions = List.of(participationAction(type));
+        when(content.actions(TargetType.ACTIVITY, ACTIVITY_ID)).thenReturn(actions);
+        var command = command(mode);
+        command.setActions(actions);
+
+        service.updateAdminActivity(command);
+
+        verify(content).saveActions(TargetType.ACTIVITY, ACTIVITY_ID, actions);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {3, 4})
+    void publishRejectsExternalParticipationWithoutAnAction(int mode) {
+        when(activities.selectForUpdate(ACTIVITY_ID)).thenReturn(activity(0, mode, null));
+        when(timelines.listTimelinesByTarget(TargetType.ACTIVITY, ACTIVITY_ID)).thenReturn(registrationTimeline());
+        when(content.actions(TargetType.ACTIVITY, ACTIVITY_ID)).thenReturn(List.of());
+
+        var problem = assertThrows(ContractProblemException.class,
+                () -> service.publishAdminActivity(ACTIVITY_ID, 9L));
+
+        assertEquals("/problems/publish-validation-failed", problem.getType());
+        verify(activities, never()).publishDirectly(anyLong(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {3, 4})
+    void publishedEditRejectsRemovingAllExternalParticipationActions(int mode) {
+        String version = mode == 4 ? FORM_VERSION : null;
+        when(activities.selectForUpdate(ACTIVITY_ID)).thenReturn(
+                activity(1, mode, version), activity(1, mode, version));
+        when(timelines.listTimelinesByTarget(TargetType.ACTIVITY, ACTIVITY_ID)).thenReturn(registrationTimeline());
+        when(content.actions(TargetType.ACTIVITY, ACTIVITY_ID)).thenReturn(List.of());
+        var command = command(mode);
+        command.setActions(List.of());
+
+        var problem = assertThrows(ContractProblemException.class, () -> service.updateAdminActivity(command));
+
+        assertEquals("/problems/publish-validation-failed", problem.getType());
+    }
+
+    @Test
+    void externalDraftMayBeSavedWithoutAnAction() {
+        when(activities.selectForUpdate(ACTIVITY_ID)).thenReturn(activity(0, 3, null), activity(0, 3, null));
+        service.updateAdminActivity(command(3));
+        verify(content).saveActions(TargetType.ACTIVITY, ACTIVITY_ID, List.of());
+    }
+
+    private static Stream<Arguments> externalParticipationModesAndTypes() {
+        return IntStream.of(3, 4).boxed().flatMap(mode ->
+                IntStream.rangeClosed(1, 8).mapToObj(type -> Arguments.of(mode, type)));
+    }
+
+    private EventActionBO participationAction(int type) {
+        String url = type == 3 ? "mailto:office@example.test"
+                : (type == 2 || type == 8) ? null : "https://example.test/participate";
+        return EventActionBO.builder().actionKey("participate").actionType(type).label("参与入口")
+                .description("按说明完成参与步骤").targetValue(url).sortOrder(0).build();
     }
 
     private AdminActivitySaveBO command(int registrationMode) {
