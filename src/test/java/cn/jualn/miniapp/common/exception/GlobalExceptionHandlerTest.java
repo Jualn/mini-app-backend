@@ -126,6 +126,21 @@ class GlobalExceptionHandlerTest {
         }
     }
 
+    @Test
+    void providerCodeCannotInjectLogLinesOrUnboundedText() {
+        GlobalExceptionHandler handler = new GlobalExceptionHandler();
+        for (String code : new String[]{"40029\nsecret=injected", "x".repeat(65), "${jndi:ldap://example.invalid}"}) {
+            handler.handleExternalService(new ExternalServiceException(
+                    ResultCode.WX_API_ERROR, "wechat", code, "synthetic-secret"));
+        }
+        assertEquals(3, errorLogCount());
+        for (ILoggingEvent event : logAppender.list) {
+            org.junit.jupiter.api.Assertions.assertTrue(event.getFormattedMessage().contains("providerCode=unknown"));
+            assertFalse(event.getFormattedMessage().contains("secret"));
+            org.junit.jupiter.api.Assertions.assertNull(event.getThrowableProxy());
+        }
+    }
+
     private long errorLogCount() {
         return logAppender.list.stream()
                 .filter(event -> event.getLevel() == Level.ERROR)

@@ -45,7 +45,8 @@
 | auth、wx、content | 认证、微信回调、内容能力编排；wx 负责微信身份/模板/provider 适配，不得绕过数据所有者写表或读取 Activity/PublicEvent Mapper |
 
 跨模块只依赖对方公开 Service 接口和其提供的 BO/标量，不引用对方 Mapper、Entity、Controller 模型或 Converter。
-微信接入的目标分工见 [WeChat §10](wechat-integration.md#10-整个微信接入的目标结构)：`third/wx` 承担 provider 协议、凭据与纯映射，`module/wx` 承担入口和应用编排，现有用户微信标识的持久化仍归 user；third 层不反向依赖业务模块编排或持久模型。现有偏离按微信整理批次处理，不表示已完成迁移。
+微信接入的目标分工见 [WeChat §10](wechat-integration.md#10-整个微信接入的目标结构)：`third/wx` 承担 provider 协议、凭据与纯映射，`module/wx` 承担入口和应用编排，现有用户微信标识的持久化仍归 user；third 层不反向依赖业务模块编排或持久模型。发现实现偏离时在受影响链路修正，不从旧实施批次推导当前状态。
+管理端 content/audit 的跨表聚合 Mapper 仅承担受控只读投影；任何目标写入仍委托数据所有者 Service，不因聚合查询例外扩大跨模块写权限。
 共享子资源由其所属 Service 处理；活动/公共事项主体负责业务资格及组合用例，不能因为一张表被共享使用就形成多个写入所有者。
 
 Activity 与 PublicEvent 分别拥有自己的 Reminder Policy、Rule Catalog 和业务 Notification Factory；notify 只拥有通用 reconcile、计划、Notification、Category × Channel Preference、Recipient/Delivery 编排。Timeline 提供业务时间事实，Async Job 提供执行状态，WeChat Integration 只消费渠道无关快照。正式渠道为 `IN_APP/WECHAT_MINI_PROGRAM/WECHAT_OFFICIAL_ACCOUNT`，两个微信渠道拥有独立 Capability。完整依赖和状态边界见 [Reminder、Notification 与 Delivery 设计](reminder-notification.md) 与 [WeChat Integration](wechat-integration.md)。
@@ -123,7 +124,7 @@ Q0/Q1/Q3 不使用 SELECT *。XML 优先显式列字段；完整 selectById 只�
 - 认证继续使用 Sa-Token。普通请求从 UserContext 等服务端上下文取得身份；管理请求使用独立 AdminStpUtil。需要的 operatorId/reason 显式传给用例。
 - 对外错误由 GlobalExceptionHandler 统一适配为 RFC 9457 Problem Details，并使用真实 HTTP 4xx/5xx 状态；成功响应仍由各接口契约决定，不强制统一包装。可预期业务拒绝使用 BusinessException，外部集成失败按 ExternalServiceException 分类；ResultCode 仅是内部分类，必须在 Web 边界显式映射为稳定 problem type，不能直接成为公共协议。
 - Converter 和 HTTP 层按对应协议输出；不将现有 Result<T> 包装强加给所有新契约。
-- Redis 通过 infrastructure/cache 下的 RedisService 使用，键定义集中在 RedisKeyConstant；数据模块负责相关缓存的写入与失效。
+- 普通派生缓存通过 infrastructure/cache 下的 RedisService 使用，键定义集中在 RedisKeyConstant；数据模块负责相关缓存的写入与失效。认证 session、ownership 等 correctness 状态使用所属机制的严格 Store，Redis 错误不得按普通 cache miss 降级；扫码登录设计见 [Admin QR Login](admin-qr-login.md)。
 - 普通数据库派生缓存采用提交后失效、读未命中回填。失败收敛与可接受陈旧范围遵循 Backend §2；协调锁和幂等状态不属于可随意降级的普通缓存。
 - 提交后回调只解决执行顺序，关键消息/外部效果的持久性仍按 Backend §5 设计；不把“提交后入队”写成可靠送达保证。
 - ReminderPlan、Notification、NotificationDelivery 是业务/应用持久事实，不能用 AsyncJob 或 Redis 消息代替；计划/Job 和 Notification/Delivery/Job 能在同一 MySQL 事务创建时不增加 Outbox。IN_APP Delivery 本地完成，微信远程调用在事务外执行并分别回写 Mini Program / Official Account Delivery 状态。

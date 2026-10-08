@@ -221,7 +221,7 @@ Broad dependent inspection and compatibility analysis required.
 | Messaging delivery/recovery rules | Messaging Standard | producer/consumer/state implementation |
 | Reminder / Notification / Delivery semantics | `docs/reminder-notification.md` | business policies, intent generation/expiry, recipient timing, Timeline semantic preflight, expand/preflight/owner gates, notify services, preference/inbox/delivery tables, async ownership/terminal repair, WeChat mapping, retention/replay, runbook and implementation handoff |
 | WeChat capability/account/message-product boundary and enablement evidence | `docs/wechat-integration.md` | account/config references, identity/permission/template adapters, callback routing, delivery handler, `WxClient`; inspect affected auth/audit/notify owners and environment evidence; COS remains separate |
-| Authentication/authorization mechanism | Security Standard | security config/filter/service implementation |
+| Authentication/authorization mechanism | root AGENTS routing; project auth selection in `docs/architecture.md`; QR internal protocol in `docs/admin-qr-login.md`; external protocol in contracts | security config/filter/service implementation, strict Redis Store, activation and revocation, scoped MVC/Redis tests; inspect runbook configuration/recovery |
 | Project dependency direction | Project Architecture | modules/packages/dependencies |
 | Production runtime/deployment policy | Operations | Compose/Nginx/system config/deploy scripts |
 | Exact recurring command | `commands.md` | shell/Maven/Docker invocation |
@@ -1125,7 +1125,7 @@ Do not create a diff merely to prove inspection happened.
 | Accepted API Contract | Controller, DTO, serialization, validation, errors, clients, contract tests |
 | Business invariant | service/domain, DB, concurrency, auth, cache, messaging, tests |
 | Reminder / Notification / Delivery semantics | Activity/PublicEvent policy, Timeline/intent identity, recipient timing, notify plan/inbox/delivery schema, Job ownership/terminal repair, WeChat mapping, retention/runbook, handoff acceptance and tests |
-| WeChat integration | target dependency/owner boundaries, account/credential lifecycle, identity/permission, OAuth/state, callback routing/ACK, template/config, Delivery result classification, client, secrets, observability, compatibility/tests; `docs/WECHAT_REFACTOR_PROMPT.md` only routes execution, not a second authority |
+| WeChat integration | `docs/wechat-integration.md`: target dependency/owner boundaries, account/credential lifecycle, identity/permission, OAuth/state, callback routing/ACK, template/config, Delivery result classification, client, secrets, observability, compatibility/tests; execution commands in commands, operational recovery in runbook |
 | Java baseline | build, Spring baseline, CI, runtime image, commands, code |
 | Spring Boot baseline | Java, BOM, configuration, framework integration, tests, deployment |
 | DB schema | migrations, SQL/mappers, constraints/indexes, tests, deployment |

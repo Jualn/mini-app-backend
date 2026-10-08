@@ -122,7 +122,7 @@ CI 另有临时 MySQL 上的 Flyway migrate/validate；具体参数以 workflow 
   -TestNames @('NotificationCenterDatabaseTest','NotificationCenterMvcTest','NotificationStreamCursorCodecTest','ReminderOccurrenceTest','NotifyServiceImplTest','NotificationDeliveryServiceImplTest','CanonicalNotificationCapabilityTest','LikeNotificationProducerTest','ActivityServiceImplTest','ExamServiceImplTest','WxMpNoticeSendServiceTest')
 ```
 
-该 URL 只是本轮隔离环境示例，数据库须已完整执行 V1–V28。`NotificationUpgradeDatabaseTest` 单独使用 `notification_contract_upgrade` 专用 schema：先迁移到 V25，加载 `src/test/resources/notification-v25-upgrade-fixture.sql`，再迁移到 V28。测试会验证明确编号的 synthetic fixture；不能在真实业务库运行。完整本轮测试集合、结果与 Flyway replay/upgrade 边界见 [实现报告](../docs/notification-contract-implementation.md)。Redis 与微信在这些测试中使用替身；数据库测试使用真实 MySQL、Mapper 与 Spring 事务代理。
+该 URL 仅为隔离环境示例，数据库须已完整执行测试所需迁移。`NotificationUpgradeDatabaseTest` 单独使用 `notification_contract_upgrade` 专用 schema：先迁移到 V25，加载 `src/test/resources/notification-v25-upgrade-fixture.sql`，再迁移到 V28。测试会验证明确编号的 synthetic fixture；不能在真实业务库运行。升级语义与恢复限制见 [数据库说明](../src/main/resources/db/README.md)。Redis 与微信在这些测试中使用替身；数据库测试使用真实 MySQL、Mapper 与 Spring 事务代理。
 
 本仓库没有 Compose 文件，不登记 COMPOSE-* 命令。后续采用 Compose 时再按真实服务名和卷定义补充。
 直接启动应用、数据库迁移/备份/恢复、Redis 清理和生产发布，先检查环境、脚本、恢复范围及已有授权；不提供可盲跑的通用命令。
@@ -130,20 +130,20 @@ CI 另有临时 MySQL 上的 Flyway migrate/validate；具体参数以 workflow 
 
 变更常用命令时同步检查 AGENTS、CI、工具和引用文档，报告命令、退出码、目标环境与未验证范围。
 
-## Completion evidence
+## 专项验证入口
 
 ### Admin QR Login v2 focused validation
 
-复用 `tools/validate-event-information.ps1`，显式选择 `AdminQrLoginRedisTest,AdminQrLoginMvcTest,WxMiniProgramCodeTest,GlobalExceptionHandlerTest`。Redis 测试仅从 `admin.qr.test.port` 接收一次性 loopback Redis；未提供时跳过，不能报告 Redis PASS。`admin.qr.test.container=jualn-admin-qr-v2-test` 显式允许测试重启本次创建的同名 AOF 容器；不能替换为业务容器。测试不读取应用 Redis/MySQL 配置，微信使用 loopback 模拟 HTTP，独立 JVM 崩溃使用 synthetic 数据。具体命令、执行证据、普通 testCompile 阻塞和上线门槛见 [实现记录](../docs/admin-qr-login-v2-implementation.md)。
+复用 `tools/validate-event-information.ps1`，显式选择 `AdminQrLoginRedisTest,AdminQrLoginMvcTest,WxMiniProgramCodeTest,GlobalExceptionHandlerTest`。Redis 测试仅从 `admin.qr.test.port` 接收一次性 loopback Redis；未提供时跳过，不能报告 Redis PASS。`admin.qr.test.container=jualn-admin-qr-v2-test` 显式允许测试重启本次创建的同名 AOF 容器；不能替换为业务容器。测试不读取应用 Redis/MySQL 配置，微信使用 loopback 模拟 HTTP，独立 JVM 崩溃使用 synthetic 数据。运行与恢复限制见 [运维手册](../docs/operations/runbook.md#12-admin-扫码登录运行与恢复)；本节登记验证方法，不记录历史执行结果。
 
 ### User/Profile focused validation
 
 复用 `tools/validate-event-information.ps1` 并显式选择 `EffectiveProfileDatabaseTest,EffectiveProfileMvcTest,UserProfileUpdateTest,UserServiceImplRoleChangeTest,UserServiceImplAdminCursorTest,MediaServiceImplTest,ProfileSafetyCheckTest,ProfileCallbackIsolationTest,LikeOwnershipTest,MediaProfileSnapshotTest,ProfileMediaCallbackTest,AuditResultPersistenceServiceTest,AuditCompletedEventHandlerTest`。
-数据库测试只接受 `jdbc:mysql://127.0.0.1:<port>/user_profile_contract_*` 的专用一次性数据库（已执行 V1–V29），使用 root/空密码并提交 synthetic fixture；没有 JdbcUrl 时会跳过，不得报告数据库 PASS。测试替换微信、COS、Redis；真实 MySQL/Mapper/Spring 事务和并发验证边界见 [实现报告](../docs/user-profile-contract-implementation.md)。
+数据库测试只接受 `jdbc:mysql://127.0.0.1:<port>/user_profile_contract_*` 的专用一次性数据库（已执行测试所需迁移），使用 root/空密码并提交 synthetic fixture；没有 JdbcUrl 时会跳过，不得报告数据库 PASS。测试替换微信、COS、Redis，使用真实 MySQL/Mapper/Spring 事务验证资料原子生效与并发；不证明真实 provider、鉴权或设备展示。
 
-协调工作区的消费者 HTTP 验证可选 `EffectiveProfileMvcTest,ProfileConsumerHttpTest,ProfileSafetyCheckTest,ProfileCallbackIsolationTest`。ProfileConsumerHttpTest 需 Node 和相邻 `../mini-program/scripts/test-profile-http-flow.mjs` 及其已安装依赖；缺消费者脚本会跳过。测试自动启动并停止 loopback HTTP 服务，经真实客户端 Page/Action/Store/Service/request 与后端 MVC 验证 POST；UserService、平台、鉴权和媒体为替身，不证明数据库或微信/COS 联调。2026-10-07 17:26:35 上述 13 项全部通过且无跳过。
+协调工作区的消费者 HTTP 验证可选 `EffectiveProfileMvcTest,ProfileConsumerHttpTest,ProfileSafetyCheckTest,ProfileCallbackIsolationTest`。ProfileConsumerHttpTest 需 Node 和相邻 `../mini-program/scripts/test-profile-http-flow.mjs` 及其已安装依赖；缺消费者脚本会跳过。测试自动启动并停止 loopback HTTP 服务，经真实客户端 Page/Action/Store/Service/request 与后端 MVC 验证 POST；UserService、平台、鉴权和媒体为替身，不证明数据库或微信/COS 联调。
 
-2026-10-07 本机 Wrapper 在 Windows PowerShell 的 `(Get-Item $MAVEN_M2_PATH).Target[0]` 处启动失败。此次采用 `.mvn/wrapper/maven-wrapper.properties` 所固定的、已缓存的 Maven 3.9.14 分发配合明确 Java 17 路径；没有修改 Wrapper 或调用全局 Maven。该记录不是其他机器的默认入口。
+若 Windows PowerShell Wrapper 在 `(Get-Item $MAVEN_M2_PATH).Target[0]` 处启动失败，可在确认同一故障后使用 `.mvn/wrapper/maven-wrapper.properties` 固定版本的已缓存 Maven 分发，并显式选择 Java 17；不要把其他机器的历史故障当作默认跳过 Wrapper 的理由。
 
 按 Backend §9.11 的状态语义报告实际边界；省略不相关项，不机械填写所有层级。示例只展示格式：
 

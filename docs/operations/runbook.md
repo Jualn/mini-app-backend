@@ -2,6 +2,10 @@
 
 本手册的命令与 endpoint 只引用当前仓库已有名称；尚待实现的通知恢复流程在 §11 显式标注，不作为已具备的运行能力。默认日志目录来自 `LOG_DIR`（默认 `/app/mini-app/logs`）；数据库和 Redis 命令应在已建立安全连接且目标环境已确认后执行，命令中的表名/stream/group 是当前真实名称。
 
+## 0. 当前部署确认与证据边界
+
+2026-10-08 用户确认：当前 SQL 迁移已执行，项目已部署并运行在服务器上。本次文档维护未访问服务器。数据库版本、运行配置与专项验收仍分别记录，部署运行不推导所有模板、设备、容量或故障演练均已验证。
+
 ## 1. First response
 
 1. 请求 `GET /actuator/health/liveness`：失败表示进程或应用生命周期异常。
@@ -103,6 +107,12 @@ FROM async_dead_message ORDER BY last_seen_at DESC,id DESC LIMIT 50;
 - 明确 5xx 未接受且 handler 幂等时才按 durable backoff retry；timeout/connection loss 的远程写是 unknown，进入 DEAD/manual reconciliation。
 - retry 只记录无堆栈 WARN 和 counter；terminal/unknown 在最终 owner 记录一次完整 ERROR 并持久化 DEAD。
 
+### 8.1 微信登录异常与凭据泄漏
+
+微信异常日志中的 `code` 是项目 ResultCode，`providerCode` 才是供应商错误码；`unknown` 表示缺失或未通过日志安全检查，不能由 `code=1000` 推断微信故障原因。用 `traceId` 关联请求，不开启完整 URL、body 或异常 message 日志获取细节。
+
+如果已有日志包含 AppSecret，代码修复不能撤销泄漏：保留受限访问的取证副本，在微信后台轮换对应账号 AppSecret，同步生产秘密配置并按既有部署流程更新应用；检查旧 token 缓存及相关登录/取 token 能力。限制日志副本和附件传播，按既有保留策略处理。JNDI 探测字符串本身不是执行成功证据，应结合生产依赖、访问日志与异常外连核实。
+
 ## 9. Correlation path
 
 ```text
@@ -120,11 +130,11 @@ HTTP traceId
 
 本机无已登记的一键故障注入环境。Redis stop/restart、Worker stop、远程 5xx、MySQL stop 的真实演练必须在明确的一次性本地或非生产目标执行，并记录：开始状态、注入动作、meter/log/DB 证据、恢复动作、backlog 归零和残留 DEAD。生产或共享环境不得用本手册推导授权。
 
-当前 checkout 的已验证范围、复现命令与未执行风险见 [Failure & Performance Verification](failure-performance-verification.md)。验证快照不能替代目标环境事实。
+验证方法见 [commands](../../governance/commands.md)。每次演练的结果与证据记录在对应任务或发布记录中，不以旧验证快照代表当前目标环境。
 
 ## 11. 通知未出现、延迟或渠道失败
 
-本节是目标排障/恢复流程。现有表可用于只读核对；terminal repair、人工处置审计与 CLI 是否已实现须按当前交接核验，不能把流程描述当作可执行入口。尤其 `JobService.manualRetryDead` 不等于 UNKNOWN 可以重发。
+本节是目标排障/恢复流程。现有表可用于只读核对；terminal repair、人工处置审计与 CLI 是否已实现须核对当前应用入口，不能把流程描述当作可执行入口。尤其 `JobService.manualRetryDead` 不等于 UNKNOWN 可以重发。
 
 按如下顺序核对，不以 Job SUCCEEDED 证明用户收到：
 
@@ -151,3 +161,23 @@ GROUP BY channel,status;
 处置须记录 operator、对象、依据、动作和结论，不只依赖可能丢失的普通日志。若还没有受控入口/持久处置证据，报告恢复 BLOCKED，先实现最小应用服务/CLI；不手工批量改表、不 replay all、不要求新增公开管理 HTTP API。取消剩余工作不删除已经生成的站内消息。清理前核对 [通知去重窗口](../reminder-notification.md#76-清理与去重窗口)，未知结果和未完成恢复不得被清理抹去。
 
 完成检查包括业务结果终局/明确待处理结论、Job 状态、backlog 推进、残留 UNKNOWN/DEAD 与去重不变量。恢复不是要求所有状态变成 SUCCEEDED，也不承诺 UNKNOWN 最终一定能证明真实送达。
+
+## 12. Admin 扫码登录运行与恢复
+
+内部协议见 [Admin QR Login 内部设计](../admin-qr-login.md)，对外语义见 [共享契约](../../../contracts/docs/coordination/admin-qr-login.md)。仅保留新流程，所有承接管理 Token 的实例必须使用 activation gate；不能回退至绕过 gate 的版本。Redis 会话或 Sa-Token mapping 丢失后重新扫码，不从数据库或内存重建旧授权。
+
+QR Store 不支持 Redis Cluster；QR 与 Sa-Token 必须使用同一 connection factory/database。核对目标 primary/failover、ACL、持久化和内存，不允许认证 key 不受控淘汰。consume 恢复使用原会话保存的固定 token/profile；UNKNOWN 不能换 token。QR 到期禁止新兑换和重放，不撤销已消费 Token 的正常寿命。
+
+配置 `admin-auth.qr-login-v2.enabled` 默认 true；AppID 复用 wx.ma。正式环境 env-version 默认 release，dev 默认 develop，`ADMIN_QR_LOGIN_ENV_VERSION` 可覆盖。确认页固定 `subpkg_setting/pages/admin-login-confirm/index`，需核对目标 AppID/env/page 和实际页面发布；dev 默认 check-path=false，正式环境默认 true，`ADMIN_QR_LOGIN_CHECK_PATH` 可覆盖。生成码成功不等于真机页面可打开。
+
+session TTL 不超过 5 分钟，终态保留至少到 expiresAt 后 5 分钟，poll interval 至少 1000ms，Admin Token TTL 必须覆盖恢复。核对 Web origin、私有 Header、JSON/PNG/错误响应与代理的 no-store。默认全局 60 create/min、2 分钟图像 TTL、最大 2MiB PNG 的理论图像预算约 240MiB；按真实码大小和可用 Redis 内存调整额度，不能据本地测试认定生产容量充足。
+
+## 13. 用户资料安全检查与恢复
+
+业务保证见 [媒体与用户资料](../domain.md#媒体与用户资料)，迁移和回滚边界见 [数据库说明](../../src/main/resources/db/README.md)。资料写入直接执行必要检查，无独立总开关；检查拒绝或不可用时保留原有效资料。
+
+核对微信文本检查、图片审核 Job、验签 callback、COS 服务端 COPY 和快照读取链路。有效图片位于 `profile-effective/{userId}/{random}`，客户端上传权限不能写该前缀；历史源对象不能直接认定为已审核快照。快照先登记清理记录再复制，COPY 失败或未知结果不发布，由现有 PENDING cleanup 处理。
+
+图片检查等待预算由 `app.user-profile.media-check-wait-millis` 控制，默认及上限为 10000ms；这是 HTTP 等待预算，不是微信完成时延承诺。超时或缺完整结论返回 503，不返回自动生效的 pending/202；迟到 Job/callback 只保留审核事实，不能提交或清空资料。用户需重新提交，不能后台盲重发未知 provider 写。
+
+并发请求在最终短事务重新检查 `profile_revision`、权限和媒体引用，旧 revision 不得覆盖后提交的资料。排障先区分内容拒绝、检查不可用、并发版本变化和媒体引用错误，不绕过检查或直接改库认定通过。恢复须同时核对资料有效值、审核事实、快照引用及残留 Job；不能直接恢复旧乐观 writer/callback 版本。

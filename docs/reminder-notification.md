@@ -2,7 +2,7 @@
 
 本文是提醒意图、用户通知事实和外部投递状态的项目级权威来源。业务状态与产品规则仍归 [业务规则](domain.md)，执行、租约和重试机制归 [Async Processing Architecture](async-processing.md)，失败结果含义归 [Reliability Baseline](reliability.md)，微信协议归 [WeChat Integration](wechat-integration.md)。
 
-本文描述当前目标语义。V20 已落 expand schema、Delivery v2 Job 与兼容 reader；V21 已增加 sparse preference、canonical 收件箱共同可见性所需的内部世代与索引；V22 已增加偏好来源和逐用户 owner 结构，八个隔离的 canonical HTTP 操作已有 compatible code，其中 PATCH 与原生客户端 POST 写入别名共用同一偏好更新用例。Activity/PublicEvent Reminder Policy 与 reconcile 已有实现；V25 为计划增加渠道无关的开始时间/地点快照，canonical `ACTIVITY_START_REMINDER` 已接入服务号规划，其余微信类型及小程序渠道仍未开放。D1 已明确为不追溯历史；目标环境迁移/preflight、D2/D3 实际切换和真实微信验证尚未完成；当前可执行表结构仍以 Flyway 迁移历史为准。
+本文维护 Reminder、Notification 与 Delivery 的当前语义。表结构和数据演进以 Flyway 为准，接口表示以共享 contracts 为准；部署确认与排障见运维手册，不在本文维护阶段进度。站内渠道、服务号适用类型与小程序通知渠道分别按 §7 的能力边界判断。
 
 ## 1. 概念与依赖方向
 
@@ -66,7 +66,7 @@ policy(current subject state, Timeline, now)
 
 真实模型映射边界：
 
-- Timeline semantic preflight 已确认既有 `node_type VARCHAR(32)` 本身就是受控业务 semantic，schedule/precision 才表达时间结构，因此不新增重复字段。第一版在原 code set 增加 `ACTIVITY_START/PUBLIC_EVENT_START`，并更新写入契约、subject compatibility、发布校验和历史分类；不得把 `EXACT_POINT`、`OTHER`、label、displayOrder 或卡片选中节点猜成开始节点。详见 [Timeline Semantic Preflight](TIMELINE_SEMANTIC_PREFLIGHT.md)。
+- 既有 `node_type VARCHAR(32)` 承担受控业务 semantic，schedule/precision 表达时间结构，不新增重复的 `semantic_type`。`TimelineSemantic` 集中维护 code、读取兼容和主体适用性；Activity 写入只接受 `ACTIVITY_START`，PublicEvent 写入只接受 `PUBLIC_EVENT_START`，共享 semantic 保持兼容。canonical 写入拒绝未知或跨主体 START code；历史未知值读取为 `OTHER`，不自动改写原数据库值。不得把 `EXACT_POINT`、`OTHER`、label、displayOrder、nodeKey 或卡片选中节点猜成开始节点。历史分类使用 [只读 preflight SQL](../src/main/resources/db/validation/timeline_semantic_preflight.sql)，没有可追溯的无歧义依据不自动回填。
 - 当前 `REGISTRATION_END` 已有明确“报名截止”语义，可作为两类业务的截止节点；它必须具有精确时刻。Activity 的 `SUBSCRIBERS_NOT_REGISTERED` 以 `activity_enrollment` 的有效订阅者减去 `activity_registration` 的有效报名者。外部报名无法权威判定，纯外部报名 Activity 第一版不启用该差集规则，除非未来引入可验证报名事实。
 - PublicEvent 当前 `EXAM`、`FINAL`、`MATERIAL_SUBMISSION` 等描述具体阶段，不能统一解释为事项开始或截止。`EXAM` 只有在生产数据分类证明它就是某类事项唯一开始节点且完成显式迁移后，才可映射到 `PUBLIC_EVENT_START`；不在运行时靠 type 分支猜测。
 - `MATERIAL_SUBMISSION` 本身不能区分开始还是截止。未来需要提醒时新增明确 deadline semantic 和独立 rule，而不是匹配标题文本。
@@ -185,7 +185,7 @@ summary 在单个一致性快照内读取 head、V unread 与新增数量；没�
 
 structured 与 legacy 使用同一 row/ID/readAt。`content_payload` 冻结 presentation、actor、subject 与可靠 target，不在读取时回查业务对象；时间/地点变更在业务变更事务中冻结 before/after。历史缺少变更快照时退化 SYSTEM 类型展示，不能从当前主体补 before。Notification 存在与目标可访问性分离，目标详情失败不会删除通知。POST/COMMENT 的成功新增 like fact 产生通知，取消不产生通知，重新点赞复用首次 actor/recipient/source 身份；self-action 排除，不扫描伪造历史 like。
 
-2026-10-07 展示快照契约补充：presentation 的可选纯文本 `subjectTitle` 是关联帖子/活动/公共事项的创建时标题，`quote` 是原评论/原内容摘要，回复的 `body` 仍是新回复。保留旧 `context` 的已有含义和值，不能用它猜新增字段。评论/回复与点赞在创建时冻结可靠 actor；头像可用时保存 avatarUrl，无头像时保留 actor 并省略 avatarUrl。历史缺新增字段/actor 的消息保持缺省，不在读取时用当前实体或用户资料回填。新消费者的字段优先级与 context 去重由共享契约承接；站内模型/read/target/Delivery 身份不变。JSON payload 扩展无需新表或历史数据迁移。
+展示快照：presentation 的可选纯文本 `subjectTitle` 是关联帖子/活动/公共事项的创建时标题，`quote` 是原评论/原内容摘要，回复的 `body` 仍是新回复。保留旧 `context` 的已有含义和值，不能用它猜新增字段。评论/回复与点赞在创建时冻结可靠 actor；头像可用时保存 avatarUrl，无头像时保留 actor 并省略 avatarUrl。历史缺新增字段/actor 的消息保持缺省，不在读取时用当前实体或用户资料回填。新消费者的字段优先级与 context 去重由共享契约承接；站内模型/read/target/Delivery 身份不变。JSON payload 扩展无需新表或历史数据迁移。
 
 业务事件通知直接创建 Notification 并按 Preference/Capability 规划各渠道 Delivery；它们不是定时提醒，不经过 ReminderPlan。不能从任意字段变化自动推导一个通用 UPDATED 通知。
 
@@ -203,7 +203,7 @@ structured 与 legacy 使用同一 row/ID/readAt。`content_payload` 冻结 pres
 
 第一版不发送 Activity 报名成功/取消、任意字段更新、PublicEvent 普通 END 或无法证明为提前结束的事件。当前 PublicEvent lifecycle 只有通用 `END`，没有 `endedEarly` event/reason；增加明确语义前不定义 `PUBLIC_EVENT_ENDED_EARLY`。每个 business event 必须拥有稳定 event identity/version，逐用户 source key 使用 `business event identity + receiverId`，同一接收者即使同时订阅并报名也只产生一条 Notification。
 
-系统广播不在本轮建立新产品能力；未来 System/Admin producer 可以复用 Notification → Channel Delivery，但本轮不新增 broadcast table、管理 API、recipient engine 或 UI。
+系统广播当前不建立新产品能力；未来 System/Admin producer 可以复用 Notification → Channel Delivery，但当前不新增 broadcast table、管理 API、recipient engine 或 UI。
 
 ### 6.2 主动事件的时点与稳定内容
 
@@ -260,7 +260,7 @@ Notification 与所有初始 Channel Delivery 在同一 MySQL 事务规划。`IN
 
 DeliveryPlanner 根据 NotificationType、Category、mandatory policy、用户 preference、渠道 capability、provider identity/permission 和当前业务相关性生成候选 Delivery：
 
-以下为 canonical 目标规划要求。2026-09-29 用户确认曾实际收到服务号订阅通知后，原有 legacy code 1–7 的恢复按 [WeChat §17](wechat-integration.md#17-恢复既有服务号订阅通知的决定2026-09-29) 执行；同日 canonical `ACTIVITY_START_REMINDER` 在具备 V25 冻结字段、模板、身份和显式偏好时复用该 provider 结果模型。应用用 `PROVIDER_VERIFIED_AT_SEND` 明示无法预知本次订阅资格，不宣称 GRANTED，也不追溯历史终局。
+canonical 规划按下面条件执行。服务号适用路径采用 [发送时校验授权](wechat-integration.md#51-调用前-eligibility)；`PROVIDER_VERIFIED_AT_SEND` 表示应用无法预知本次订阅资格，不宣称 GRANTED，也不追溯历史终局。适用类型与未接通渠道见微信文档 §17。
 
 - `USER_CONFIGURABLE` 且用户关闭某渠道时，不创建该渠道 Delivery；`MANDATORY` 忽略用户 preference，但仍须满足渠道 capability、身份和 provider permission。
 - 规划时已知 `enabled=false`、templateId 缺失或 Adapter/permission capability 不存在时，不创建该渠道 Delivery，并产生低基数 planning reason/metric；不能故意调用 provider 等其拒绝。
@@ -288,18 +288,18 @@ business recipient
 |---|---|---|---|---|---|
 | Activity Reminder / Direct (`ACTIVITY`) | 支持；本地事务完成 | 目标支持；当前 Adapter、模板注册和权限事实缺失，默认 unavailable | `ACTIVITY_START_REMINDER` 已接既有 `activity_start` 模板；其余类型默认 unavailable | 微信两渠道各自 templateId、字段 mapping、jump target；不能共享 ID | Mini Program 需要对应小程序订阅消息授权事实；Official Account 当前由 provider 在发送时权威校验，不表示永久 GRANTED |
 | PublicEvent Reminder / Direct (`PUBLIC_EVENT`) | 支持；本地事务完成 | 目标支持；当前 unavailable | provider 基础存在，但 PublicEvent 专用模板 mapping 尚未验证，默认 unavailable | 同上；具体 ID 均为“配置缺失”，不得编造 | 同上 |
-| 未来 System/Admin producer | 基础能力可复用，本轮不新增产品 producer | 不预建未使用模板 | 既有 SYSTEM_NOTICE 可作为历史能力证据，不等于新广播产品已迁移 | 只有真实 producer/类型启用时配置 | 按该类型的 mandatory/configurable policy 与 provider 权限判断 |
+| 未来 System/Admin producer | 基础能力可复用，当前不新增产品 producer | 不预建未使用模板 | 既有 SYSTEM_NOTICE 可作为历史能力证据，不等于新广播产品已迁移 | 只有真实 producer/类型启用时配置 | 按该类型的 mandatory/configurable policy 与 provider 权限判断 |
 
 `WECHAT_MINI_PROGRAM` 与 `WECHAT_OFFICIAL_ACCOUNT` 各自拥有 provider identity、authorization/permission、template registry、field mapping、jump target、request API 和 error classifier；只共享 token/HTTP/client foundation 与通用错误模型。当前仓库的 `openid` 是小程序身份，`mp_openid` 是服务号身份；现有通知发送服务调用的是服务号订阅通知 API，不能改名后冒充小程序渠道。
 
 ### 7.3 Preference Model
 
 - 第一版粒度为 `NotificationCategory × Channel`，Category 先启用 `ACTIVITY`、`PUBLIC_EVENT`，Channel 为三种正式渠道。不为每个 NotificationType 建独立开关。
-- 使用 sparse override：没有 row 时取版本化 system default，只有用户修改时持久化 override。第一版 `ACTIVITY/PUBLIC_EVENT × IN_APP` 默认开启；两个微信渠道默认关闭，用户明确开启 preference 后仍需独立满足 provider permission。建议唯一键 `(user_id, category, channel)`；同时保留适合批量读取的 `(user_id, category, channel)` 覆盖索引/主键布局。
-- Activity/PublicEvent 第一版都是 `USER_CONFIGURABLE`。当前代码虽有 `notifySystem/notifyAuditResult` 开关，但没有已确认且不可关闭的系统级 NotificationType；因此本轮不臆造 mandatory 类型。未来账号安全/风控通知若确认为 `MANDATORY`，必须由 NotificationType policy catalog 明确标记，不能归入 ACTIVITY/PUBLIC_EVENT，也不能受其关闭开关影响。
+- 使用 sparse override：没有 row 时取版本化 system default，只有用户修改时持久化 override。第一版 `ACTIVITY/PUBLIC_EVENT × IN_APP` 默认开启；两个微信渠道默认关闭，用户明确开启 preference 后仍需独立满足 provider permission。唯一约束语义为 `(user_id, category, channel)`，实际结构以 Flyway 为准；同时保留适合批量读取的 `(user_id, category, channel)` 覆盖索引/主键布局。
+- Activity/PublicEvent 第一版都是 `USER_CONFIGURABLE`。当前代码虽有 `notifySystem/notifyAuditResult` 开关，但没有已确认且不可关闭的系统级 NotificationType；因此当前不臆造 mandatory 类型。未来账号安全/风控通知若确认为 `MANDATORY`，必须由 NotificationType policy catalog 明确标记，不能归入 ACTIVITY/PUBLIC_EVENT，也不能受其关闭开关影响。
 - fan-out 每批先取得 receiverIds，再一次批量加载该批 Category preference、相关 provider identities 和 permissions，在内存中规划 Eligibility；禁止 1000 receivers 触发 1000 preference + 1000 identity 查询。
-- 当前规模第一版直接使用有索引的 MySQL 批量读取；现有按 userId Redis Setting cache 不能用于 fan-out N+1。只有测量证明数据库读取成为瓶颈后，才增加按 category/channel 可批量失效的 cache，并明确 update invalidation 和 TTL；本轮不设计复杂 Redis Preference Cache。
-- 旧 `user_setting.notifyActivityRemind/notifyExamRemind` 是粗粒度单行字段。实施时需要明确默认值与兼容映射，再切到 sparse Category × Channel；不能把旧一个布尔值同时静默解释为三个渠道的永久选择。
+- 当前规模第一版直接使用有索引的 MySQL 批量读取；现有按 userId Redis Setting cache 不能用于 fan-out N+1。只有测量证明数据库读取成为瓶颈后，才增加按 category/channel 可批量失效的 cache，并明确 update invalidation 和 TTL；当前不设计复杂 Redis Preference Cache。
+- 旧 `user_setting.notifyActivityRemind/notifyExamRemind` 的兼容映射仅影响对应服务号组合；历史导入来源为 `LEGACY_MIGRATION`，不表示微信授权。IN_APP/小程序保持各自默认或 override，不把旧一个布尔值解释为三个渠道的永久选择。逐用户 owner 与回填语义见数据库说明。
 
 ### 7.4 Delivery 状态与结果
 
@@ -346,7 +346,7 @@ Notification 的 source key 删除后将失去去重证据。因此清理不仅�
 1. 保留 V20 expand 结果；V21 已补 Category × Channel sparse preference、共同可见性查询所需索引和 `LEGACY/CANONICAL` 内部世代；V22 补偏好来源和逐用户 owner。旧 writer 仍可能存在期间默认归入 `LEGACY`；只有完成 D2 preflight 与 producer switch 后，新 writer 才显式写 `CANONICAL` 并在同一事务创建真实 `IN_APP` Delivery。
 2. 历史 Notification 不批量制造 fake Delivery；历史 `notify_plan.status=1`、`async_job.SUCCEEDED` 或旧日志都不能推导 `DELIVERED`，也不增加无证据的 LEGACY 状态。
 3. 在真实 DB 执行只读 preflight，分别统计历史 notification、notify_plan，以及 `notification.wechat-deliver` v1 的 PENDING/RUNNING/SUCCEEDED/DEAD/CANCELLED。若 pending/running/dead 均为 0，保留一个 release window 的兼容 reader 后即可删除，不建设复杂 drain/reconciliation 系统；若不为 0，再按实际行制定 drain/人工结论。
-4. 系统广播本轮不新增产品实现。旧 sourceType=3 仅按 preflight 结果决定兼容保留/后置迁移；不能为了架构完整新增 broadcast 表/API/UI，也不能阻塞新的 System/Admin producer 以后接入 Notification → Delivery。
+4. 系统广播当前不新增产品实现。旧 sourceType=3 仅按 preflight 结果决定兼容保留/后置迁移；不能为了架构完整新增 broadcast 表/API/UI，也不能阻塞新的 System/Admin producer 以后接入 Notification → Delivery。
 5. Rollout 保持 `expand → compatible code → switch producer → inspect/drain old v1 jobs → later contract`。即使历史数据预计接近零，也必须完成 empty DB Flyway replay、当前 production-like 版本升级、唯一约束和 preflight 对账。
 6. contract migration 只能在新 producer 稳定、旧 v1 Job 已证实为零或有明确终局、nullable 历史行已分类后执行；rollback 只能回到仍能读取新 schema 的兼容应用，不能通过伪造 Delivery 或删除 UNKNOWN 证据实现。
 

@@ -2,9 +2,9 @@
 
 本文是微信第三方能力边界的项目级权威来源。通用远程调用失败语义见 [Reliability Baseline](reliability.md)，通知与渠道投递状态见 [Reminder、Notification 与 Delivery 设计](reminder-notification.md)，Worker 执行见 [Async Processing Architecture](async-processing.md)。
 
-2026-09-29 恢复既有服务号订阅通知及首条 canonical 活动开始提醒的决定见 §17。§3–5、§16 中“没有明确 permission 语义则不调用”的默认规则仍适用于未接通类型；legacy 和 canonical `ACTIVITY_START_REMINDER` 按 §17 的 provider-at-send 边界执行，不能再以固定 false 将它们等同于从未接入。带日期的早期现状表仅记录当时状态。
+服务号订阅通知采用明确的 `PROVIDER_VERIFIED_AT_SEND` 授权模式，适用范围见 §5.1 与 §17；小程序渠道和未接通类型须先满足各自启用条件。模板、偏好、身份与实际发送资格分别判断。
 
-阅读顺序：§0 为范围与现状；§1–8 为身份、通知、账号及模板规则；§10–12 为整个微信接入的目标结构与基础流程；§13–15 为差距、实施批次与验收维护；§16 专门说明配置职责、当前发送限制及后续解耦。目标规则不代表现有代码已实现。可复制的实施任务见 [微信整理执行 Prompt](WECHAT_REFACTOR_PROMPT.md)，它只引用本文，不另立规范。
+阅读顺序：§0 为职责入口；§1–8 为身份、通知、账号及模板规则；§10–12 为模块结构与基础流程；§13–15 为验证与变更维护；§16 为配置职责；§17 为服务号订阅通知的适用范围与兼容限制。
 
 ## 0. 范围与维护方式
 
@@ -26,7 +26,7 @@
 
 ### 0.1 项目能力清单与证据边界
 
-以下为 2026-09-28 工作区静态核对，表示代码入口存在，不表示目标环境可用。路径以 `src/main/java/cn/jualn/miniapp/` 为根。
+下表维护能力入口与责任边界，入口存在不证明账号/渠道专项验收通过。路径以 `src/main/java/cn/jualn/miniapp/` 为根。
 
 | 能力 | 当前入口/编排 | 维护重点及当前边界 |
 |---|---|---|
@@ -34,17 +34,17 @@
 | 服务号绑定、关注/扫码事件 | `module/wx/service/WxBindService`、`WxSubscribeService`、`module/wx/handler` | 绑定写入归 user Service；scene 成功后消费，重复同一身份幂等，替换/争用拒绝；绑定仍不等于通知授权 |
 | 服务号 OAuth 与 JS-SDK | `module/wx/service/WxMpOauthService`、`WxJsSdkService` | OAuth state 有短租约 claim、身份解析态和可重放完成态；签名 URL 限定配置 HTTPS origin；具体官方 code/URL 规则仍需协议核验 |
 | 内容安全 | `module/audit/service/impl/AuditServiceImpl` → `WxClient`；`module/wx/handler/ma/WxaMediaCheckHandler` | 同步结果、异步任务关联及审核回调；审核业务结果归 audit |
-| 接入验证与消息回调 | 活跃入口为 `module/wx/controller/WxCallbackController`；`third/wx/controller/WxVerifyController` 是注释遗留文件 | 账号识别、验签/解密、事件路由、重复与迟到处理；本次未做安全机制验收 |
+| 接入验证与消息回调 | `module/wx/controller/WxCallbackController` | 账号识别、验签/解密、事件路由、重复与迟到处理；业务成功后才按 provider 协议 ACK |
 | 服务号订阅通知 | `module/wx/service/WxMpNoticeSendService` → `WxClient.sendMpSubscribeMessage` | legacy 及 canonical `ACTIVITY_START_REMINDER` 复用既有发送基础；本地不虚构永久 GRANTED，微信发送响应权威判定该次投递 |
 | 服务号模板消息 | `WxClient.sendMpTemplateMessage` | 当前仅确认 Client 方法；生产 Java 源码搜索未发现调用方，不等于已有业务投递链路 |
 | 小程序订阅消息 | 登录/token 已有；通知 Adapter 尚缺 | 不得用服务号发送接口或模板代替 |
-| 新通知模型的微信规划 | `module/notify/service/impl/NotificationDeliveryServiceImpl.planCanonicalDeliveries` | IN_APP 独立规划；服务号仅开放 `ACTIVITY_START_REMINDER`，小程序及其余新类型保持 unavailable |
+| 新通知模型的微信规划 | `module/notify/service/impl/NotificationDeliveryServiceImpl` | IN_APP 独立规划；服务号适用类型见 §17，小程序通知渠道保持独立启用边界 |
 
 ### 0.2 微信与腾讯云 COS
 
 微信接入归 `third/wx`；腾讯云对象存储归 `third/cos`，媒体上传、绑定与清理用例归 `module/media`。两者分别维护账号凭据、权限、配置、客户端、失败分类和验证证据。COS 的 bucket/region、临时凭据、objectKey 与清理状态不进入微信账号或模板注册表。
 
-二者共享项目既有 Reliability、Observability、Async 等工程基线，不共享业务授权模型或一套无差别重试。COS 详细设计在实际处理媒体/存储任务时维护；本轮只确定边界，不新增空的第三方总纲或 COS 规范。
+二者共享项目既有 Reliability、Observability、Async 等工程基线；业务授权、配置、凭据和操作恢复分别由各自 owner 维护，不建设尚未需要的通用第三方平台。
 
 ## 1. 职责边界
 
@@ -67,7 +67,7 @@ WxClient
 - Delivery 层分别决定是否存在 `WECHAT_MINI_PROGRAM`、`WECHAT_OFFICIAL_ACCOUNT` 渠道意图，并持久化每个渠道结果；禁止使用笼统 `WECHAT`。
 - WeChat Integration 按渠道解析身份与 permission、选择独立模板、把稳定字段映射成各自 provider DTO、调用对应 API，并分别分类 provider 结果。
 - `WxClient` 只负责 token、HTTP、序列化、微信响应码和一次受控 token refresh；不读取业务表，不判断 Activity/PublicEvent 状态，不创建 Notification。
-- Integration 不得依赖 ActivityMapper、ExamInfoMapper、NotifyPlan Entity 或业务 Controller DTO。当前静态检查仍发现 `module/wx/notice/builder/ActivityRemindBuilder -> ActivityMapper`；原文所列 `NotifyPlanNoticeDataFactory` 在当前生产源码已不存在，不再作为现状依据。
+- Integration 不得依赖 ActivityMapper、ExamInfoMapper、NotifyPlan Entity 或业务 Controller DTO；模板映射只消费业务 owner 冻结的快照，不回查主体补字段。
 
 ## 2. 微信身份不是一个 openid
 
@@ -81,7 +81,7 @@ WxClient
 
 不能把某一渠道的 openid 作为所有微信能力的通用用户 ID。当前表中 `openid` 是小程序身份，`mp_openid` 是服务号身份。Delivery channel 必须指明需要哪类身份；无法解析时在 planning 阶段不创建，或对已存在 Delivery 标记 `SKIPPED`，不能把空身份交给 provider。
 
-用户 Notification Preference 与 provider permission 是两种事实：前者表示用户愿意接收某 Category × Channel，后者表示微信当前允许具体模板/消息向该渠道身份发送。任一缺失都不能靠最终 provider reject 代替前置 eligibility 判断。
+用户 Notification Preference 与 provider permission 是两种事实：前者表示用户愿意接收某 Category × Channel，后者表示微信当前允许具体模板/消息向该渠道身份发送。前置 eligibility 检查所有本地可证明的条件；服务号适用路径的实际发送资格由 §5.1 的明确 provider-at-send 模式判定，不据模板或偏好伪造 GRANTED。其他渠道没有已确认授权模式时不得调用。
 
 ## 3. 渠道 Capability
 
@@ -137,7 +137,9 @@ Delivery 分类：
 
 ### 5.1 调用前 Eligibility
 
-规划和执行都必须在 provider 调用前检查：channel enabled、adapter capability、templateId/field mapping、正确渠道身份、provider permission 和当前业务相关性。
+规划和执行都必须在 provider 调用前检查：channel enabled、adapter capability、templateId/field mapping、正确渠道身份、已明确的授权模式和当前业务相关性。
+
+服务号 §17 适用类型使用 `PROVIDER_VERIFIED_AT_SEND`：应用先检查本地模板、身份、设置/偏好和冻结字段，微信权威响应判定本次资格及结果。本地不持久化虚构 GRANTED/次数，也不把“无本地次数台账”等同于 capability 不存在。小程序和其他未接通类型须有各自可靠授权能力后再启用。
 
 - planning 时已知 `enabled=false`、templateId 缺失、Adapter 或 permission capability 不存在：不创建该渠道 Delivery，并记录稳定 planning reason。
 - Delivery 已创建后 capability 被撤销、身份解绑或 permission 失效：`SKIPPED`，不调用 provider。
@@ -146,17 +148,17 @@ Delivery 分类：
 
 ### 5.2 启用与执行证据
 
-启用某个 NotificationType × Channel 前，必须有该渠道真实 provider contract 与验证证据：身份来源、模板字段及跳转、授权来源与作用域、有效期/撤销语义，以及是否存在次数限制。若权限有消费次数，需说明并发 Delivery 如何协调使用，以及 Unknown Outcome 后如何保守处理额度；不能只存一个永久 GRANTED 布尔值。没有此类能力证据时保持 unavailable，不在本轮猜测微信协议或新增公开授权接口。
+启用某个 NotificationType × Channel 前，必须有该渠道真实 provider contract 与验证证据：身份来源、模板字段及跳转、授权来源与作用域、有效期/撤销语义，以及是否存在次数限制。若权限有消费次数，需说明并发 Delivery 如何协调使用，以及 Unknown Outcome 后如何保守处理额度；不能只存一个永久 GRANTED 布尔值。没有已确认授权模式与此类能力证据时保持 unavailable；服务号的发送时校验按 §5.1、§17 明确范围执行，不扩大为其他渠道或类型的通用许可。
 
 类型相关性由业务 owner 返回稳定判断，Adapter 不跨模块查 Mapper。调用前的 ownership、PROCESSING、预算及迟到结果保护遵循 [Async §7.2.1](async-processing.md#721-业务执行所有权与通知收尾)。`DELIVERED` 对外部渠道仅表示获得 provider 权威成功响应，不证明用户设备展示或用户已读。UNKNOWN 停止普通重试；启用真实发送前必须具备通知文档规定的结果收尾和受控处置能力，不以盲重发代替运维恢复。
 
 ## 6. 现有能力与演进边界
 
-Admin QR Login v2 新增 `WxClient.generateMiniProgramCode`：使用 ma 凭据调用 `wxa/getwxacodeunlimit`，固定确认页、独立 scene、部署 env-version 与可配置 check_path，归一化有界 PNG。临时码由 admin/auth 持有短期 Redis truth，不进入 COS/Attachment 或通知链。仅明确 token 失效允许刷新一次，整个链 25 秒，无通用 POST retry；详情及证据见 [v2 实现记录](admin-qr-login-v2-implementation.md)。用户确认现有小程序 AppID 与本地确认页就绪，配置默认启用；正式环境默认 release、dev 默认 develop，可显式覆盖 env-version。AppID 直接复用 wx.ma 配置，不增设 Admin 凭据。用户澄清确认页尚未发布，dev 默认 check-path=false，正式环境默认 true；ADMIN_QR_LOGIN_CHECK_PATH 可显式覆盖，生成码不证明页面已上传或可在真机打开。本地模拟 HTTP 不构成真实微信调用或真机证据。
+Admin QR Login v2 使用 `WxClient.generateMiniProgramCode`：使用 ma 凭据调用 `wxa/getwxacodeunlimit`，固定确认页、独立 scene、部署 env-version 与可配置 check_path，归一化有界 PNG。临时码由 admin/auth 持有短期 Redis truth，不进入 COS/Attachment 或通知链。仅明确 token 失效允许刷新一次，整个链 25 秒，无通用 POST retry；内部机制见 [内部设计](admin-qr-login.md)，环境配置及页面核对见 [运维手册](operations/runbook.md#12-admin-扫码登录运行与恢复)。AppID 直接复用 wx.ma 配置，不增设 Admin 凭据；生成码不证明页面已上传或可在真机打开。
 
 当前 `WxClient` 已承载小程序登录/token、内容安全、服务号 token/二维码/用户信息/模板或订阅通知、OAuth 与 JS ticket 等 provider 能力；这些能力可以继续共用同一 provider client，但其应用编排仍按认证、绑定、审核、通知等不同用例分开。
 
-本文覆盖整个微信接入的维护边界，第 1–5 节重点定义通知投递。本轮为文档设计维护，不重命名现有包、不统一所有微信 DTO、不改变认证/审核/绑定/OAuth/JS-SDK 流程。后续实施应增加两套明确 Channel Adapter/Capability，而不是把现有服务号实现泛化命名成“微信”。小程序通知 Adapter 和两渠道 permission 事实必须有真实 provider contract 后再启用。
+本文覆盖整个微信接入的维护边界，第 1–5 节重点定义通知投递。已有登录、绑定、审核、回调与通知依所属模块维护；新增渠道须独立建立 Adapter/Capability，不能把服务号实现泛化成无差别的“微信”能力。
 
 ## 7. 配置、观测与安全
 
@@ -206,11 +208,11 @@ Admin QR Login v2 新增 `WxClient.generateMiniProgramCode`：使用 ma 凭据�
 
 1. 确认 NotificationType、渠道、消息产品和账号实际能力，取得模板字段及许可规则证据；业务接收者不由模板维护者扩大。
 2. 修改受影响配置、映射及必要契约；验证必填、长度、时间、跳转、拒绝、撤销、缺身份和未知结果等实际边界。
-3. 模板替换或账号切换前盘点待发送 Delivery。明确旧配置保留、兼容迁移或受控终止方案；不能让排队消息静默采用不兼容字段或把旧模板许可转成新模板许可。需要版本持久化时再按数据演进流程实现，本轮未新增字段。
+3. 模板替换或账号切换前盘点待发送 Delivery。明确旧配置保留、兼容迁移或受控终止方案；不能让排队消息静默采用不兼容字段或把旧模板许可转成新模板许可。需要版本持久化时按数据演进流程确定 schema，不由配置流程自行增加字段。
 4. 在明确目标账号与环境中完成受控真实验证，分别记录 provider 接受、终端展示和跳转结果；错误结果分类与恢复也需有证据。通过后才启用对应单元。
 5. 停用时关闭相应能力/入口并处理在途状态；停止新调用不保证撤回已发送请求。回退不重置 UNKNOWN，也不自动补发历史未规划渠道。
 
-## 9. 后续实施顺序与验收记录
+## 9. 能力启用与验收边界
 
 新增通知能力启用前，先核验本项目小程序和服务号的账号能力、拟用模板、授权来源及真实通知场景，再优先接通一个 NotificationType × Channel。基础整理按 §14 独立推进，不以缺少账号后台资料为由停止所有工作。当前没有足够账号证据替用户选择“服务号模板消息替代订阅通知”。
 
@@ -218,7 +220,7 @@ Admin QR Login v2 新增 `WxClient.generateMiniProgramCode`：使用 ma 凭据�
 
 每次能力变更记录：能力与账号别名、环境、配置/代码版本、官方来源与核验日期、后台证据位置、测试对象与结果、未完成项及责任角色。分别标明“代码存在”“本地验证”“账号能力确认”“目标环境联调”“已启用”，不使用笼统“微信已接入”。
 
-本轮记录：文档和代码边界已静态核对；没有新增 Adapter、授权持久模型或配置开关，没有发送真实消息。后续必需输入为账号后台权限和模板字段、所选消息产品的许可规则与测试环境；这些缺失不阻止维护本文，但阻止宣称真实渠道可用。
+账号后台权限、模板字段、所选消息产品的授权规则与指定环境验证分别提供证据；部署完成不等于所有渠道或模板均可用。验收结果记录在任务/发布证据中。
 
 ### 9.1 官方协议入口与更新边界
 
@@ -226,7 +228,7 @@ Admin QR Login v2 新增 `WxClient.generateMiniProgramCode`：使用 ma 凭据�
 - [公众号订阅通知](https://developers.weixin.qq.com/doc/offiaccount/Subscription_Messages/intro.html)
 - [公众号模板消息接口](https://developers.weixin.qq.com/doc/offiaccount/Message_Management/Template_Message_Interface.html)
 
-2026-09-28 经 web 浏览工具未能取得上述正文；2026-09-29 直接 HTTPS 读取已取得服务号订阅介绍、发送及事件推送的官方正文，见 §17.2。其他页面和本账号实际资格仍需独立核验，博客和旧示例不能代替官方协议或账号权限证明。
+官方来源用于核对协议；账号后台及指定环境证明实际资格。博客、旧示例或历史收件不能替代这些证据。服务号订阅通知官方入口见 §17.2。
 
 ## 10. 整个微信接入的目标结构
 
@@ -318,36 +320,23 @@ Admin QR Login v2 新增 `WxClient.generateMiniProgramCode`：使用 ma 凭据�
 
 内容安全请求的提交、provider request 标识、回调关联及业务发布规则由 audit 负责。第三方层只翻译输入和结果；业务 Handler 不因解析失败而伪造“审核通过”。远程提交成功但本地保存失败、回调先到或迟到的恢复按 audit 与 Async 的现有保证检查，不另建一套审核状态机。
 
-通知发送沿用 §1–5 和通知文档；本轮重整必须保留 provider 调用前的执行所有权/attempt 边界，不能在搬迁 `beforeProviderCall` 等接口时把真实调用放到所有权检查之前。远程 HTTP 在业务事务外，结果由 Delivery owner 条件收尾；中间层不自行创建 retry Job。provider 成功、设备展示和已读保持分离。
+通知发送沿用 §1–5 和通知文档；项目重整必须保留 provider 调用前的执行所有权/attempt 边界，不能在搬迁 `beforeProviderCall` 等接口时把真实调用放到所有权检查之前。远程 HTTP 在业务事务外，结果由 Delivery owner 条件收尾；中间层不自行创建 retry Job。provider 成功、设备展示和已读保持分离。
 
-## 13. 当前差距与整理决策
+## 13. 验证重点
 
-2026-09-29 整理设计时静态检查发现下列问题，是实施起点而非全量安全审计结论；执行前重新核实工作区。基础缺口不能仅靠更新此表标记完成。
+| 边界 | 验证对象 |
+|---|---|
+| 模块与身份 | third 层无业务持久依赖；身份读取/绑定经 user owner；冲突由数据库约束裁决 |
+| OAuth / scene | claim owner、身份解析态、完成态重放、成功消费、并发与过期保护 |
+| 凭据缓存 | 账号类型 + appId + 用途隔离、provider TTL、安全余量、刷新合并与条件失效 |
+| JS-SDK | HTTPS origin/端口、URL 签名规范与真实客户端 URL |
+| 接入与回调 | 账号路由、验签/解密、安全解析、大小限制、真实 ACK 与重投语义 |
+| 内容安全 | 具名 callback、appId 校验、audit 条件收尾、重复/迟到隔离 |
+| 模板与发送 | 注册唯一性、字段/跳转、冻结快照、已定义授权模式、ownership 与结果分类 |
 
-| 证据位置 | 现状/差距 | 整理目标 |
-|---|---|---|
-| `module/wx/service` 与 user Service | 原先三个编排 Service 直接访问 `UserProfileMapper` | 已收口：入口/编排移到 module/wx，身份读取/绑定走 `UserService`；V23 唯一键及 preflight 尚未在真实 MySQL 验证 |
-| `WxMpOauthService`、`WxBindService` | 原 state/scene 可重放且失败点不清 | 已加入 claim owner、解析身份中间态、完成态重放和成功后 scene 消费；Redis Lua/并发机制仍待真实 Redis 验证 |
-| `WxJsSdkService` | 原校验仅为 URL 非空 | 已限定配置域名的 HTTPS origin、端口并拒绝 fragment；官方签名 URL 细节因文档不可访问仍 BLOCKED |
-| `WxCallbackServiceImpl`、`WxEventServiceImpl` | 原异常/解析失败多处返回 success，事件 key 无账号 | 已按 `mp/ma + msg/event` 路由，非法签名/超大 body/解析与业务失败不再返回 success；provider ACK/重投窗口仍待官方协议确认 |
-| `WxaMediaCheckHandler` | 原来传播 raw XML 并二次解析 | 已由接入边界一次解析为具名 DTO，校验小程序 appId 后调用 audit；audit 的 DB 版本/条件收尾保持不变 |
-| `WxClient` | 原静态 token/ticket key、固定 TTL | 已按账号类型+appId+用途隔离，使用 provider `expires_in` 留安全余量，并在单实例内合并刷新；多实例协调需部署事实后决定 |
-| `WxMpNoticeTemplateRegistry` | 原按 type 任取第一项 | 已拒绝重复/未知 type、启用但缺模板/字段及矛盾字段配置；跳转可选，支持站内相对路径，拒绝外部 URL |
-| `ActivityRemindBuilder`、旧 NoticeData/NotifyPayload | 原 Builder 回查 Activity Mapper | 已移除跨模块查询；V25 由 ReminderPlan 冻结开始时间/地点，缺失字段不创建 canonical 服务号 Delivery，也不回查业务表 |
-| 新渠道 Adapter 与许可 | canonical 两微信渠道没有可靠本地永久 GRANTED 事实 | 服务号活动开始提醒采用 `PROVIDER_VERIFIED_AT_SEND`；其余 canonical 微信类型仍 unavailable，不伪造本地授权台账 |
-| `WxVerifyController`、相关测试 | 注释遗留与过期测试 | 注释遗留已删除；31 个定向测试覆盖本轮局部行为，但不证明真实 Redis/MySQL/微信 |
+按实际变更选择验证，源码存在、部署运行和专项 PASS 分别报告。测试命令见 commands，排障与恢复见 runbook。
 
-## 14. 整理批次与兼容迁移
-
-| 批次 | 可交付结果 | 必需完成条件 |
-|---|---|---|
-| W0 现状与协议表 | 活跃入口、调用方、owner、配置项、回调/旧 payload 版本及当前测试清单 | 每项有源码/契约位置；未知协议、产品决定与平台事实单列 |
-| W1 结构与内部边界 | 用例回到模块、user 写入收口、provider 去业务依赖、类型化输入输出 | 相关调用方同时更新；HTTP/配置兼容，原有保证不减弱 |
-| W2 基础保护 | 配置校验、凭据隔离、state 生命周期、账号回调路由、安全解析与错误责任 | 完成能独立验证的本地保护；协议依赖项明确阻塞，不能宣称整条链路可靠 |
-| W3 通知适配收敛 | 模板注册与映射、统一的渠道调用边界、旧新路径明确 | 两条微信路径分别检查，未就绪不可用；不绕过 Delivery owner，不自动补发 |
-| W4 实际能力启用 | 选定场景的真实账号/模板/授权及端到端证据 | 目标环境与真实发送已授权，§5.2 满足，恢复与停用可操作 |
-
-本轮设计交接授权后续执行者完成 W0–W3 中信息充分的代码整理与必要验证；遇到确实缺失的协议/业务决定，继续其他独立项。W4 是单独环境验收，不能以重构授权推导生产操作。W1–W3 是有行为保护的实现工作，不是只改包名或增加抽象。
+## 14. 变更与兼容约束
 
 迁移约束：
 
@@ -387,9 +376,9 @@ Admin QR Login v2 新增 `WxClient.generateMiniProgramCode`：使用 ma 凭据�
 | 新事件/回调 | 账号与模式、可信解析、owner/幂等、ACK/恢复、重放测试 |
 | 身份/授权规则 | user/wx owner、contracts、历史数据与迁移、撤销/冲突/消费、并发验证 |
 
-每次实施复用一份变更报告，不建立多个重复台账。建议将本次报告保存为 `docs/WECHAT_REFACTOR_REPORT.md`（实施时创建），包含：批次/版本、能力或入口、规范章节、代码与数据 owner、兼容处理、验证证据、状态、剩余项及所缺输入。真实账号记录只存别名和受控证据位置；环境状态变更及时更新该证据，不把历史报告当实时事实。
+实施结果和验证证据记录在对应任务或发布记录中，不要求在开发文档树新增或续写一次性报告。仍有效的设计更新本文，执行命令更新 commands，排障与恢复限制更新 runbook。真实账号记录只存别名和受控证据位置；环境状态变更及时更新该证据，不把历史报告当实时事实。
 
-“基础整理完成”表示 W0–W3 的必需项均实现并验证，或明确保留经设计允许的局部兼容且满足退出条件记录；必要项 BLOCKED 时只能称部分完成。“微信可用”必须逐能力附 W4 证据。文档设计完成、本地代码完成、真实渠道启用分别报告。
+完成声明按受影响能力报告实现与验证范围；必要项 BLOCKED 时只称部分完成。“微信可用”须有对应账号、产品、类型和渠道的实际证据，不使用已结束的整理批次作为判据。
 
 ## 16. 通知配置的职责、耦合与发送限制
 
@@ -397,14 +386,14 @@ Admin QR Login v2 新增 `WxClient.generateMiniProgramCode`：使用 ma 凭据�
 
 ### 16.1 当前配置链路与现状刷新
 
-以下表格记录 2026-09-29 配置专项开始前的诊断：发送/订阅 Service 已移到 `module/wx/service`，Registry 已增加构造时校验，legacy 规划及执行曾加入 permission capability 门禁。随后用户确认历史真实收件，恢复决定及实现变更见 §17 和实施报告；本表不能作为恢复后的实时状态。未读取部署配置或微信后台，不代表运行环境已切换。
+模板配置经类型化属性与 Registry 校验后分别供订阅入口和发送路径使用；授权模式按 §5.1 判断，不再保留设计前的诊断快照。
 
 ```text
 application.yaml 的 wx.mp.notice-templates + 实际环境覆盖
   → WxMpNoticeTemplateProperties
   → WxMpNoticeTemplateRegistry（启动校验和按 type 索引）
       ├→ H5 /templates（enabled + subscribeVisible + templateId）
-      └→ WxMpNoticeSendService（许可能力 → 模板开关 → 身份 → 字段/跳转）
+      └→ WxMpNoticeSendService（明确授权模式 → 模板开关 → 身份 → 字段/跳转）
           → WxClient.sendMpSubscribeMessage
 
 业务 NotifyType → Delivery 规划/执行 → WxMpNoticeType 映射 → 发送 Service
@@ -451,7 +440,7 @@ application.yaml 的 wx.mp.notice-templates + 实际环境覆盖
 - 内容截断仅用于允许缩略的展示文本；ID、时间和状态不能随意截断。字符计量与 provider 字段规则核验后实现，Unicode 边界、日期序列化及冻结 payload 经 JSON 读取后的类型都要测试。
 - 跳转是否必填、路径格式与字段限制由所选产品和本项目场景共同确定。当前 Registry 的“必须以 / 开头”是本地检查，不是本文认证的微信通用规则；核验真实页面及客户端参数，避免自造校验误挡合法发送。
 - 显式启用却矛盾的静态配置按 §11.1 提前失败；运行时某用户无许可只影响该次资格，不能触发应用启动失败。未启用条目仍不得含歧义的绑定键/type。
-- 记录实际生效配置的来源（基础文件、profile、部署覆盖）及无敏感摘要。仓库 application.yaml 中的 enabled 不等于运行环境的有效值；本轮不输出真实模板 ID 或秘密。
+- 记录实际生效配置的来源（基础文件、profile、部署覆盖）及无敏感摘要。仓库 application.yaml 中的 enabled 不等于运行环境的有效值；项目不输出真实模板 ID 或秘密。
 
 ### 16.4 订阅入口、规划与发送的一致性
 
@@ -465,29 +454,29 @@ application.yaml 的 wx.mp.notice-templates + 实际环境覆盖
 
 就绪不等于 provider 保证接受。服务号当前采用 `PROVIDER_VERIFIED_AT_SEND`，不得显示为“已授权”；若以后 provider 提供可靠逐用户查询或次数台账，再通过契约演进替换该状态。小程序渠道仍不得复用这一语义。
 
-### 16.5 本轮配置专项交付与验证要求
+### 16.5 配置变更验证要求
 
-后续整理在 W3 增加：业务类型到产品/模板绑定覆盖检查、基础配置与实际 override 说明、H5 与发送就绪一致性、source/跳转/JSON 快照兼容验证。至少覆盖未映射类型、枚举已存在但未配置、禁用/隐藏的区别、展示入口无需事先授权、整体渠道未接通不诱导订阅、必填与默认值、重复绑定及合法模板复用、旧待发送快照。
+配置变更须验证：业务类型到产品/模板绑定覆盖检查、基础配置与实际 override 说明、H5 与发送就绪一致性、source/跳转/JSON 快照兼容验证。至少覆盖未映射类型、枚举已存在但未配置、禁用/隐藏的区别、展示入口无需事先授权、整体渠道未接通不诱导订阅、必填与默认值、重复绑定及合法模板复用、旧待发送快照。
 
 配置专项完成不等于真实账号验收。canonical 活动开始提醒已接入本地规划/执行代码；目标环境迁移、部署、真实 provider 响应及设备展示仍需单独验证。
 
-## 17. 恢复既有服务号订阅通知的决定（2026-09-29）
+## 17. 服务号订阅通知适用范围
 
-用户确认曾实际收到服务号订阅通知，并授权在“沿用微信校验授权”与“先建本地台账”之间选择。项目选择恢复既有 legacy 服务号路径，由微信发送接口权威校验实际订阅资格和次数；不把本地缺少授权台账推导成所有用户都不能发送。此决定修正之前把新渠道启用要求无差别施加给已有链路的范围，不表示前端 success 或偏好就是授权。
+既有服务号订阅通知沿用微信发送接口权威校验实际资格与次数，不建设虚构本地许可台账。此授权模式仅适用于下列明确路径，不表示前端 success、模板存在或用户偏好就是 provider 许可。
 
 ### 17.1 适用范围与保证
 
-- 恢复原有 NotifyType 1–7 中确有启用模板的服务号订阅通知，并在 V25 冻结字段、canonical 偏好 owner 和 Delivery 规划均就绪后开放 code 8 `ACTIVITY_START_REMINDER`。code 9–18 及小程序渠道仍未接通，不借兼容路径补发或绕过各自资格。
+- 原 NotifyType 1–7 中确有启用模板的服务号订阅通知，以及具备冻结字段、canonical 偏好 owner 和 Delivery 规划的 code 8 `ACTIVITY_START_REMINDER` 使用此模式；type 19/20 复用现有 comment/reply 模板。code 9–18、新增 like 与小程序渠道不借兼容路径开放、补发或绕过各自资格。
 - 本地在规划及执行时检查模板配置/开关，执行时检查用户设置、服务号身份及冻结字段；订阅入口继续展示可订阅的启用模板，不要求事先已有许可。微信决定是否接受本次发送及消费资格，应用不持久化虚构 GRANTED/次数，不宣称本地能预知每次是否可发。
 - 模板存在不等于许可存在；明确的 provider 拒绝按永久失败收尾，不反复尝试到成功。超时、空/不完整响应及调用后结果未可靠记录保持 UNKNOWN；不得通过重放通知、重置终局或刷新开关补发。
 - 复用当前 `bizsend` 产品和模板，不在失败后改用模板消息。保留明确 token 失效码的一次受控刷新；无明确安全依据的重试不可新增。
-- 已因旧门禁成为 SKIPPED 的历史项不自动复活；此代码恢复只影响以后依法产生的任务及仍未终结的任务。生产是否已部署该门禁未知。
+- 已成为 SKIPPED 的历史项不自动复活；配置或应用变更只影响依法新建及仍未终结的任务。
 - 恢复对象为旧业务通知使用的 Delivery v2 Job；最早 v1 Job 没有逐 Delivery 尝试记录，保持 payload 可读，但 Handler 返回 UnknownOutcome，由现有 Job 机制停止普通 retry。运行环境需盘点 v1 backlog 并确认原发送结果后受控处置，不自动发送，也不制造历史 Delivery。
-- 真实发送及账号状态仍需目标环境验收。本地恢复测试证明调用路径，不证明当前生产账号仍具备权限。
+- 真实发送及账号状态按指定环境验收；本地测试或部署完成不证明账号始终具备权限。
 
 ### 17.2 官方依据与尚存边界
 
-本次通过直接 HTTPS 读取取得官方正文（此前 web 浏览工具读取失败并不代表官方文档不存在）：
+对应官方协议入口：
 
 - [订阅通知介绍](https://developers.weixin.qq.com/doc/service/guide/product/subscription_messages/intro.html)：订阅资格来自用户主动订阅，产品区分一次性与长期，长期能力有适用范围；不能从一次收件推断所有模板均长期有效。
 - [发送订阅通知](https://developers.weixin.qq.com/doc/service/api/notify/notify/api_sendnewsubscribemsg)：使用 `/cgi-bin/message/subscribe/bizsend`，由服务端调用，以 errcode/errmsg 返回结果。该页参数表与示例对跳转字段的呈现存在差异；保留历史已用的 miniprogram 结构，不凭示例扩展幂等保证。

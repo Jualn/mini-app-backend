@@ -4,44 +4,19 @@
 
 当前目标是 Java 17 / Spring Boot 单体在单服务器上的低成本运行能力，不建设 Prometheus、Grafana 或 OpenTelemetry backend。Outbox、Job、Worker 与消息协议由 [Async Processing Architecture](async-processing.md) 定义，本文件只拥有其关联 ID、日志、指标、health 与运行检查契约。
 
-## 1. 现状审计
+## 1. 运行观测边界
 
-本节是建立基线时对当前仓库的审计快照，不代表生产已部署状态。
+| 边界 | 当前规则与所属入口 |
+|---|---|
+| HTTP | RequestLogFilter 安装、校验及回传 traceId，作用域结束恢复；数量、状态与时延交给 MVC/Micrometer |
+| 异常出口 | 预期拒绝不默认打堆栈；未预期 HTTP 失败由 GlobalExceptionHandler 记录一次 |
+| 同进程异步 | 关联字段按本规范传播与恢复；身份上下文不构成跨边界授权 |
+| Durable async | Outbox 使用稳定 messageId，Job 使用稳定 jobId；每次 attempt 建新 trace，机制归 Async |
+| Metrics / health | 自定义 meters 的准确命名、有限 tags 与成本见 §6；health 与管理端精选诊断见 §6–7 |
+| Logging | 固定关联字段、敏感数据边界与单点责任见 §3–5、§8；文件/保留策略见 §8 |
+| Operations | health、精选快照、日志、MySQL durable truth 和 Stream 状态联合排查；流程见 runbook |
 
-| 边界 | 当前仓库事实 | 结论 |
-|---|---|---|
-| Logging | SLF4J + Boot Logback；`logback-spring.xml` 的生产文件 appender 使用异步包装，应用/错误/队列分文件 | 保留；文本格式改为显式关联字段，日志仍不是审计事实或指标 |
-| HTTP ID | `RequestLogFilter` 已生成/接收 `X-Trace-Id` 并写响应；旧实现还把 `X-Request-Id` 当 traceId，跳过部分路径并清空整个 MDC | 保留 trace 能力；移除 requestId 混用和路径跳过，按作用域恢复 MDC |
-| HTTP 日志 | 旧 filter 对每个请求打印进入、完成两条 INFO，并手工计算耗时 | 删除；HTTP 数量、状态和时延由 Spring MVC/Micrometer 观察提供，具体失败由异常边界记录 |
-| 异常出口 | `GlobalExceptionHandler` 输出 Problem Details 和 traceId；旧实现对大多数 4xx 打 WARN，对非预期异常打 ERROR | 预期错误不默认记录；到达 HTTP 边界的非预期系统/远程异常在此记录一次完整异常 |
-| 同进程异步 | `ContextCopyDecorator` 传播全部 MDC 和 `UserContext`，finally 恢复 | 只传播本规范定义的关联字段并恢复执行线程原作用域；身份传播仍是现有行为，不代表授权可跨边界继承 |
-| Async transport | 旧 `QueueMessage` / List consumer 已删除；Outbox Envelope 使用稳定 messageId，Job attempt 使用 jobId，分别创建新 trace | 关联字段遵守第 2 节；Redis Stream 不是 durable fact |
-| Scheduled / Worker | Job Worker、Outbox Publisher、Stream Consumer/Reclaimer 与保留的 repair scheduler 并存 | 每个 attempt 建独立 trace；job/message identity 稳定，普通成功不逐条 INFO |
-| Metrics | Actuator/Micrometer 提供框架指标；异步链路已有 publish、execution、retry/dead、reclaim、backlog、oldest-age gauge | 不使用用户或实例 ID 作 tag；未引入 Prometheus registry，生产也未公开通用 metrics endpoint；管理端只读取第 6.2 节的精选状态快照 |
-| Health | 生产只暴露 Actuator `health` 且不显示详情；有 MySQL/Redis health contributor | 保持最小暴露，新增明确的 liveness/readiness 分组；仓库配置不等于生产运行验收 |
-| 敏感日志 | 审计发现过完整 mpOpenid/fromUserName、微信签名/nonce、回调 raw XML、通知 payload、帖子标题及自由文本 reason/remark 等进入日志 | 已清理本轮确认的直接泄漏点；后续修改继续按第 8 节检查，不能把一次审计当永久证明 |
-| 高频日志 | 请求双 INFO、部分查询/缓存/普通完成 INFO、队列逐事件 INFO 并存 | 已移除请求双 INFO；其余属于后续触达模块时的存量治理，不在本轮批量重构业务模块 |
-| 机器检索 | 原格式仅有无名称的 `[traceId]`，其他关联字段无固定位置 | Logback 固定输出 `traceId/operationId/messageId/jobId/attempt` 键值；事件字段使用参数化键值消息 |
-
-当前自定义 metric tag 只使用 registry 控制的 topic/job type 与固定 result/error category；未知值统一归为 `unsupported`，不把原值变成 tag。Spring `WebClient` 的 DEBUG 请求日志只记录去除 query 的 URL，但任何新增客户端日志仍须重新检查 header、query 和 body。
-
-### 1.1 Integration gap result（2026-09-23 checkout）
-
-| 问题 | 审计结果 | 本轮状态 |
-|---|---|---|
-| HTTP trace/MDC/response | filter 已真实安装、校验、回传并恢复作用域；MockMvc 已证明 route template | PASS（真实反向代理仍未验） |
-| HTTP 异常重复记录 | WebClient 中间层原先重复 ERROR/INFO；MVC 最终出口已有单点 owner | 已移除中间出口日志；PASS（定向测试） |
-| operation correlation | Job 创建过去大量传 `null`，Job→Outbox 无法关联最初业务操作 | audit/notification durable chain 现在创建并沿用 operationId；PASS（单测），历史行不回填 |
-| Outbox | publish/retry/dead meter 已存在但旧命名、动态 topic tag 与缺少 attempt MDC | 已统一 `jualn.*`、registry 限制 tag，并安装 `trace/message/operation/attempt` |
-| Job | execution/duration/retry/dead/current-state/overdue 已有部分实现 | 已补齐、规范命名并对 CAS stale-owner 单独计数；状态来自 MySQL |
-| Redis Stream | 原先只有 pending/reclaim/delivery，采集失败被误报为 0，无 lag/length/oldest age | 已补齐 bounded inspection；失败为 `NaN + available=0` |
-| Stream DEAD | poison 过去 ACK 后只剩日志 | V19 `async_dead_message` 先持久化再 ACK；未保存 payload |
-| Worker retry/log volume | retry WARN 每次无 stack，但 Redis/cache outage 可能按请求刷 ERROR | Redis transport 只记录降级/恢复边界；通用 RedisService 限频为 30 秒且不打印 key/stack |
-| Health | liveness/readiness 分组已配置 | 配置测试 PASS；真实 DB/Redis stop/start 未执行 |
-| Runtime consumption | meter 在进程内；`system:read` 管理接口读取精选异步状态 Gauge，生产 Actuator 仍只暴露 health | PARTIAL：人工管理视图已接入；时序、rate、JVM/process、自动告警仍需 Deployment / Runtime 确定 registry/alert backend |
-| Docker logging | 仓库没有 Compose，不能验证 logging driver | 仍是 Gap：下一轮核对真实容器 `max-size/max-file` |
-| MySQL slow query | 仓库不拥有生产 MySQL server 参数，未发现可验证的 slow-query 配置 | 仍是 Gap：下一轮读取真实 `slow_query_log/long_query_time`；不在应用 INFO 打全量 SQL |
-| Fault drills | 存在真实 MySQL/Redis integration test，但需要隔离服务/凭据 | 当前 MySQL 端口存在但凭据不可用，Redis 未运行；本轮未宣称真实故障演练完成 |
+本文件维护有效观测规则，不保留建立基线时的旧日志行为、测试次数或本机基础设施状态。实际代理、采集平台、日志与告警的运行结果由指定环境证据证明。
 
 ## 2. ID 模型
 
@@ -51,7 +26,7 @@
 | `requestId` | 独立的传输请求标识 | 当前单体没有区别于 traceId 的已证实用途，因此不建立。`X-Request-Id` 不作为 traceId fallback |
 | `operationId` | 一次逻辑业务操作，可跨 HTTP、事务、消息与多次 attempt 保持 | 仅在确有跨执行业务操作时建立；普通读请求不生成 |
 | `messageId` | 一条异步消息的稳定唯一标识，用于定位该消息及其多次投递 | Outbox / Stream 消息必须有 |
-| `jobId` | 一个持久后台 Job 的稳定标识，可经历多次执行 attempt | 未来 Job 边界必须有；本轮不设计 Job 存储 |
+| `jobId` | 一个持久后台 Job 的稳定标识，可经历多次执行 attempt | Job 执行边界使用；Job 存储与状态归 Async |
 | `attempt` | 同一 message/job 的执行序号；必须是有界整数 | 只在重试型异步执行中存在 |
 
 普通请求只有 `traceId`。有长期业务操作时为 `traceId + operationId`。异步消费者为每次 attempt 生成新的 `traceId`，并从可信消息/Job 状态恢复 `operationId? + messageId/jobId + attempt`。不得让原 HTTP traceId 永久跨越排队、延迟和重试，也不得把 traceId 当幂等键、数据库业务唯一键或审计标识。
@@ -102,6 +77,8 @@ durationMs=<单次重要边界时延；高频分布应使用 Timer>
 | `internal` | 无法归入以上类别的程序错误 |
 
 `retryability=retryable|permanent|unknown` 是独立维度，由操作幂等性、错误语义和 owner 决定，不能仅从异常类或 category 猜测。具体 `ACTIVITY_FULL` 等业务码通常映射 `conflict`，不得把所有业务码都变成 metric tag。
+
+外部服务 HTTP 异常日志保留 `code`（项目 ResultCode）与 `providerCode`（供应商错误码）两个独立字段。`providerCode` 只允许 1–64 个 ASCII 字母、数字、下划线、点或连字符；缺失或不安全时记为 `unknown`，不输出远端 message、响应体或凭据，也不将原始供应商错误码用作 metric tag。
 
 ## 6. Metrics implementation
 

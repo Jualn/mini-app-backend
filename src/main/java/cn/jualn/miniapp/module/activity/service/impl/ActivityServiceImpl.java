@@ -606,12 +606,13 @@ public class ActivityServiceImpl implements ActivityService {
                 && activity.getFormSchema() != null)
             throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict(
                     "publish-validation-failed", "无需报名时不能配置报名窗口或平台表单");
-        if (activity.getRegistrationMode() == 3) {
-            if (activity.getFormSchema() != null || eventContentService.actions(TargetType.ACTIVITY, activity.getId()).stream()
-                    .noneMatch(a -> Integer.valueOf(7).equals(a.getActionType()) && StringUtils.hasText(a.getTargetValue())))
-                throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict(
-                        "publish-validation-failed", "纯外部报名须提供外部报名入口且不能配置平台表单");
-        }
+        if (Set.of(3, 4).contains(activity.getRegistrationMode())
+                && eventContentService.actions(TargetType.ACTIVITY, activity.getId()).isEmpty())
+            throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict(
+                    "publish-validation-failed", "外部报名或组合报名须提供至少一个合法参与入口");
+        if (activity.getRegistrationMode() == 3 && activity.getFormSchema() != null)
+            throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict(
+                    "publish-validation-failed", "纯外部报名不能配置平台表单");
         if (Set.of(2, 4).contains(activity.getRegistrationMode())) {
             activityFormAvailability.requireEnabled();
             cn.jualn.miniapp.module.activity.service.ActivityFormPolicy.schema(
@@ -620,10 +621,6 @@ public class ActivityServiceImpl implements ActivityService {
             cn.jualn.miniapp.module.activity.service.ActivityFormPolicy.require(Integer.valueOf(1).equals(activity.getParticipantMode())
                             && window.platformValid(),
                     "平台表单仅支持个人报名；timeline须有唯一EXACT_POINT截止节点且至多一个EXACT_POINT开始节点");
-            if (activity.getRegistrationMode() == 4)
-                cn.jualn.miniapp.module.activity.service.ActivityFormPolicy.require(eventContentService.actions(TargetType.ACTIVITY, activity.getId()).stream()
-                                .anyMatch(a -> Integer.valueOf(7).equals(a.getActionType()) && StringUtils.hasText(a.getTargetValue())),
-                        "组合报名须提供外部报名入口");
         }
     }
 

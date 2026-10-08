@@ -64,6 +64,24 @@ class EventContentServiceImplTest {
                 List.of(EventActionBO.builder().actionKey("view").actionType(5).label("查看附件").attachmentId(9L).build()));
         verify(actions).insert(any(EventAction.class));
     }
+    @Test void groupAndOtherActionsCanUseOnlyInstructions() {
+        service.saveActions(TargetType.ACTIVITY, 1L, List.of(
+                EventActionBO.builder().actionKey("group").actionType(2).label("加群")
+                        .description("请按通知中的群号联系主办方").build(),
+                EventActionBO.builder().actionKey("onsite").actionType(8).label("现场办理")
+                        .description("请到服务台填写报名表").build()));
+        var captor = ArgumentCaptor.forClass(EventAction.class);
+        verify(actions, times(2)).insert(captor.capture());
+        assertTrue(captor.getAllValues().stream().allMatch(action -> action.getTargetValue() == null));
+    }
+
+    @Test void externalRegistrationActionStillRequiresHttpUrl() {
+        assertThrows(BusinessException.class, () -> service.saveActions(TargetType.ACTIVITY, 1L,
+                List.of(EventActionBO.builder().actionKey("web").actionType(7).label("网页报名")
+                        .description("请报名").build())));
+        verify(actions, never()).insert(any(EventAction.class));
+    }
+
     @Test void rejectsUnsafeUrl() {
         when(media.listAttachments(TargetType.EXAM, 1L)).thenReturn(List.of());
         assertThrows(BusinessException.class, () -> service.saveActions(TargetType.EXAM, 1L,

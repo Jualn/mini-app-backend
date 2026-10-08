@@ -20,6 +20,7 @@ import cn.jualn.miniapp.module.activity.service.ActivityEnrollmentService;
 import cn.jualn.miniapp.module.activity.service.ActivityRegistrationService;
 import cn.jualn.miniapp.module.activity.service.ActivityService;
 import cn.jualn.miniapp.module.eventcontent.bo.EventContactBO;
+import cn.jualn.miniapp.module.eventcontent.bo.EventActionBO;
 import cn.jualn.miniapp.module.exam.bo.ExamDetailBO;
 import cn.jualn.miniapp.module.exam.bo.PublicEventSubscriptionBO;
 import cn.jualn.miniapp.module.exam.controller.CanonicalPublicEventController;
@@ -135,6 +136,32 @@ class CanonicalResourceMvcTest {
                 .andExpect(jsonPath("$.contacts.length()").value(2))
                 .andExpect(jsonPath("$.contacts[1].contactKey").value("two"))
                 .andExpect(jsonPath("$.lifecycleStatus").value("ENDED"));
+    }
+
+    @Test
+    void activityDetailPreservesEveryPersistedActionType() throws Exception {
+        var types = List.of("OFFICIAL_SITE", "JOIN_GROUP", "EMAIL_SUBMISSION", "OFFICIAL_NOTICE",
+                "VIEW_ATTACHMENT", "DOWNLOAD", "EXTERNAL_REGISTRATION", "OTHER");
+        var actions = java.util.stream.IntStream.range(0, types.size()).mapToObj(index ->
+                EventActionBO.builder().actionKey("action-" + index).actionType(index + 1)
+                        .label(types.get(index)).description("Synthetic action")
+                        .targetValue("EMAIL_SUBMISSION".equals(types.get(index))
+                                ? "mailto:office@example.test" : "https://example.test/action/" + index)
+                        .sortOrder(index).build()).toList();
+        var value = ActivityDetailBO.builder().id(9L).title("Activity").summary("Summary")
+                .category(ActivityCategory.OTHER).organizer("Campus").audienceScope(1).audienceSummary("Campus")
+                .registrationMode(3).participantMode(1).publishStatus(1).lifecycleStatus(0)
+                .evaluatedAt(LocalDateTime.of(2026, 10, 8, 13, 0)).participationState("EXTERNAL")
+                .contacts(List.of()).sections(List.of()).actions(actions)
+                .timelineItems(List.of()).attachmentItems(List.of()).build();
+        when(activities.getActivityResource(9L)).thenReturn(value);
+        var response = mvc.perform(get("/v1/activities/9")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.actions.length()").value(types.size()));
+        for (int index = 0; index < types.size(); index++) {
+            response.andExpect(jsonPath("$.actions[" + index + "].type").value(types.get(index)))
+                    .andExpect(jsonPath("$.actions[" + index + "].actionKey").value("action-" + index))
+                    .andExpect(jsonPath("$.actions[" + index + "].url").value(actions.get(index).getTargetValue()));
+        }
     }
 
     @Test

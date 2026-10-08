@@ -286,12 +286,14 @@ public class ActivityResourceConverter {
     }
     private String actionType(Integer value) {
         return switch (Objects.requireNonNull(value, "action type")) {
-            case 0 -> "OTHER";
+            case 0, 8 -> "OTHER";
             case 1 -> "OFFICIAL_SITE";
-            case 2, 5 -> "JOIN_GROUP";
+            case 2 -> "JOIN_GROUP";
             case 3 -> "EMAIL_SUBMISSION";
-            case 4 -> "OTHER";
+            case 4 -> "OFFICIAL_NOTICE";
+            case 5 -> "VIEW_ATTACHMENT";
             case 6 -> "DOWNLOAD";
+            case 7 -> "EXTERNAL_REGISTRATION";
             default -> throw new IllegalStateException("Unsupported action type");
         };
     }

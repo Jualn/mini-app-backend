@@ -18,6 +18,7 @@
 | background task、delayed job、事务后副作用、notification delivery、reminder、Redis Stream、Worker、async retry | [Async Processing Architecture](docs/async-processing.md)及相关工程标准实现章节 |
 | Reminder Policy、ReminderPlan、Notification、Delivery、fan-out、通知业务幂等与取消 | [Reminder / Notification / Delivery](docs/reminder-notification.md)、[业务规则](docs/domain.md)及 [Async Processing Architecture](docs/async-processing.md) |
 | 微信能力/账号、身份与许可、消息产品/通知模板、回调、provider client 与启用证据 | [WeChat Integration](docs/wechat-integration.md)、[Reliability Baseline](docs/reliability.md)及相关工程标准实现章节 |
+| 管理员扫码登录、短期凭证与固定登录结果恢复 | [Admin QR Login 内部设计](docs/admin-qr-login.md)、[Reliability Baseline](docs/reliability.md)、[运维手册](docs/operations/runbook.md)及共享契约 |
 | 业务状态与产品约束 | [业务规则](docs/domain.md)及本次已明确需求 |
 | 对外路由、请求响应、错误、枚举、兼容性 | [共享契约](../contracts/README.md)、其规则及实际覆盖的 [OpenAPI](../contracts/api/openapi.yaml) |
 | 数据库结构或数据演进 | [数据库说明](src/main/resources/db/README.md)、[迁移历史](src/main/resources/db/migration/) |
@@ -33,6 +34,7 @@
 - 三份工程标准是通用规范基础；项目架构只补本地选型、依赖和实现约定，不重新定义通用规则。
 - 业务文档定义业务含义；contracts 定义跨组件协议；迁移历史定义可重建数据库结构；运行环境事实需实时证据。
 - contracts 尚未覆盖所有现有接口。维护未覆盖接口时先检查调用方、实现和测试以识别现状；新增或改变跨组件语义时先按 contracts 流程明确契约，不能把现状当成新协议授权。
+- 已完成的一次性 Prompt、交接、报告先收口持久内容再删除；长期文档用明确主题的 lowercase-kebab-case 命名，按当前正文维护，不用后续章节覆盖旧规则。
 - 旧指南、旧接口清单、历史类型/结构快照已退出此体系，不恢复旧文件作为并行依据。实际规范冲突须明确解决，不能用“最新文件覆盖全部”处理。
 - Database / Redis / Messaging / Security / Operations 等名称是职责类别；尚无独立标准时使用上表现有来源和本次已确认设计，不猜文件路径、不创建空标准。
 - 当前 Sa-Token、MyBatis 等选型由项目架构承接；标准中的 Spring Security、JPA、Compose 等示例不构成采用要求。

@@ -11,6 +11,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.util.UriComponentsBuilder;
+import java.net.URI;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import java.time.Duration;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -69,11 +73,10 @@ public class WxClient {
      * @throws ExternalServiceException 当微信接口返回失败或响应为空时抛出
      */
     public MiniSessionResponse getMiniSession(String code) {
-        String url = MINI_CODE2SESSION_URL
-                + "?appid=" + wxProperties.getMa().getAppId()
-                + "&secret=" + wxProperties.getMa().getAppSecret()
-                + "&js_code=" + code
-                + "&grant_type=authorization_code";
+        URI url = wxUri(MINI_CODE2SESSION_URL,
+                "appid", wxProperties.getMa().getAppId(),
+                "secret", wxProperties.getMa().getAppSecret(),
+                "js_code", code, "grant_type", "authorization_code");
         MiniSessionResponse response = webClient.get()
                 .uri(url)
                 .retrieve()
@@ -108,10 +111,8 @@ public class WxClient {
     }
 
     private String fetchMpAccessToken(String cacheKey) {
-        String url = ACCESS_TOKEN_URL
-                + "?grant_type=client_credential"
-                + "&appid=" + wxProperties.getMp().getAppId()
-                + "&secret=" + wxProperties.getMp().getAppSecret();
+        URI url = wxUri(ACCESS_TOKEN_URL, "grant_type", "client_credential",
+                "appid", wxProperties.getMp().getAppId(), "secret", wxProperties.getMp().getAppSecret());
         MpAccessTokenResponse response = webClient.get()
                 .uri(url)
                 .retrieve()
@@ -149,10 +150,8 @@ public class WxClient {
     }
 
     private String fetchMiniAccessToken(String cacheKey) {
-        String url = ACCESS_TOKEN_URL
-                + "?grant_type=client_credential"
-                + "&appid=" + wxProperties.getMa().getAppId()
-                + "&secret=" + wxProperties.getMa().getAppSecret();
+        URI url = wxUri(ACCESS_TOKEN_URL, "grant_type", "client_credential",
+                "appid", wxProperties.getMa().getAppId(), "secret", wxProperties.getMa().getAppSecret());
         MiniAccessTokenResponse response = webClient.get()
                 .uri(url)
                 .retrieve()
@@ -228,10 +227,7 @@ public class WxClient {
      */
     public MpUserInfoResponse getMpUserInfo(String mpOpenid) {
         String token = getMpAccessToken(false);
-        String url = MP_USER_INFO_URL
-                + "?access_token=" + token
-                + "&openid=" + mpOpenid
-                + "&lang=zh_CN";
+        URI url = wxUri(MP_USER_INFO_URL, "access_token", token, "openid", mpOpenid, "lang", "zh_CN");
         MpUserInfoResponse response = webClient.get()
                 .uri(url)
                 .retrieve()
@@ -240,10 +236,7 @@ public class WxClient {
         if (response != null && response.isTokenExpired()) {
             log.warn("微信 access_token 失效，刷新后重试获取用户信息");
             String refreshToken = refreshMpAccessToken(token);
-            String refreshUrl = MP_USER_INFO_URL
-                    + "?access_token=" + refreshToken
-                    + "&openid=" + mpOpenid
-                    + "&lang=zh_CN";
+            URI refreshUrl = wxUri(MP_USER_INFO_URL, "access_token", refreshToken, "openid", mpOpenid, "lang", "zh_CN");
             response = webClient.get()
                     .uri(refreshUrl)
                     .retrieve()
@@ -282,11 +275,9 @@ public class WxClient {
      * @return 网页授权结果，包含服务号 openid
      */
     public MpOauthAccessTokenResponse getMpOauthAccessToken(String code) {
-        String url = MP_OAUTH_ACCESS_TOKEN_URL
-                + "?appid=" + wxProperties.getMp().getAppId()
-                + "&secret=" + wxProperties.getMp().getAppSecret()
-                + "&code=" + code
-                + "&grant_type=authorization_code";
+        URI url = wxUri(MP_OAUTH_ACCESS_TOKEN_URL,
+                "appid", wxProperties.getMp().getAppId(), "secret", wxProperties.getMp().getAppSecret(),
+                "code", code, "grant_type", "authorization_code");
 
         MpOauthAccessTokenResponse response = webClient.get()
                 .uri(url)
@@ -429,7 +420,7 @@ public class WxClient {
     }
 
     private Mono<MiniCodeResponse> requestMiniCode(MiniProgramCodeRequest request, String token) {
-        return webClient.post().uri("https://api.weixin.qq.com/wxa/getwxacodeunlimit?access_token=" + token)
+        return webClient.post().uri(wxUri("https://api.weixin.qq.com/wxa/getwxacodeunlimit", "access_token", token))
                 .accept(MediaType.IMAGE_PNG, MediaType.IMAGE_JPEG, MediaType.APPLICATION_JSON)
                 .bodyValue(request).exchangeToMono(response -> {
                     if (!response.statusCode().is2xxSuccessful()) {
@@ -489,7 +480,7 @@ public class WxClient {
             String token
     ) {
         return webClient.post()
-                .uri(MP_SUBSCRIBE_BIZ_SEND_URL + "?access_token=" + token)
+                .uri(wxUri(MP_SUBSCRIBE_BIZ_SEND_URL, "access_token", token))
                 .bodyValue(request)
                 .retrieve()
                 .bodyToMono(MpSubscribeMessageResponse.class)
@@ -500,9 +491,7 @@ public class WxClient {
      * 调用微信获取 jsapi_ticket 接口。
      */
     private MpJsApiTicketResponse callGetJsApiTicket(String token) {
-        String url = MP_JSAPI_TICKET_URL
-                + "?access_token=" + token
-                + "&type=jsapi";
+        URI url = wxUri(MP_JSAPI_TICKET_URL, "access_token", token, "type", "jsapi");
 
         return webClient.get()
                 .uri(url)
@@ -521,7 +510,7 @@ public class WxClient {
      */
     private MpQrCodeCreateResponse callCreateQr(String scene, int expireSeconds, String token) {
         return webClient.post()
-                .uri(MP_CREATE_QR_URL + "?access_token=" + token)
+                .uri(wxUri(MP_CREATE_QR_URL, "access_token", token))
                 .bodyValue(MpQrCodeCreateResponse.buildRequest(scene, expireSeconds))
                 .retrieve()
                 .bodyToMono(MpQrCodeCreateResponse.class)
@@ -537,7 +526,7 @@ public class WxClient {
      */
     private MpTemplateMessageResponse callSendTemplate(MpTemplateMessageRequest request, String token) {
         return webClient.post()
-                .uri(MP_TEMPLATE_SEND_URL + "?access_token=" + token)
+                .uri(wxUri(MP_TEMPLATE_SEND_URL, "access_token", token))
                 .bodyValue(request)
                 .retrieve()
                 .bodyToMono(MpTemplateMessageResponse.class)
@@ -549,7 +538,7 @@ public class WxClient {
      */
     private WxMsgSecCheckResponse callMsgSecCheck(WxMsgSecCheckRequest request, String token) {
         return webClient.post()
-                .uri(MINI_MSG_SEC_CHECK_URL + "?access_token=" + token)
+                .uri(wxUri(MINI_MSG_SEC_CHECK_URL, "access_token", token))
                 .bodyValue(request)
                 .retrieve()
                 .bodyToMono(WxMsgSecCheckResponse.class)
@@ -561,11 +550,24 @@ public class WxClient {
      */
     private WxMediaCheckAsyncResponse callMediaCheckAsync(WxMediaCheckAsyncRequest request, String token) {
         return webClient.post()
-                .uri(MINI_MEDIA_CHECK_ASYNC_URL + "?access_token=" + token)
+                .uri(wxUri(MINI_MEDIA_CHECK_ASYNC_URL, "access_token", token))
                 .bodyValue(request)
                 .retrieve()
                 .bodyToMono(WxMediaCheckAsyncResponse.class)
                 .block();
+    }
+
+    // Treat dynamic values as opaque URI variables. Encoding only a concatenated query
+    // would leave '&'/'=' able to inject parameters and braces able to act as templates.
+    private URI wxUri(String endpoint, String... parameters) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(endpoint);
+        Map<String, String> values = new LinkedHashMap<>();
+        for (int i = 0; i < parameters.length; i += 2) {
+            String variable = "value" + i;
+            builder.queryParam(parameters[i], "{" + variable + "}");
+            values.put(variable, parameters[i + 1]);
+        }
+        return builder.encode().buildAndExpand(values).toUri();
     }
 
     /**

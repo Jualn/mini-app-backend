@@ -1,9 +1,12 @@
 package cn.jualn.miniapp.module.activity.converter;
 
 import cn.jualn.miniapp.common.exception.BusinessException;
+import cn.jualn.miniapp.common.enums.ActivityCategory;
+import cn.jualn.miniapp.module.activity.bo.ActivityDetailBO;
 import cn.jualn.miniapp.module.activity.bo.AdminActivityDetailBO;
 import cn.jualn.miniapp.module.activity.dto.admin.AdminActivitySaveRequest;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
 import cn.jualn.miniapp.module.timeline.dto.request.TimelineScheduleRequest;
 import java.util.List;
@@ -65,6 +68,36 @@ class AdminActivityConverterTest {
         var result = converter.toDetailVO(detail);
 
         assertEquals(0, result.draft().getAttachments().get(0).displayOrder());
+    }
+
+    @Test
+    void adminSavedActionsKeepTheirTypesWhenReadAsPublicDetail() {
+        var request = validRequest();
+        var types = List.of("OFFICIAL_SITE", "JOIN_GROUP", "EMAIL_SUBMISSION", "OFFICIAL_NOTICE",
+                "VIEW_ATTACHMENT", "DOWNLOAD", "EXTERNAL_REGISTRATION", "OTHER");
+        var actions = java.util.stream.IntStream.range(0, types.size()).mapToObj(index -> {
+            var action = new AdminActivitySaveRequest.Action();
+            action.setActionKey("action-" + index);
+            action.setType(types.get(index));
+            action.setTitle("入口 " + index);
+            action.setDescription("Synthetic action");
+            action.setUrl("EMAIL_SUBMISSION".equals(types.get(index))
+                    ? "mailto:office@example.test" : "https://example.test/action/" + index);
+            action.setDisplayOrder(index);
+            return action;
+        }).toList();
+        request.setActions(actions);
+        var saved = converter.toSaveBO(request, 7L, 9L);
+        var detail = ActivityDetailBO.builder().id(7L)
+                .category(ActivityCategory.OTHER).audienceScope(1)
+                .registrationMode(3).participantMode(1).publishStatus(1).lifecycleStatus(0)
+                .participationState("EXTERNAL").evaluatedAt(java.time.LocalDateTime.of(2026, 10, 8, 13, 0))
+                .contacts(List.of()).sections(List.of()).actions(saved.getActions())
+                .timelineItems(List.of()).attachmentItems(List.of()).build();
+        var response = new ActivityResourceConverter(new ObjectMapper()).detail(detail);
+        assertEquals(types, response.getActions().stream().map(action -> action.type()).toList());
+        assertEquals(actions.stream().map(action -> action.getActionKey()).toList(),
+                response.getActions().stream().map(action -> action.actionKey()).toList());
     }
 
     private AdminActivitySaveRequest validRequest() {

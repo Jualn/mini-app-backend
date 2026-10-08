@@ -17,43 +17,27 @@ This baseline does not select an Outbox schema, Job schema, Redis Streams API, c
 worker state machine, or message envelope. Those concrete decisions are owned by the
 [Async Processing Architecture](async-processing.md).
 
-## 2. Failure inventory and migration record
+## 2. 当前链路的失败边界
 
-下表保留基线建立时的旧执行形态，作为 failure window 与迁移决策记录；其中 Redis List/ZSet 异步路径已在 Async Implementation 中退出当前生产代码：
+本文维护必须遵守的结果与恢复约束；具体异步机制见 [Async Processing](async-processing.md)，排障入口见 [Runbook](operations/runbook.md)，接口重放语义见对应 contracts。
 
-```text
-Client -> HTTP -> Service -> MySQL
-                         -> Redis cache/counter/queue
-                         -> WeChat/COS/AI
-```
-
-| Boundary / current implementation | Outcome and current retry | Duplicate / recovery behavior | Decision |
-|---|---|---|---|
-| HTTP response after a committed write | A disconnect or client timeout is `Unknown Outcome`; the server may have committed | A client retry is safe only where the operation contract and storage make it safe | Never translate timeout into “the write failed” |
-| MySQL service transaction | Commit is Known Success; an exception that is known to roll the transaction back is Known Failure; connection loss around commit may be unknown to the caller | No general deadlock/lock-timeout retry exists | If introduced, retry a fresh proxied transaction from outside the failed transaction and use a bounded policy |
-| Activity enrollment / public-event subscription | Row lock plus `UNIQUE(activity_id,user_id)` or equivalent protects one fact | Reaching the same target state is naturally idempotent; constraints arbitrate races | Safe to retry only according to the endpoint contract; do not add an operation table |
-| Canonical activity registration | `UNIQUE(activity_id,user_id)`, activity row lock, conditional/versioned transitions and ETag protect capacity and updates | Create POST explicitly does not promise replay; after an unknown result the client reads `GET .../me`. PUT/cancel use the current ETag | Keep reconciliation-by-read; do not invent a new idempotency key for this flow |
-| Like and report creation | Unique keys protect one user/target fact | A constraint race is a duplicate/business conflict, not infrastructure failure | Do not retry a uniqueness violation as transient infrastructure |
-| Admin manual review | Required `Idempotency-Key` is stored in `content_audit_log` with a global unique key; same key/same command returns compatible success, different command conflicts | Target transition and decision row share the DB transaction. A concurrent losing insert can return conflict rather than replay | Durable key is appropriate; current concurrent response equivalence is a known limitation, not a reason for a generic idempotency framework |
-| Redis read cache / derived counters | Redis is not the durable business fact source | Cache miss refills from DB; many writes invalidate after commit. Some legacy counters/unread mutations still happen beside or inside DB transactions | Redis failure must not roll back a committed business fact; remaining mixed boundaries need case-by-case migration |
-| Post/comment/profile audit publication | DB row commits, then `afterCommit` sends to the Redis queue | Crash or enqueue failure after commit can leave a permanent pending item; startup has no general audit redispatch | **Async Architecture prerequisite** |
-| Main Redis queue (`BLPOP`) | Pop removes before executor/handler durable completion; handler failures retry up to 3 times at 10/60/300 seconds | Crash after pop loses work; retries may duplicate effects; Redis dead list is terminal storage only | Historical transport, not a reliability baseline. **Async Architecture prerequisite** |
-| Delay queue (`ZSET` + body key) | Consumer removes the member to claim before durable completion, then recreates it after handled failure | Crash after claim loses work. A `notify_plan` can rebuild only plan-level status=0 work, not individual messages | **Async Architecture prerequisite** |
-| Notification fan-out and inbox | Fan-out publishes inside a DB transaction then marks the plan sent; inbox insert has no dedupe key; WeChat push is called while the inbox transaction is open and its failure is swallowed | Partial fan-out, duplicate inbox rows, lost individual messages, and unknown external-send outcome are possible | Keep the user-visible inbox as primary product effect, but redesign dispatch/dedupe in Async Architecture; do not add ad-hoc retries now |
-| WeChat read-like calls and token reads | Connect timeout 5 s and response/read/write timeout 10 s; selected token-expired responses refresh once | Retry is limited to explicit token-expired semantics, not arbitrary timeout | Read-like calls may later receive a bounded retry outside DB transactions if failure classification is explicit |
-| WeChat message/audit POST | Same HTTP bounds; no generic transport retry | Timeout/connection loss can mean the provider accepted the write: `Unknown Outcome`; provider idempotency/status-query support is not established in this code | No automatic retry until a duplicate/reconciliation strategy is defined |
-| COS credential request | External read-like call via SDK | No application retry; caller may start a new attempt | A bounded retry may be considered only with SDK timeout/attempt settings verified |
-| COS object delete | Persistent `media_upload_record` uses PENDING/CLEANING, a 30-minute stale-claim reset and capped exponential schedule up to 24 h | Deleting the same object is treated as a retryable cleanup intent; the durable row survives process failure | Existing state recovery is valid; it is not proof that every COS operation is idempotent |
-| AI document import / SSE | Executor-local session, finite stream timeout, no server retry; retryable failures tell the user to upload again | `importId` is attempt-local and state is lost on process failure; no durable business write is promised | In-memory loss is acceptable for draft suggestions. Do not create operation rows unless the product promises resumable/durable processing |
-| Interaction counter sync | Scheduled Redis-to-DB projection repair | View delta attempts to restore Redis delta after DB failure; like dirty-set deletion before all DB writes can lose repair intent on crash | Counters are projections, but this crash window remains a future recovery improvement |
-| Mini-program HTTP adapter | Only a 401 refresh path retries once; it replays the original request. There is no generic network/5xx write retry | A write can be repeated after token recovery | This is safe only for endpoint-defined idempotent/reconcilable writes; new clients must not add generic POST retry |
-| Admin web HTTP adapter | No general automatic retry was found | User actions can still manually resubmit after an unknown result | Follow the same endpoint contract rules |
-
-当前审核、提醒、通知已迁移为 MySQL Outbox / Durable Job 与 Redis Stream transport；具体状态机、保留期和迁移状态见 [Async Processing Architecture](async-processing.md)。WebClient timeout 仍只限制资源占用，不证明远程写失败；媒体清理和其他保留的 scheduler 只有在 durable source 与重新扫描入口真实存在时才可称为可恢复。
+| 边界 | 结果与恢复约束 |
+|---|---|
+| HTTP 响应与 MySQL commit | commit 后断连或超时可能是 Unknown Outcome；按该操作契约读取或重放，不默认重试写请求 |
+| MySQL 事务 | 明确回滚与提交附近连接丢失分开处理；事务重试须在失败事务外重新开始，且有明确幂等与预算 |
+| 审核提交与结果回调 | 审核预约与 Durable Job 同事务；审核结果与 Outbox 同事务；重复/迟到 callback 由审核 owner 条件收尾 |
+| 用户资料更新 | 安全检查在资料写事务外完成；最终短事务检查权限和 revision 后原子生效。503 或迟到审核不能后台发布候选，恢复见 Runbook §13 |
+| Reminder fan-out 与 Notification | 计划与执行 Job 分责；稳定 source identity 和数据库唯一约束去重。部分执行可恢复，取消及失去 ownership 后不能继续新效果 |
+| 微信 Delivery | Notification、Delivery 与 Job 分责；远程调用在事务外。明确成功、拒绝与 UNKNOWN 分开持久化，未知发送不盲重发 |
+| Redis 普通派生缓存 | 数据库是事实源，提交后失效及读取回填按可接受陈旧范围处理；缓存失败不撤销已提交业务事实 |
+| Redis 认证状态 | 与普通缓存分开，错误不能降级为 miss 或授权通过。扫码登录使用固定候选和 activation，见 Outcome model 与扫码登录内部设计 |
+| COS 清理 | 清理意图保存在媒体上传状态，扫描/认领有界；相同对象删除的恢复不构成所有 COS 操作均幂等的承诺 |
+| AI 导入 / SSE | 与连接同生命周期的草稿建议允许进程内丢失；明确让用户重新上传，不冒充 durable business acceptance |
+| 同步远程调用与客户端恢复 | timeout 限制资源占用，不证明远程写失败；重试、401 恢复重放和用户手动重提均须遵守具体操作契约 |
 
 ## 3. Outcome model
 
-Admin QR Login v2 已增加短期 Redis session/scene/PNG 与固定候选恢复：reserve 唯一候选 → Sa-Token 同 token 登录写入 → Lua 原子 activation+CONSUMED。无 activation 的中间 mapping 不允许管理登录；Unknown Outcome 由同 session 重新读 truth 恢复，不能换 token。固定 QR 到期仅禁止新兑换/重放，不撤销已激活 Admin token 的正常寿命。旧 QR 流程从未上线，已按用户决定移除；管理认证仅接受已激活的新流程 Token。机制、证据与未验证部署边界见 [实现记录](admin-qr-login-v2-implementation.md)。不增加 DB 表、Outbox、后台签发或 scheduled cleanup。
+Admin QR Login v2 使用短期 Redis session/scene/PNG 与固定候选恢复：reserve 唯一候选 → Sa-Token 同 token 登录写入 → Lua 原子 activation+CONSUMED。无 activation 的中间 mapping 不允许管理登录；Unknown Outcome 由同 session 重新读 truth 恢复，不能换 token。固定 QR 到期仅禁止新兑换/重放，不撤销已激活 Admin token 的正常寿命。旧 QR 流程已移除；管理认证仅接受已激活的新流程 Token。机制见 [内部设计](admin-qr-login.md)，运行与恢复限制见 [运维手册](operations/runbook.md#12-admin-扫码登录运行与恢复)。不增加 DB 表、Outbox、后台签发或 scheduled cleanup。
 
 Every attempt is classified as one of:
 
@@ -229,8 +213,7 @@ business/audit fact.
 ## 11. Async Architecture Requirements
 
 The [Async Processing Architecture](async-processing.md) must satisfy these requirements without
-this document selecting its transport or schema. Its existence does not mean the migration is
-already implemented or deployed:
+this document selecting its transport or schema. Implementation and operational verification remain separate from these requirements:
 
 1. A committed DB fact and its required async intent cannot have a permanent loss window.
 2. Redis cannot be the only truth for work that must survive restart or Redis data loss.
@@ -252,7 +235,4 @@ already implemented or deployed:
 12. Dead/reclaim/manual-repair paths need an operator-visible owner and enough durable evidence to
     decide retry, compensation, or reconciliation.
 
-Concrete implementation and migration inputs are: audit enqueue after post/comment/profile commit; main-queue
-`BLPOP` removal before completion; delay-queue claim/removal before completion; ZSET/body two-key
-partial writes; notification plan partial fan-out; inbox deduplication; WeChat send Unknown
-Outcome; and like-counter dirty-set crash recovery.
+重要异步链路的机制由 Async 文档维护；新场景仍需逐项验证这些保证，不复用已经退出的 Redis List/ZSet 迁移清单。
