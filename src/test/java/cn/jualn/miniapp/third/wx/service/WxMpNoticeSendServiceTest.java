@@ -33,7 +33,7 @@ class WxMpNoticeSendServiceTest {
         var field = new WxMpNoticeTemplateProperties.Field(); field.setSource("title"); field.setRequired(true);
         template.setFields(Map.of("thing1", field)); properties.setNoticeTemplates(Map.of("reply", template));
         var wx = new WxProperties(new WxProperties.Mp("synthetic-mp", "synthetic-secret", null, null, null), new WxProperties.Ma("synthetic-app", "synthetic-secret", "synthetic-token", "synthetic-aes"));
-        var service = new WxMpNoticeSendService(client, wx, users, new WxNotificationTemplateRegistry(properties), new WxNotificationTemplateRenderer());
+        var service = new WxMpNoticeSendService(client, wx, users, enabledRegistry(properties), new WxNotificationTemplateRenderer());
         assertTrue(service.isNotificationDeliveryAvailable(WxMpNoticeType.REPLY));
         assertFalse(service(true).isNotificationDeliveryAvailable(WxMpNoticeType.REPLY));
         service.send(7L, WxMpNoticeType.REPLY, Map.of("title", "t", "targetId", "42", "notificationId", "7"));
@@ -98,7 +98,7 @@ class WxMpNoticeSendServiceTest {
         template.setFields(Map.of("thing1", field));
         properties.setNoticeTemplates(Map.of("reply", template));
         return new WxMpNoticeSendService(client, mock(WxProperties.class), users,
-                new WxNotificationTemplateRegistry(properties), new WxNotificationTemplateRenderer());
+                enabledRegistry(properties), new WxNotificationTemplateRenderer());
     }
     @Test void frozenDeliveryRetainsTemplateAndContentAcrossConfigVersionChange() {
         var old=freezeService("old-id",true,"fixture-mp");
@@ -122,7 +122,13 @@ class WxMpNoticeSendServiceTest {
         var field=new WxMpNoticeTemplateProperties.Field();field.setSource("title");field.setRequired(true);t.setFields(Map.of("thing1",field));
         p.setNoticeTemplates(Map.of("activity-start",t));
         var wx=new WxProperties(new WxProperties.Mp(appId,"fixture-secret",null,null,null),new WxProperties.Ma("fixture-ma","fixture-secret",null,null));
-        return new WxMpNoticeSendService(client,wx,users,new WxNotificationTemplateRegistry(p),new WxNotificationTemplateRenderer());
+        return new WxMpNoticeSendService(client,wx,users,enabledRegistry(p),new WxNotificationTemplateRenderer());
+    }
+
+    private WxNotificationTemplateRegistry enabledRegistry(WxMpNoticeTemplateProperties source) {
+        var channels = new cn.jualn.miniapp.module.wx.notice.WxNotificationTemplateProperties();
+        channels.getOfficialAccount().setEnabled(true);
+        return new WxNotificationTemplateRegistry(source, channels);
     }
 
 }

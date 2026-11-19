@@ -19,6 +19,9 @@ public class NotificationChannels {
         adapters=Map.copyOf(values);
     }
     public NotificationChannelAdapter find(String channel) {return channel==null?null:adapters.get(channel);}
+    public boolean enabled(String channel) {
+        var adapter=find(channel);return adapter!=null && adapter.isEnabled();
+    }
     public boolean available(String channel,NotifyType type) {
         var adapter=find(channel);return adapter!=null && adapter.isDeliveryAvailable(type);
     }

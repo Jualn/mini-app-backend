@@ -18,6 +18,7 @@ public final class WxNotificationChannelAdapter implements NotificationChannelAd
         this.channel=channel;this.provider=provider;this.configured=configured;this.json=json;
     }
     @Override public String channel() {return channel;}
+    @Override public boolean isEnabled() {return provider.isChannelEnabled();}
     @Override public boolean isTemplateConfigured(NotifyType type) {return configured.test(type);}
     @Override public boolean isDeliveryAvailable(NotifyType type) {return provider.isDeliveryAvailable(type);}
     @Override public JsonNode prepare(NotifyType type,Map<String,Object> frozen) {

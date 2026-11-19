@@ -46,6 +46,7 @@ public class WxNotificationTemplateRegistry {
      * 获取 H5 订阅页可展示的模板。
      */
     public List<WxMpNoticeTemplateView> listSubscribeVisibleTemplates() {
+        if (!isChannelEnabled("WECHAT_OFFICIAL_ACCOUNT")) return List.of();
         Map<String, WxMpNoticeTemplateView> visible = new LinkedHashMap<>();
         effectiveTemplates.values().stream().sorted(java.util.Comparator.comparing(WxEffectiveTemplate::bindingRef))
                 .filter(t -> "WECHAT_OFFICIAL_ACCOUNT".equals(t.channel()) && t.enabled() && t.subscribeVisible())
@@ -53,6 +54,12 @@ public class WxNotificationTemplateRegistry {
                 .forEach(t -> visible.put(t.templateId(), WxMpNoticeTemplateView.builder()
                         .type(t.notificationType()).name(t.displayName()).templateId(t.templateId()).build()));
         return List.copyOf(visible.values());
+    }
+
+    public boolean isChannelEnabled(String channel) {
+        if ("WECHAT_MINI_PROGRAM".equals(channel)) return notificationProperties.getMiniProgram().isEnabled();
+        if ("WECHAT_OFFICIAL_ACCOUNT".equals(channel)) return notificationProperties.getOfficialAccount().isEnabled();
+        return false;
     }
 
     public WxEffectiveTemplate effective(String ref) {

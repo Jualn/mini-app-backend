@@ -13,8 +13,14 @@ import java.util.List;
 @ConfigurationProperties(prefix = "wx.notification")
 public class WxNotificationTemplateProperties {
     private String environment = "local";
+    private Channel miniProgram = new Channel();
+    private Channel officialAccount = new Channel();
     private Map<String, Definition> definitions = new LinkedHashMap<>();
     private Map<String, Binding> bindings = new LinkedHashMap<>();
+
+    @Data public static class Channel {
+        private boolean enabled;
+    }
 
     @Data public static class Definition {
         private String channel;

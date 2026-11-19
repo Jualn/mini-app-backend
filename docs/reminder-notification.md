@@ -262,7 +262,7 @@ structured 与 legacy 使用同一 row/ID/readAt。`content_payload` 冻结 pres
 
 ## 7. NotificationDelivery
 
-渠道投递是 Notification 的派生意图与结果。`IN_APP` 是本地渠道，两个微信渠道是独立外部渠道；它们不能复用笼统 `WECHAT`。V20 已落 `notification_delivery` 基础表；V21 增加 sparse preference 和明确的旧/新收件箱世代分类；V22 增加 `LEGACY_MIGRATION` 来源与逐用户 owner。它们不制造历史 Delivery。D1 已确认关闭 IN_APP 只影响未来规划，已有消息、已读状态和已规划投递保持，重开不补发。源码已有 canonical IN_APP、按有效绑定规划的服务号渠道，以及小程序独立 Adapter/分派；小程序订阅资格协议未接通，保持不可发送；下列设计与目标环境部署/兼容切换证据分别判断：
+渠道投递是 Notification 的派生意图与结果。`IN_APP` 是本地渠道，两个微信渠道是独立外部渠道；它们不能复用笼统 `WECHAT`。V20 已落 `notification_delivery` 基础表；V21 增加 sparse preference 和明确的旧/新收件箱世代分类；V22 增加 `LEGACY_MIGRATION` 来源与逐用户 owner。它们不制造历史 Delivery。D1 已确认关闭 IN_APP 只影响未来规划，已有消息、已读状态和已规划投递保持，重开不补发。源码已有 canonical IN_APP、按有效绑定规划的服务号渠道，以及小程序独立 Adapter/分派；小程序按独立渠道开关和有效模板接入，微信响应判定该次资格；下列设计与目标环境部署/兼容切换证据分别判断：
 
 | 字段 | 类型/可空方向 | 含义 |
 |---|---|---|
@@ -291,7 +291,7 @@ Notification 与所有初始 Channel Delivery 在同一 MySQL 事务规划。`IN
 初始规划与 Notification 插入是一次原子决定，即使全部渠道关闭也保留去重所需的 Notification。重复 source key 只读取已有结果，不按后来偏好/配置补建缺失渠道，不重置 FAILED/SKIPPED/UNKNOWN，不重写内容；修复真实事务不变量破坏需受控处理，不能借事件重放实施补发。IN_APP 偏好按 D1 仅影响初始规划；微信在调用前再次检查当前有效偏好，关闭则 SKIPPED，重开不会复活该终局。偏好检查后的在途调用不承诺可撤回。
 
 
-微信模板 V1 的新外部投递在本事务中冻结已渲染字段及完整模板/绑定版本到 `notification_delivery.template_snapshot`（schema version 1），Job 只携带 deliveryId。配置更新不能修改重试内容；当前禁用、身份、偏好与业务资格仍在发送前复核。channel 明确分派：服务号沿用 bizsend，小程序使用独立 subscribe/send Adapter。小程序订阅资格协议未接通时不规划；已有小程序投递安全 SKIPPED，不能送到服务号接口。V34 的旧 NULL 快照 PENDING → SKIPPED（legacy_template_unfrozen），PROCESSING → UNKNOWN；不伪造历史模板。细节和离线示例见 [微信集成 §16.6](wechat-integration.md#166-wechat-notification-template-v1-实施边界)。不新增队列、Job 类型或 Delivery 状态。
+微信模板 V1 的新外部投递在本事务中冻结已渲染字段及完整模板/绑定版本到 `notification_delivery.template_snapshot`（schema version 1），Job 只携带 deliveryId。配置更新不能修改重试内容；当前禁用、身份、偏好与业务资格仍在发送前复核。channel 明确分派：服务号沿用 bizsend，小程序使用独立 subscribe/send Adapter。小程序渠道关闭或模板缺失时不规划；已有小程序投递在渠道关闭后安全 SKIPPED，不能送到服务号接口。V34 的旧 NULL 快照 PENDING → SKIPPED（legacy_template_unfrozen），PROCESSING → UNKNOWN；不伪造历史模板。细节和离线示例见 [微信集成 §16.6](wechat-integration.md#166-wechat-notification-template-v1-实施边界)。不新增队列、Job 类型或 Delivery 状态。
 
 五类定时 Notification 在创建时由 producer 的 ReminderPlan anchor 冻结 `businessTime` 和相应 `registrationStartTime/registrationDeadlineTime/publicEventStartTime/startTime`，同时保存已知 location/targetId。公共事项截止沿用 registrationDeadlineTime 的业务含义；不以 sendAt 或主体当前时间补旧通知。取消、时间/地点变化、提前结束等继续使用既有结构化事件快照，不扩展无关业务时间。
 
@@ -325,11 +325,11 @@ business recipient
 
 | Notification / Category | IN_APP | WECHAT_MINI_PROGRAM | WECHAT_OFFICIAL_ACCOUNT | Template requirement | Provider permission requirement |
 |---|---|---|---|---|---|
-| Activity Reminder / Direct (`ACTIVITY`) | 支持；本地事务完成 | 独立 Adapter/模板映射已实现；订阅资格协议未接通，保持不可发送 | 按有效显式绑定进入通用投递；活动开始保留 `activity_start` 兼容回退，无配置类型 unavailable | 微信两渠道各自 templateId、字段 mapping、jump target；不能共享 ID | Mini Program 需要对应小程序订阅消息授权事实；Official Account 当前由 provider 在发送时权威校验，不表示永久 GRANTED |
-| PublicEvent Reminder / Direct (`PUBLIC_EVENT`) | 支持；本地事务完成 | 独立 Adapter/模板映射已实现；订阅资格协议未接通，保持不可发送 | 按有效显式绑定进入通用投递；未配置或未核验模板默认 unavailable | 同上；具体 ID 均为“配置缺失”，不得编造 | 同上 |
+| Activity Reminder / Direct (`ACTIVITY`) | 支持；本地事务完成 | 独立渠道开关及模板映射；微信响应判定该次资格 | 按有效显式绑定进入通用投递；活动开始保留 `activity_start` 兼容回退，无配置类型 unavailable | 微信两渠道各自 templateId、字段 mapping、jump target；不能共享 ID | 两个渠道分别由各自 provider 发送响应校验资格，不维护本地次数，不表示永久 GRANTED |
+| PublicEvent Reminder / Direct (`PUBLIC_EVENT`) | 支持；本地事务完成 | 独立渠道开关及模板映射；微信响应判定该次资格 | 按有效显式绑定进入通用投递；未配置或未核验模板默认 unavailable | 同上；具体 ID 均为“配置缺失”，不得编造 | 同上 |
 | 未来 System/Admin producer | 基础能力可复用，当前不新增产品 producer | 不预建未使用模板 | 既有 SYSTEM_NOTICE 可作为历史能力证据，不等于新广播产品已迁移 | 只有真实 producer/类型启用时配置 | 按该类型的 mandatory/configurable policy 与 provider 权限判断 |
 
-`WECHAT_MINI_PROGRAM` 与 `WECHAT_OFFICIAL_ACCOUNT` 各自拥有 provider identity、authorization/permission、template registry、field mapping、jump target、request API 和 error classifier；只共享 token/HTTP/client foundation 与通用错误模型。当前仓库的 `openid` 是小程序身份，`mp_openid` 是服务号身份；现有通知发送服务调用的是服务号订阅通知 API，不能改名后冒充小程序渠道。
+`WECHAT_MINI_PROGRAM` 与 `WECHAT_OFFICIAL_ACCOUNT` 各自拥有 provider identity、authorization/permission、template registry、field mapping、jump target、request API 和 error classifier；只共享 token/HTTP/client foundation 与通用错误模型。当前仓库的 `openid` 是小程序身份，`mp_openid` 是服务号身份；两个发送器分别调用各自产品的 API，不以改名或失败后切换替代独立渠道。
 
 ### 7.3 Preference Model
 

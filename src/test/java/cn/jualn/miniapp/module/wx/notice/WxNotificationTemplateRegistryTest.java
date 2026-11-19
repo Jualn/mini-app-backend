@@ -88,7 +88,9 @@ class WxNotificationTemplateRegistryTest {
         var reply = enabledTemplate("reply");
         reply.setSubscribeVisible(false);
         properties.setNoticeTemplates(Map.of("reply", reply, "comment", enabledTemplate("comment_reply")));
-        var registry = new WxNotificationTemplateRegistry(properties);
+        var switches = new WxNotificationTemplateProperties();
+        switches.getOfficialAccount().setEnabled(true);
+        var registry = new WxNotificationTemplateRegistry(properties, switches);
         assertTrue(registry.resolve("reply", "WECHAT_OFFICIAL_ACCOUNT").enabled());
         assertNull(registry.resolve("system_notice", "WECHAT_OFFICIAL_ACCOUNT"));
         assertEquals(1, registry.listSubscribeVisibleTemplates().size());

@@ -189,6 +189,10 @@ spring:
 wx:
   notification:
     environment: ${WX_NOTIFICATION_ENVIRONMENT:local}
+    mini-program:
+      enabled: ${WX_NOTIFICATION_MINI_PROGRAM_ENABLED:false}
+    official-account:
+      enabled: ${WX_NOTIFICATION_OFFICIAL_ACCOUNT_ENABLED:false}
     definitions: { }
     bindings: { }
   mp:

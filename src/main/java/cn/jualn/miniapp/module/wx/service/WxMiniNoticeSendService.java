@@ -30,7 +30,6 @@ public class WxMiniNoticeSendService implements WxNoticeDeliveryAdapter {
     private final UserWechatIdentityService users;
     private final WxNotificationTemplateRegistry templates;
     private final WxNotificationTemplateRenderer renderer;
-    private final WxMiniSubscriptionCapability subscriptions;
 
     @Override
     public String channel() {
@@ -38,23 +37,19 @@ public class WxMiniNoticeSendService implements WxNoticeDeliveryAdapter {
     }
 
     public boolean isTemplateConfigured(NotifyType type) {
-        if (type == null || properties.getMa() == null
+        if (!isChannelEnabled() || type == null || properties.getMa() == null
                 || !StringUtils.hasText(properties.getMa().getAppId())) return false;
         var template = templates.resolve(type.name(), CHANNEL);
         return template != null && template.enabled();
     }
 
-    /**
-     * Contracts notification-delivery currently defines no Mini Program permission write API
-     * or consumption/revocation protocol. Keep this gate closed until that protocol is accepted
-     * and implemented. Configuration, login, preferences and client success cannot open it.
-     */
-    public boolean isSubscriptionCapabilityAvailable() {
-        return subscriptions.canSend();
+    @Override
+    public boolean isChannelEnabled() {
+        return templates.isChannelEnabled(CHANNEL);
     }
 
     public boolean isDeliveryAvailable(NotifyType type) {
-        return isTemplateConfigured(type) && isSubscriptionCapabilityAvailable();
+        return isTemplateConfigured(type);
     }
 
     public WxDeliveryTemplateSnapshot prepareDelivery(NotifyType type, Map<String, Object> frozen) {
@@ -86,7 +81,7 @@ public class WxMiniNoticeSendService implements WxNoticeDeliveryAdapter {
     }
 
     public boolean isFrozenDeliveryAvailable(WxDeliveryTemplateSnapshot snapshot) {
-        return isSubscriptionCapabilityAvailable() && snapshot != null && snapshot.schemaVersion() == 1
+        return isChannelEnabled() && snapshot != null && snapshot.schemaVersion() == 1
                 && CHANNEL.equals(snapshot.channel()) && "ma-primary".equals(snapshot.accountRef())
                 && "MINI_PROGRAM_SUBSCRIBE".equals(snapshot.product())
                 && snapshot.bindingVersion() > 0 && snapshot.definitionVersion() > 0

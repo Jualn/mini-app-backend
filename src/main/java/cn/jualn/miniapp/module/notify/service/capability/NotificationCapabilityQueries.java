@@ -55,10 +55,9 @@ public class NotificationCapabilityQueries {
                 boolean available = inApp || officialConfigured || miniConfigured;
                 List<String> unavailableReasons = new ArrayList<>(capabilityReasons(channel, available,
                         hasMiniProgramIdentity, hasOfficialAccountIdentity));
-                if (miniConfigured) unavailableReasons.add("PERMISSION_UNKNOWN");
                 items.add(new NotificationCapabilitiesBO.Item(
                         type.category().name(), type.type().name(), channel.name(), available,
-                        inApp ? "NOT_REQUIRED" : officialConfigured ? "PROVIDER_VERIFIED_AT_SEND" : "UNKNOWN",
+                        inApp ? "NOT_REQUIRED" : officialConfigured || miniConfigured ? "PROVIDER_VERIFIED_AT_SEND" : "UNKNOWN",
                         unavailableReasons));
             }
         }
@@ -71,7 +70,8 @@ public class NotificationCapabilityQueries {
                                            boolean hasOfficialAccountIdentity) {
         if (channel == NotificationChannel.IN_APP) return List.of();
         List<String> reasons = new ArrayList<>();
-        if (!configured) reasons.add("NOT_CONFIGURED");
+        if (!channels.enabled(channel.name())) reasons.add("CHANNEL_DISABLED");
+        else if (!configured) reasons.add("NOT_CONFIGURED");
         if (channel == NotificationChannel.WECHAT_MINI_PROGRAM && !hasMiniProgramIdentity) {
             reasons.add("IDENTITY_REQUIRED");
         }

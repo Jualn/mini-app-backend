@@ -27,12 +27,20 @@ class CanonicalNotificationCapabilityTest {
 
     private final UserProfileMapper userProfileMapper = mock(UserProfileMapper.class);
     private final WxMpNoticeSendService sendService = mock(WxMpNoticeSendService.class);
+    private final cn.jualn.miniapp.module.wx.service.WxMiniNoticeSendService miniSendService = mock(cn.jualn.miniapp.module.wx.service.WxMiniNoticeSendService.class);
     private final NotificationMapper notificationMapper = mock(NotificationMapper.class);
     private final PersonalNotificationInbox inbox = new PersonalNotificationInbox(notificationMapper,mock(RedisService.class));
     private final NotificationCapabilityQueries service = new NotificationCapabilityQueries(
                 new cn.jualn.miniapp.module.user.service.UserNotificationIdentityService(userProfileMapper),cn.jualn.miniapp.module.notify.TestNotificationChannels.create(
                 sendService,
-                mock(cn.jualn.miniapp.module.wx.service.WxMiniNoticeSendService.class),new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()));
+                miniSendService,new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()));
+
+    @org.junit.jupiter.api.BeforeEach
+    void enableChannelFixture() {
+        when(sendService.isChannelEnabled()).thenReturn(true);
+        when(miniSendService.isChannelEnabled()).thenReturn(true);
+        org.springframework.test.util.ReflectionTestUtils.setField(inbox, "contentAccess", java.util.List.of());
+    }
 
     @AfterEach
     void clearUserContext() {

@@ -7,6 +7,7 @@ import java.util.Map;
 /** Delivery owns scheduling and outcomes; each channel owns its opaque frozen provider payload. */
 public interface NotificationChannelAdapter {
     String channel();
+    boolean isEnabled();
     boolean isTemplateConfigured(NotifyType type);
     boolean isDeliveryAvailable(NotifyType type);
     JsonNode prepare(NotifyType type, Map<String,Object> frozenContent);

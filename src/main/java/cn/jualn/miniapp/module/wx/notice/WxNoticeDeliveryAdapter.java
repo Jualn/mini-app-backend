@@ -7,6 +7,7 @@ import java.util.Map;
 /** Application channel boundary; no provider response DTO or error-code interpretation leaks to Delivery. */
 public interface WxNoticeDeliveryAdapter {
     String channel();
+    boolean isChannelEnabled();
     boolean isDeliveryAvailable(NotifyType type);
     WxDeliveryTemplateSnapshot prepare(NotifyType type, Map<String, Object> frozen);
     boolean isFrozenAvailable(WxDeliveryTemplateSnapshot snapshot, NotifyType type);

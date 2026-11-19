@@ -42,7 +42,7 @@ class WxNotificationTemplateTest {
         assertTrue(snapshot.pagePath().contains("publicEventId=9"));
     }
 
-    @Test void configuredMiniChannelCannotTreatConfigurationAsPermission() {
+    @Test void configuredMiniChannelUsesProviderDecisionAtSend() {
         var p = fixture();
         var definition = p.getDefinitions().get("fixture");
         definition.setChannel("WECHAT_MINI_PROGRAM"); definition.setAccountRef("ma-primary");
@@ -54,17 +54,22 @@ class WxNotificationTemplateTest {
         var service = new cn.jualn.miniapp.module.wx.service.WxMiniNoticeSendService(client,
                 new cn.jualn.miniapp.third.wx.config.WxProperties(null,
                     new cn.jualn.miniapp.third.wx.config.WxProperties.Ma("fixture-ma", "fixture-secret", null, null)),
-                users, registry(p), new WxNotificationTemplateRenderer(), new WxMiniSubscriptionCapability());
+                users, registry(p), new WxNotificationTemplateRenderer());
         assertTrue(service.isTemplateConfigured(cn.jualn.miniapp.module.notify.enums.NotifyType.ACTIVITY_START_REMINDER));
-        assertFalse(service.isDeliveryAvailable(cn.jualn.miniapp.module.notify.enums.NotifyType.ACTIVITY_START_REMINDER));
+        assertTrue(service.isDeliveryAvailable(cn.jualn.miniapp.module.notify.enums.NotifyType.ACTIVITY_START_REMINDER));
         var prepared = service.prepareDelivery(cn.jualn.miniapp.module.notify.enums.NotifyType.ACTIVITY_START_REMINDER, frozen());
-        assertThrows(cn.jualn.miniapp.common.exception.BusinessException.class,
-                () -> service.sendFrozen(3L, prepared, "7", () -> { }));
-        org.mockito.Mockito.verifyNoInteractions(client, users);
+        org.mockito.Mockito.when(users.getMiniOpenid(3L)).thenReturn("fixture-user");
+        var accepted = new cn.jualn.miniapp.third.wx.dto.MiniSubscribeMessageResponse();
+        accepted.setErrcode(0);
+        org.mockito.Mockito.when(client.sendMiniSubscribeMessage(org.mockito.ArgumentMatchers.any())).thenReturn(accepted);
+        assertEquals(cn.jualn.miniapp.third.wx.notice.WxNoticeSendResult.Outcome.ACCEPTED,
+                service.deliver(3L, prepared, "7", () -> { }).outcome());
+        org.mockito.Mockito.verify(client).sendMiniSubscribeMessage(org.mockito.ArgumentMatchers.any());
     }
 
     static WxNotificationTemplateProperties fixture() {
         var p = new WxNotificationTemplateProperties(); p.setEnvironment("test");
+        p.getMiniProgram().setEnabled(true); p.getOfficialAccount().setEnabled(true);
         var d = new WxNotificationTemplateProperties.Definition();
         d.setChannel("WECHAT_OFFICIAL_ACCOUNT"); d.setAccountRef("mp-primary");
         d.setProduct("OFFICIAL_ACCOUNT_SUBSCRIBE_BIZSEND"); d.setTemplateId("fixture-only");
@@ -194,6 +199,8 @@ class WxNotificationTemplateTest {
             var properties=org.springframework.boot.context.properties.bind.Binder.get(env).bind("wx.notification",
                     org.springframework.boot.context.properties.bind.Bindable.of(WxNotificationTemplateProperties.class)).get();
             assertEquals(profile,properties.getEnvironment());assertTrue(properties.getDefinitions().isEmpty());
+            assertEquals("prod".equals(profile), properties.getMiniProgram().isEnabled());
+            assertFalse(properties.getOfficialAccount().isEnabled());
         }
     }
 

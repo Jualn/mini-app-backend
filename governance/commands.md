@@ -512,7 +512,7 @@ Environment: 使用仓库 Wrapper / 已配置 Java 17 环境；未额外探测
 ```powershell
 .\tools\validate-event-information.ps1 -Maven '.\mvnw.cmd' -JavaHome 'D:\Jualn\Java\jdk-17.0.18+8' `
   -JdbcUrl 'jdbc:mysql://127.0.0.1:3307/activity_reminder_test' `
-  -TestNames WxNotificationTemplateTest,WxNotificationTemplateRegistryTest,WxNotificationTemplateRendererTest,WxMpNoticeSendServiceTest,WxNoticeBudgetTest,WxLoginSecurityTest,NotificationDeliveryServiceImplTest,NotifyServiceImplTest,CanonicalNotificationCapabilityTest,LegacyNotificationDeliveryJobHandlerTest,JobExecutionContextTest,JobFailureClassifierTest,NotificationDeliveryMapperSqlTest,WeChatTemplateDatabaseTest,ActivityReminderDatabaseTest
+  -TestNames WxNotificationChannelTest,WxNotificationTemplateTest,WxNotificationTemplateRegistryTest,WxNotificationTemplateRendererTest,WxMpNoticeSendServiceTest,WxNoticeBudgetTest,WxLoginSecurityTest,NotificationDeliveryServiceImplTest,NotifyServiceImplTest,CanonicalNotificationCapabilityTest,LegacyNotificationDeliveryJobHandlerTest,JobExecutionContextTest,JobFailureClassifierTest,NotificationDeliveryMapperSqlTest,WeChatTemplateDatabaseTest,ActivityReminderDatabaseTest
 ```
 
 `WeChatTemplateDatabaseTest` 复用 `ActivityReminderDatabaseTest` 的专用 MySQL 8.4 harness，两者须共同选入编译范围；要求当前完整 V1–V84、root/空密码，不读应用配置。验证快照 JSON 与版本重读、明确失败重试不改快照、真实事务回滚、IN_APP 不受字段失败影响、DEAD 修复。其他微信测试为纯离线或 loopback HTTP，不连接微信。没有 JdbcUrl 时数据库测试跳过，不可称 DB PASS。模板结构和 Fixture 边界见 [微信集成 §16.6](../docs/wechat-integration.md#166-wechat-notification-template-v1-实施边界)，离线执行见下节。

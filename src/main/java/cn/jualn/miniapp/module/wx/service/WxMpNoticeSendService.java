@@ -38,9 +38,14 @@ public class WxMpNoticeSendService implements WxNoticeDeliveryAdapter {
         return CHANNEL;
     }
 
+    @Override
+    public boolean isChannelEnabled() {
+        return templateRegistry.isChannelEnabled(CHANNEL);
+    }
+
     public boolean isTemplateAvailable(WxMpNoticeType type) {
         var template = type == null ? null : templateRegistry.resolve(type.getKey(), CHANNEL);
-        return template != null && template.enabled();
+        return isChannelEnabled() && template != null && template.enabled();
     }
 
     public boolean isNotificationDeliveryAvailable(WxMpNoticeType type) {
@@ -53,7 +58,7 @@ public class WxMpNoticeSendService implements WxNoticeDeliveryAdapter {
     }
 
     private boolean configured(WxEffectiveTemplate template) {
-        return template != null && template.enabled() && accountsConfigured()
+        return isChannelEnabled() && template != null && template.enabled() && accountsConfigured()
                 && (template.jumpTarget() != null || StringUtils.hasText(template.pagePath()));
     }
 
@@ -79,7 +84,7 @@ public class WxMpNoticeSendService implements WxNoticeDeliveryAdapter {
     }
 
     public boolean isFrozenDeliveryAvailable(WxDeliveryTemplateSnapshot snapshot) {
-        return snapshot != null && snapshot.schemaVersion() == 1
+        return isChannelEnabled() && snapshot != null && snapshot.schemaVersion() == 1
                 && StringUtils.hasText(snapshot.accountAppId()) && StringUtils.hasText(snapshot.jumpAppId())
                 && StringUtils.hasText(snapshot.templateId()) && snapshot.bindingVersion() > 0 && snapshot.definitionVersion() > 0
                 && CHANNEL.equals(snapshot.channel()) && "mp-primary".equals(snapshot.accountRef())
@@ -125,7 +130,7 @@ public class WxMpNoticeSendService implements WxNoticeDeliveryAdapter {
 
     public MpSubscribeMessageResponse send(Long userId, WxMpNoticeType type, Map<String, Object> frozen, Runnable beforeProviderCall) {
         var template = type == null ? null : templateRegistry.resolve(type.getKey(), CHANNEL);
-        if (template == null || !template.enabled()) throw unavailable();
+        if (!isChannelEnabled() || template == null || !template.enabled()) throw unavailable();
         if (!template.bindingRef().startsWith("legacy:")) {
             if (frozen.get("notificationId") == null)
                 throw new BusinessException(ResultCode.WX_NOTICE_PAYLOAD_INVALID, "绑定发送需要原通知 ID");
