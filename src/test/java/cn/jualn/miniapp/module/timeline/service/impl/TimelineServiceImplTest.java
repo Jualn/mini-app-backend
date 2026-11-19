@@ -2,8 +2,8 @@ package cn.jualn.miniapp.module.timeline.service.impl;
 
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
-import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
-import cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO;
+import cn.jualn.miniapp.module.subject.service.SubjectExistenceService;
+import cn.jualn.miniapp.module.timeline.bo.TimelineFactBO;
 import cn.jualn.miniapp.module.timeline.bo.TimelineItemBO;
 import cn.jualn.miniapp.module.timeline.bo.TimelineSaveBO;
 import cn.jualn.miniapp.module.timeline.bo.TimelineUpdateBO;
@@ -31,7 +31,7 @@ class TimelineServiceImplTest {
     @Mock
     private TimelineConverter timelineConverter;
     @Mock
-    private TargetValidator targetValidator;
+    private SubjectExistenceService targetValidator;
 
     @Test
     void replaceTimelines_shouldInsertNewNodesWithoutDeletingOtherTargets() {
@@ -70,9 +70,9 @@ class TimelineServiceImplTest {
     void listTimelinesByTarget_shouldMapResults() {
         TimelineServiceImpl service = new TimelineServiceImpl(timelineMapper, timelineConverter, targetValidator);
         when(timelineMapper.selectList(any())).thenReturn(List.of(Timeline.builder().id(1L).build()));
-        when(timelineConverter.toItemDTOList(any())).thenReturn(List.of(TimelineItemDTO.builder().label("L1").build()));
+        when(timelineConverter.toFactBOList(any())).thenReturn(List.of(TimelineFactBO.builder().label("L1").build()));
 
-        List<TimelineItemDTO> result = service.listTimelinesByTarget(TargetType.EXAM, 5L);
+        List<TimelineFactBO> result = service.listTimelinesByTarget(TargetType.EXAM, 5L);
 
         assertEquals(1, result.size());
         verify(targetValidator).assertExists(TargetType.EXAM, 5L);

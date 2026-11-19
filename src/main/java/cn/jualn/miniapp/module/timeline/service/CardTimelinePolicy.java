@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.timeline.service;
 
-import cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO;
+import cn.jualn.miniapp.module.timeline.bo.TimelineFactBO;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Comparator;
@@ -9,18 +9,18 @@ import java.util.Objects;
 
 /** Selects the canonical read-only card projection from an owning resource's timeline. */
 public final class CardTimelinePolicy {
-    private static final Comparator<TimelineItemDTO> DISPLAY_ORDER = Comparator
+    private static final Comparator<TimelineFactBO> DISPLAY_ORDER = Comparator
             .comparingInt(CardTimelinePolicy::displayOrder)
             .thenComparing(CardTimelinePolicy::nodeKey);
 
     private CardTimelinePolicy() {
     }
 
-    public static TimelineItemDTO select(List<TimelineItemDTO> timeline, LocalDateTime now) {
+    public static TimelineFactBO select(List<TimelineFactBO> timeline, LocalDateTime now) {
         Objects.requireNonNull(now, "selection time");
-        List<TimelineItemDTO> nodes = timeline == null ? List.of() : timeline;
+        List<TimelineFactBO> nodes = timeline == null ? List.of() : timeline;
 
-        TimelineItemDTO current = nodes.stream()
+        TimelineFactBO current = nodes.stream()
                 .filter(node -> current(node, now))
                 .min(DISPLAY_ORDER)
                 .orElse(null);
@@ -29,7 +29,7 @@ public final class CardTimelinePolicy {
         }
 
         LocalDate today = now.toLocalDate();
-        TimelineItemDTO future = nodes.stream()
+        TimelineFactBO future = nodes.stream()
                 .filter(node -> future(node, now, today))
                 .min(Comparator.comparing(CardTimelinePolicy::startDate)
                         .thenComparingInt(CardTimelinePolicy::precisionOrder)
@@ -47,7 +47,7 @@ public final class CardTimelinePolicy {
                 .orElse(null);
     }
 
-    private static boolean current(TimelineItemDTO node, LocalDateTime now) {
+    private static boolean current(TimelineFactBO node, LocalDateTime now) {
         if (exact(node)) {
             LocalDateTime start = node.getStartTime();
             LocalDateTime end = node.getEndTime();
@@ -65,43 +65,43 @@ public final class CardTimelinePolicy {
         return false;
     }
 
-    private static boolean future(TimelineItemDTO node, LocalDateTime now, LocalDate today) {
+    private static boolean future(TimelineFactBO node, LocalDateTime now, LocalDate today) {
         return exact(node) && node.getStartTime().isAfter(now)
                 || date(node) && node.getStartTime().toLocalDate().isAfter(today);
     }
 
-    private static boolean exact(TimelineItemDTO node) {
+    private static boolean exact(TimelineFactBO node) {
         return node != null && Integer.valueOf(2).equals(node.getStartPrecision())
                 && node.getStartTime() != null;
     }
 
-    private static boolean date(TimelineItemDTO node) {
+    private static boolean date(TimelineFactBO node) {
         return node != null && Integer.valueOf(1).equals(node.getStartPrecision())
                 && node.getStartTime() != null;
     }
 
-    private static boolean text(TimelineItemDTO node) {
+    private static boolean text(TimelineFactBO node) {
         return node != null && Integer.valueOf(0).equals(node.getStartPrecision())
                 && node.getTimeDescription() != null && !node.getTimeDescription().isBlank();
     }
 
-    private static LocalDate startDate(TimelineItemDTO node) {
+    private static LocalDate startDate(TimelineFactBO node) {
         return node.getStartTime().toLocalDate();
     }
 
-    private static int precisionOrder(TimelineItemDTO node) {
+    private static int precisionOrder(TimelineFactBO node) {
         return date(node) ? 0 : 1;
     }
 
-    private static LocalDateTime exactStart(TimelineItemDTO node) {
+    private static LocalDateTime exactStart(TimelineFactBO node) {
         return exact(node) ? node.getStartTime() : null;
     }
 
-    private static int displayOrder(TimelineItemDTO node) {
+    private static int displayOrder(TimelineFactBO node) {
         return node.getSortOrder() == null ? 0 : node.getSortOrder();
     }
 
-    private static String nodeKey(TimelineItemDTO node) {
+    private static String nodeKey(TimelineFactBO node) {
         return node.getNodeKey() == null ? "" : node.getNodeKey();
     }
 }

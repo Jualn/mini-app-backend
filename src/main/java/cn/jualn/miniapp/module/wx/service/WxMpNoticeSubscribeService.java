@@ -5,8 +5,8 @@ import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.third.wx.dto.WxMpSubscribeResultDTO;
-import cn.jualn.miniapp.third.wx.notice.WxMpNoticeTemplateRegistry;
-import cn.jualn.miniapp.third.wx.notice.WxMpNoticeTemplateView;
+import cn.jualn.miniapp.module.wx.notice.WxNotificationTemplateRegistry;
+import cn.jualn.miniapp.module.wx.notice.WxMpNoticeTemplateView;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,7 +27,7 @@ import java.util.List;
 public class WxMpNoticeSubscribeService {
 
     private final RedisService redisService;
-    private final WxMpNoticeTemplateRegistry templateRegistry;
+    private final WxNotificationTemplateRegistry templateRegistry;
 
     /**
      * 记录 H5 订阅入口结果。

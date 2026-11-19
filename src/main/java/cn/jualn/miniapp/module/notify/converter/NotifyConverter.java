@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.notify.converter;
 
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.module.notify.bo.NotificationBO;
 import cn.jualn.miniapp.module.notify.bo.NotificationPageBO;

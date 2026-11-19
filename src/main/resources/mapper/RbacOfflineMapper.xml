@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.authorization.service.RbacOfflineMapper">
+  <select id="serverVersion" resultType="string">SELECT VERSION()</select>
+  <!-- Test guard is NOT installed by Flyway or this tool. Missing marker always rejects. -->
+  <select id="environment" resultType="cn.jualn.miniapp.module.authorization.service.RbacOfflineTool$Environment" useCache="false" flushCache="true">
+    SELECT environment_id,executor_ref,approver_one,key_one_sha256,approver_two,key_two_sha256
+    FROM rbac_offline_test_guard WHERE id=1
+  </select>
+  <select id="operation" resultType="cn.jualn.miniapp.module.authorization.service.RbacOfflineTool$StoredOperation" useCache="false" flushCache="true">
+    SELECT id,environment_id,kind,executor_ref,approval_ref,approval_sha256,request_fingerprint,request_json,
+      approvals_json,snapshot_version,receipt,occurred_at FROM rbac_offline_operation WHERE id=#{id}
+  </select>
+  <select id="effects" resultType="cn.jualn.miniapp.module.authorization.service.RbacOfflineTool$StoredEffect" useCache="false" flushCache="true">
+    SELECT id,user_id,assignment_id,before_snapshot,after_snapshot FROM rbac_offline_effect WHERE operation_id=#{id} ORDER BY user_id
+  </select>
+  <select id="rootHistory" resultType="long" useCache="false" flushCache="true">
+    SELECT COUNT(*) FROM rbac_user_role_assignment WHERE role_code='ROOT'
+  </select>
+  <update id="switchSource">
+    UPDATE rbac_authorization_authority SET source='ASSIGNMENT',version=#{next},updated_at=UTC_TIMESTAMP(6)
+    WHERE user_id=#{user} AND source=#{source} AND version=#{version}
+  </update>
+  <insert id="insertOperation">
+    INSERT INTO rbac_offline_operation(id,environment_id,kind,executor_ref,approval_ref,approval_sha256,
+      request_fingerprint,request_json,approvals_json,snapshot_version,receipt,occurred_at)
+    VALUES(#{id},#{environmentId},#{kind},#{executorRef},#{approvalRef},#{approvalSha256},
+      #{requestFingerprint},#{requestJson},#{approvalsJson},#{snapshotVersion},#{receipt},#{occurredAt})
+  </insert>
+  <insert id="insertEffect">
+    INSERT INTO rbac_offline_effect(id,operation_id,user_id,assignment_id,before_snapshot,after_snapshot)
+    VALUES(#{effect.id},#{operation},#{effect.userId},#{effect.assignmentId},#{before},#{after})
+  </insert>
+</mapper>

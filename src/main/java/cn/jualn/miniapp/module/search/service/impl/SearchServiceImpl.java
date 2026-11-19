@@ -2,19 +2,17 @@ package cn.jualn.miniapp.module.search.service.impl;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.constant.UserContext;
-import cn.jualn.miniapp.common.enums.ActivityStatus;
+import cn.jualn.miniapp.module.activity.enums.ActivityStatus;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.PageResult;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.module.activity.bo.ActivitySearchBO;
-import cn.jualn.miniapp.module.activity.bo.ActivityListBO;
-import cn.jualn.miniapp.module.activity.service.ActivityService;
 import cn.jualn.miniapp.module.post.bo.PostListBO;
 import cn.jualn.miniapp.module.post.bo.PostSearchBO;
-import cn.jualn.miniapp.common.enums.PostStatus;
-import cn.jualn.miniapp.module.post.service.PostService;
+import cn.jualn.miniapp.module.post.enums.PostStatus;
+import cn.jualn.miniapp.module.post.service.PostQueries;
 import cn.jualn.miniapp.module.search.bo.SearchPageBO;
 import cn.jualn.miniapp.module.search.bo.SearchResultBO;
 import cn.jualn.miniapp.module.search.bo.SearchTabCountBO;
@@ -46,8 +44,7 @@ public class SearchServiceImpl implements SearchService {
 
     private final SearchDocMapper searchDocMapper;
     private final RedisService redisService;
-    private final PostService postService;
-    private final ActivityService activityService;
+    private final PostQueries postService;
 
     @Override
     public PageResult<PostListBO> searchPosts(SearchQuery query) {
@@ -56,15 +53,6 @@ public class SearchServiceImpl implements SearchService {
         recordHotKeyword(keyword);
         return postService.searchPosts(keyword, actualQuery.getLastId(), actualQuery.getPageSize());
     }
-
-    @Override
-    public PageResult<ActivityListBO> searchActivities(SearchQuery query) {
-        SearchQuery actualQuery = query == null ? new SearchQuery() : query;
-        String keyword = normalizeKeyword(actualQuery.getKeyword());
-        recordHotKeyword(keyword);
-        return activityService.searchActivities(keyword, actualQuery.getLastId(), actualQuery.getPageSize());
-    }
-
 
     @Override
     @Deprecated
@@ -102,16 +90,7 @@ public class SearchServiceImpl implements SearchService {
             throw new BusinessException(ResultCode.SEARCH_PARAM_INVALID, "keyword 不能为空");
         }
 
-        String cacheKey = RedisKeyConstant.searchCount(md5(normalizedKeyword));
-        List<SearchTabCountBO> cached = redisService.get(cacheKey, new TypeReference<>() {
-        });
-        if (cached != null) {
-            return normalizeTabs(cached);
-        }
-
-        List<SearchTabCountBO> counts = normalizeTabs(searchDocMapper.selectTabCounts(normalizedKeyword));
-        redisService.set(cacheKey, counts, RedisKeyConstant.SEARCH_COUNT_TTL);
-        return counts;
+        return normalizeTabs(searchDocMapper.selectTabCounts(normalizedKeyword));
     }
 
     @Override
@@ -268,7 +247,7 @@ public class SearchServiceImpl implements SearchService {
     }
 
     private LocalDateTime normalizePublishedAt(LocalDateTime publishedAt) {
-        return publishedAt == null ? LocalDateTime.now() : publishedAt;
+        return publishedAt == null ? LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")) : publishedAt;
     }
 
     /**

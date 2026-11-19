@@ -22,7 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /** MVC routing/binding/representation; authorization itself is tested at the reusable service boundary. */
 class EffectiveProfileMvcTest {
     private final UserService service = mock(UserService.class);
-    private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new UserController(service, Mappers.getMapper(UserConverter.class)))
+    private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new UserController(service, org.mockito.Mockito.mock(cn.jualn.miniapp.module.user.service.UserAgreementService.class), Mappers.getMapper(UserConverter.class)))
             .setControllerAdvice(new GlobalExceptionHandler()).setMessageConverters(new MappingJackson2HttpMessageConverter(
                     new JacksonConfig().objectMapper(new Jackson2ObjectMapperBuilder()))).build();
     private EffectiveProfileBO profile() {

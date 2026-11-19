@@ -1,12 +1,13 @@
 package cn.jualn.miniapp.module.auth.service.impl;
 
+import cn.jualn.miniapp.module.user.service.UserWechatIdentityService;
+import cn.jualn.miniapp.module.user.service.UserAccountService;
 import cn.dev33.satoken.stp.StpUtil;
-import cn.jualn.miniapp.common.enums.UserRole;
+import cn.jualn.miniapp.module.user.enums.UserRole;
 import cn.jualn.miniapp.common.exception.SystemException;
-import cn.jualn.miniapp.module.auth.dto.LoginVO;
+import cn.jualn.miniapp.module.auth.vo.LoginVO;
 import cn.jualn.miniapp.module.auth.service.AuthService;
 import cn.jualn.miniapp.module.user.dto.inner.UserInfoDTO;
-import cn.jualn.miniapp.module.user.service.UserService;
 import cn.jualn.miniapp.third.wx.client.WxClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,7 +24,8 @@ import org.springframework.stereotype.Service;
 public class AuthServiceImpl implements AuthService {
 
     private final WxClient wxClient;
-    private final UserService userService;
+    private final UserWechatIdentityService userIdentities;
+    private final UserAccountService userAccounts;
 
     /**
      * 小程序登录。
@@ -43,22 +45,25 @@ public class AuthServiceImpl implements AuthService {
         String openid = wxClient.getMiniSession(code).getOpenid();
         log.debug("[AuthService.login] openid={}", maskOpenid(openid));
 
-        UserInfoDTO userInfo = userService.getUserInfo(openid); // 确保用户存在（不存在则创建）
+        UserInfoDTO userInfo = userIdentities.getUserInfo(openid); // 确保用户存在（不存在则创建）
 
         Long userId = userInfo.getId();
 
         if (userId == null) {
             // insert 后仍拿不到主键，属于不应发生的防御性兜底。
-            log.error("[AuthService.login][无用户] userId is null after persistence, openid={}", maskOpenid(openid));
             throw new SystemException("登录后用户ID为空");
         }
-        userService.assertLoginAllowed(userId);
+        userAccounts.assertLoginAllowed(userId);
 
-        StpUtil.login(userId);
+        long version = userAccounts.sessionVersion(userId);
+        StpUtil.login(userId, new cn.dev33.satoken.stp.parameter.SaLoginParameter()
+                .setExtra(UserAccountService.SESSION_VERSION, Long.toString(version)));
+        userAccounts.assertLoginAllowed(userId);
+        userAccounts.requireSessionVersion(userId, version);
         // 将当前用户角色写入会话，供后续鉴权扩展使用。
         StpUtil.getSession().set("role", UserRole.fromCode(userInfo.getRole()));
 
-        log.debug("[AuthService.login][完成] userId={}, costMs={}", userId, System.currentTimeMillis() - start);
+        log.info("result=success operation=login userId={} costMs={}", userId, System.currentTimeMillis() - start);
 
         return LoginVO.builder()
                 .token(StpUtil.getTokenValue())
@@ -66,9 +71,28 @@ public class AuthServiceImpl implements AuthService {
                 .build();
     }
 
-    /**
-     * 对 openid 做最小脱敏，避免敏感标识出现在明文日志中。
-     */
+    @Override
+    public void logout() {
+        // No current-account or business-grant check: even restricted sessions may end themselves.
+        // Redis errors propagate; an unknown logout outcome must not be reported as success.
+        try {
+            if (StpUtil.isLogin()) {
+                long user = StpUtil.getLoginIdAsLong();
+                StpUtil.logout();
+                log.info("result=success operation=logout userId={}", user);
+            }
+        } catch (cn.dev33.satoken.exception.NotLoginException ended) {
+            // An expired or already-ended session is the same idempotent result.
+        } catch (cn.dev33.satoken.jwt.exception.SaJwtException invalid) {
+            throw new cn.jualn.miniapp.common.exception.BusinessException(cn.jualn.miniapp.common.result.ResultCode.UNAUTHORIZED);
+        } catch (RuntimeException failure) {
+            var unavailable = new cn.jualn.miniapp.common.exception.ContractProblemException(
+                    org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "/problems/authentication-unavailable", "Session termination cannot be confirmed");
+            unavailable.initCause(failure);
+            throw unavailable;
+        }
+    }
+
     private String maskOpenid(String openid) {
         if (openid == null || openid.length() <= 6) {
             return "***";

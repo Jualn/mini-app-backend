@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.notify.reminder;
 
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 
 import java.time.LocalDateTime;
 

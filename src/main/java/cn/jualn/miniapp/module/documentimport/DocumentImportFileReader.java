@@ -3,6 +3,8 @@ package cn.jualn.miniapp.module.documentimport;
 import cn.jualn.miniapp.common.exception.ContractProblemException;
 import cn.jualn.miniapp.common.util.DocParser;
 import org.apache.poi.poifs.filesystem.POIFSFileSystem;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
@@ -46,7 +48,15 @@ public class DocumentImportFileReader {
 
         String text;
         try {
-            text = DocParser.extract(bytes, format);
+            if (format == DocParser.Format.PDF) {
+                try (var pdf = Loader.loadPDF(bytes)) {
+                    var stripper = new PDFTextStripper();
+                    stripper.setSortByPosition(true);
+                    text = stripper.getText(pdf).trim();
+                }
+            } else {
+                text = DocParser.extract(bytes, format);
+            }
         } catch (Exception exception) {
             throw unreadable();
         }

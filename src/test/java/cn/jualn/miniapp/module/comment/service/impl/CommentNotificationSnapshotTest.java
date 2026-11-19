@@ -30,11 +30,7 @@ class CommentNotificationSnapshotTest {
     private final UserService users = mock(UserService.class);
     private final NotifyService notifications = mock(NotifyService.class);
     private CommentAuditCallback callback() {
-        return new CommentAuditCallback(comments, mock(cn.jualn.miniapp.module.audit.mapper.ContentAuditLogMapper.class),
-                notifications, posts, mock(cn.jualn.miniapp.module.activity.mapper.ActivityMapper.class),
-                mock(cn.jualn.miniapp.module.exam.mapper.ExamInfoMapper.class), users,
-                mock(cn.jualn.miniapp.module.activity.service.ActivityService.class),
-                mock(cn.jualn.miniapp.module.exam.service.ExamService.class), mock(cn.jualn.miniapp.infrastructure.cache.RedisService.class));
+        return new CommentAuditCallback(comments, mock(cn.jualn.miniapp.module.audit.service.AuditLogService.class), notifications, users, new cn.jualn.miniapp.module.interact.service.InteractionSubjects(java.util.List.of(new cn.jualn.miniapp.module.post.service.PostInteractionSubject(posts,mock(cn.jualn.miniapp.infrastructure.cache.RedisService.class)),new cn.jualn.miniapp.module.activity.service.ActivityInteractionSubject(mock(cn.jualn.miniapp.module.activity.mapper.ActivityMapper.class),mock(cn.jualn.miniapp.infrastructure.cache.RedisService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventInteractionSubject(mock(cn.jualn.miniapp.module.publicevent.mapper.PublicEventMapper.class)))), mock(cn.jualn.miniapp.module.comment.service.CommentTargetAccess.class), mock(cn.jualn.miniapp.module.comment.mapper.CommunityCommentMapper.class));
     }
     private Comment comment(Long parent) {
         var row = Comment.builder().id(19L).parentId(parent).userId(7L).targetType(TargetType.POST.getCode()).targetId(42L)

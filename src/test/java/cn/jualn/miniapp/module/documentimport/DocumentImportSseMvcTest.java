@@ -50,16 +50,36 @@ class DocumentImportSseMvcTest {
                         .accept(MediaType.TEXT_EVENT_STREAM))
                 .andExpect(request().asyncStarted()).andReturn();
         MvcResult result = mvc.perform(asyncDispatch(initial)).andExpect(status().isOk()).andReturn();
-        String body = result.getResponse().getContentAsString();
+        String body = result.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
 
         assertThat(body).contains("event:started", "event:warning", "event:suggestion", "event:completed");
         assertThat(body.indexOf("event:started")).isLessThan(body.indexOf("event:suggestion"));
         assertThat(body).contains("\"baseRevision\":\"revision-7\"");
         assertThat(body).contains("\"sequence\":1", "\"sequence\":4");
-        assertThat(body).contains("\"suggestionCount\":1", "\"warningCount\":1");
+        assertThat(body).contains("\"suggestionCount\":2", "\"warningCount\":2", "文档提取原文（需人工核对）", "\"target\":\"/sections\"");
         assertThat(body).doesNotContain("event:done", "event:error", "{\"f\"");
         assertThat(capturedPrompt.get()).contains("targetType: ACTIVITY", "实际文档提取范围：PDF_TEXT_LAYER",
                 "BEGIN UNTRUSTED DOCUMENT DATA", source);
+    }
+
+    @Test
+    void publicEventRecoveryUsesOneModelCallAndTheSameAtomicSectionShape() throws Exception {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        MockMvc mvc = mvc(prompt -> {
+            calls.incrementAndGet();
+            return "{\"suggestions\":[]}";
+        });
+        MvcResult initial = mvc.perform(multipart("/test/document-import")
+                        .file(new MockMultipartFile("file", "notice.pdf", "application/pdf", pdf("Public notice")))
+                        .param("targetType", "PUBLIC_EVENT").param("baseRevision", "public-r1")
+                        .accept(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(request().asyncStarted()).andReturn();
+        String body = mvc.perform(asyncDispatch(initial)).andReturn().getResponse()
+                .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(body).contains("\"targetType\":\"PUBLIC_EVENT\"", "\"target\":\"/sections\"",
+                "文档提取原文（需人工核对）", "Public notice", "\"suggestionCount\":1", "event:completed");
+        assertThat(body).doesNotContain("registrationMode", "event:failed");
+        assertThat(calls.get()).isEqualTo(1);
     }
 
     @Test
@@ -79,9 +99,33 @@ class DocumentImportSseMvcTest {
         DocumentImportService service = new DocumentImportService(new DocumentImportFileReader(),
                 new DocumentImportPromptBuilder(), gateway, new DocumentImportSuggestionValidator(mapper), mapper,
                 new DocumentImportEmitterFactory(),
-                new TaskExecutorAdapter(Runnable::run), new DocumentImportProperties());
+                new TaskExecutorAdapter(Runnable::run), new DocumentImportProperties(), org.mockito.Mockito.mock(DocumentImportAuthorizer.class));
         return MockMvcBuilders.standaloneSetup(new TestController(service))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
+    }
+
+    @Test
+    void acceptedBodyCoverageWarningUsesExistingSseWithoutAddingPublicFields() throws Exception {
+        String source = "一、材料提交\n学生组须在指定时间提交完整报名材料。\n二、工作要求\n各单位应组织宣传并总结本单位工作成效。";
+        String model = mapper.writeValueAsString(java.util.Map.of("suggestions", java.util.List.of(java.util.Map.of(
+                "target", "/sections", "value", java.util.List.of(java.util.Map.of("title", "材料提交", "content", "学生组须在指定时间提交完整报名材料。", "format", "PLAIN_TEXT")),
+                "excerpts", java.util.List.of("学生组须在指定时间提交完整报名材料。")))));
+        byte[] document;
+        try (var word = new org.apache.poi.xwpf.usermodel.XWPFDocument(); var output = new ByteArrayOutputStream()) {
+            for (String line : source.split("\\n")) word.createParagraph().createRun().setText(line);
+            word.write(output); document = output.toByteArray();
+        }
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        MockMvc mvc = mvc(prompt -> { calls.incrementAndGet(); return model; });
+        MvcResult initial = mvc.perform(multipart("/test/document-import")
+                .file(new MockMultipartFile("file", "notice.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", document))
+                .param("targetType", "PUBLIC_EVENT").param("baseRevision", "coverage-r1").accept(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(request().asyncStarted()).andReturn();
+        String body = mvc.perform(asyncDispatch(initial)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(body).contains("INCOMPLETE_CONFIGURATION", "\"target\":\"/sections\"", "原文补充",
+                "各单位应组织宣传并总结本单位工作成效。", "event:completed", "\"suggestionCount\":1");
+        assertThat(body).doesNotContain("contentCoverage", "bodyMode", "文档提取原文（需人工核对）");
+        assertThat(calls.get()).isEqualTo(1);
     }
 
     private byte[] pdf(String text) throws Exception {

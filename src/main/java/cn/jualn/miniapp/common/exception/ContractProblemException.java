@@ -2,7 +2,9 @@ package cn.jualn.miniapp.common.exception;
 
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
+
 import java.util.List;
+import java.util.Set;
 
 /**
  * A stable RFC 9457 failure defined by the accepted cross-client contract.
@@ -17,6 +19,24 @@ public final class ContractProblemException extends RuntimeException {
     private final String type;
     private final List<Violation> errors;
     private final String diagnostic;
+    private String code;
+
+    public static ContractProblemException restrictedAdminAuthentication() {
+        var problem = new ContractProblemException(HttpStatus.UNAUTHORIZED,
+                "/problems/admin-authentication-required", "Management session required");
+        problem.code = "ADMIN_ACCOUNT_RESTRICTED";
+        return problem;
+    }
+
+    private String restriction;
+
+    public static ContractProblemException accountContentRestricted(String restriction) {
+        if (!Set.of("MUTED", "BANNED").contains(restriction))
+            throw new IllegalArgumentException("Invalid restriction");
+        var problem = new ContractProblemException(HttpStatus.FORBIDDEN, "/problems/account-content-restricted", "Account cannot submit community content");
+        problem.restriction = restriction;
+        return problem;
+    }
 
     public ContractProblemException(HttpStatus status, String type, String detail) {
         this(status, type, detail, List.of(), null);
@@ -27,7 +47,7 @@ public final class ContractProblemException extends RuntimeException {
     }
 
     private ContractProblemException(HttpStatus status, String type, String detail, List<Violation> errors,
-            String diagnostic) {
+                                     String diagnostic) {
         super(detail);
         this.status = status;
         this.type = type;
@@ -69,5 +89,6 @@ public final class ContractProblemException extends RuntimeException {
                 "通知偏好暂不可用，请稍后重新读取");
     }
 
-    public record Violation(String in, String pointer, String code, String detail) {}
+    public record Violation(String in, String pointer, String code, String detail) {
+    }
 }

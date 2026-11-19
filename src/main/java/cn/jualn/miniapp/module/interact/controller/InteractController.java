@@ -1,11 +1,15 @@
 package cn.jualn.miniapp.module.interact.controller;
 
+import cn.jualn.miniapp.module.interact.service.InteractionViews;
+import cn.jualn.miniapp.module.interact.service.InteractionShares;
+import cn.jualn.miniapp.module.interact.service.InteractionLikes;
+import cn.jualn.miniapp.module.interact.service.InteractionLikeQueries;
+import cn.jualn.miniapp.module.interact.service.InteractionCounts;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.result.Result;
 import cn.jualn.miniapp.module.interact.dto.request.InteractLikeRequest;
 import cn.jualn.miniapp.module.interact.dto.request.InteractShareRequest;
 import cn.jualn.miniapp.module.interact.dto.request.InteractViewRequest;
-import cn.jualn.miniapp.module.interact.service.InteractService;
 import cn.jualn.miniapp.module.interact.vo.LikeCountVO;
 import cn.jualn.miniapp.module.interact.vo.LikeStatusVO;
 import cn.jualn.miniapp.module.interact.vo.ShareCountVO;
@@ -33,7 +37,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class InteractController {
 
-    private final InteractService interactService;
+    private final InteractionCounts interactionCounts;
+    private final InteractionLikeQueries interactionLikeQueries;
+    private final InteractionLikes interactionLikes;
+    private final InteractionShares interactionShares;
+    private final InteractionViews interactionViews;
 
     /**
      * 点赞。
@@ -43,7 +51,7 @@ public class InteractController {
      */
     @PostMapping("/like")
     public Result<String> like(@Valid @RequestBody InteractLikeRequest req) {
-        interactService.like(req.getTargetType(), req.getTargetId());
+        interactionLikes.like(req.getTargetType(), req.getTargetId());
         return Result.ok(null);
     }
 
@@ -55,7 +63,7 @@ public class InteractController {
      */
     @DeleteMapping("/like")
     public Result<String> unlike(@Valid @RequestBody InteractLikeRequest req) {
-        interactService.unlike(req.getTargetType(), req.getTargetId());
+        interactionLikes.unlike(req.getTargetType(), req.getTargetId());
         return Result.ok(null);
     }
 
@@ -70,7 +78,7 @@ public class InteractController {
     public Result<LikeStatusVO> isLiked(@RequestParam @NotNull TargetType targetType,
                                         @RequestParam @NotNull Long targetId) {
         return Result.ok(LikeStatusVO.builder()
-                .liked(interactService.isLiked(targetType, targetId))
+                .liked(interactionLikeQueries.isLiked(targetType, targetId))
                 .build());
     }
 
@@ -85,7 +93,7 @@ public class InteractController {
     public Result<LikeCountVO> getLikeCount(@RequestParam @NotNull TargetType targetType,
                                             @RequestParam @NotNull Long targetId) {
         return Result.ok(LikeCountVO.builder()
-                .count(interactService.getLikeCount(targetType, targetId))
+                .count(interactionCounts.getLikeCount(targetType, targetId))
                 .build());
     }
 
@@ -97,7 +105,7 @@ public class InteractController {
      */
     @PostMapping("/share")
     public Result<String> share(@Valid @RequestBody InteractShareRequest req) {
-        interactService.share(req.getTargetType(), req.getTargetId(), req.getPlatform());
+        interactionShares.share(req.getTargetType(), req.getTargetId(), req.getPlatform(), req.getAction(), req.getEventId());
         return Result.ok(null);
     }
 
@@ -112,7 +120,7 @@ public class InteractController {
     public Result<ShareCountVO> getShareCount(@RequestParam @NotNull TargetType targetType,
                                               @RequestParam @NotNull Long targetId) {
         return Result.ok(ShareCountVO.builder()
-                .count(interactService.getShareCount(targetType, targetId))
+                .count(interactionCounts.getShareCount(targetType, targetId))
                 .build());
     }
 
@@ -124,7 +132,7 @@ public class InteractController {
      */
     @PostMapping("/view")
     public Result<String> view(@Valid @RequestBody InteractViewRequest req) {
-        interactService.view(req.getTargetType(), req.getTargetId());
+        interactionViews.view(req.getTargetType(), req.getTargetId());
         return Result.ok(null);
     }
 
@@ -139,7 +147,7 @@ public class InteractController {
     public Result<ViewCountVO> getViewCount(@RequestParam @NotNull TargetType targetType,
                                             @RequestParam @NotNull Long targetId) {
         return Result.ok(ViewCountVO.builder()
-                .count(interactService.getViewCount(targetType, targetId))
+                .count(interactionCounts.getViewCount(targetType, targetId))
                 .build());
     }
 }

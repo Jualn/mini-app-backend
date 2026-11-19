@@ -24,8 +24,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
+import java.util.Objects;
 
-/** HTTP adapter for the canonical personal registration resource. */
+/**
+ * HTTP adapter for the canonical personal registration resource.
+ */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/v1/activities/{activityId}/registrations")
@@ -79,6 +82,6 @@ public class CanonicalActivityRegistrationController {
     }
 
     private long version(ActivityRegistrationBO value) {
-        return java.util.Objects.requireNonNull(value.getContractVersion(), "registration version");
+        return Objects.requireNonNull(value.getContractVersion(), "registration version");
     }
 }

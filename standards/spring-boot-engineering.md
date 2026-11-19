@@ -4,6 +4,22 @@
 **Project baseline:** Java 17 · Spring Boot 3.5.13  
 **Normative language:** MUST, MUST NOT, SHOULD, SHOULD NOT, MAY
 
+## Quick routing — read only the affected Spring mechanisms
+
+Locate the actual bean/invocation path first. Use the corresponding chapter only when its mechanism, contract or risk is relevant; do not treat this map as a mandatory Spring context/test startup sequence.
+
+| Actual decision | Read as needed |
+|---|---|
+| Bean registration, DI, scopes and component lifecycle | §1 and §8 when relevant |
+| AOP/proxy, self-invocation, advice ordering | §2 |
+| Transaction boundary, propagation, rollback or cross-thread execution | §3 |
+| MVC, binding, validation and HTTP errors | §4–6 |
+| Configuration, profiles, task execution and scheduling | §7–9 |
+| Boot/dependency changes and observability integration | §10–11 |
+| Test slice vs full context, actual framework/DB mechanism | §12 |
+
+The project chooses verification scope using Backend §9.12 and concrete test prerequisites in commands; full `@SpringBootTest`, MySQL or containers are not routine requirements for every Spring change. This index changes no normative mechanism.
+
 ---
 
 ## 0. Scope, Baseline & Authority

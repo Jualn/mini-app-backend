@@ -6,14 +6,16 @@ import cn.dev33.satoken.dao.SaTokenDaoDefaultImpl;
 import cn.dev33.satoken.spring.SaTokenContextForSpringInJakartaServlet;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.jualn.miniapp.common.exception.GlobalExceptionHandler;
-import cn.jualn.miniapp.common.interceptor.ContextInterceptor;
+import cn.jualn.miniapp.web.ContextInterceptor;
 import cn.jualn.miniapp.common.security.AdminStpUtil;
 import cn.jualn.miniapp.config.*;
-import cn.jualn.miniapp.infrastructure.cache.AdminQrLoginStore;
+import cn.jualn.miniapp.module.admin.auth.store.AdminQrLoginStore;
 import cn.jualn.miniapp.module.admin.auth.bo.qrlogin.*;
 import cn.jualn.miniapp.module.admin.auth.controller.*;
 import cn.jualn.miniapp.module.admin.auth.converter.AdminQrLoginConverter;
 import cn.jualn.miniapp.module.admin.auth.service.*;
+import cn.jualn.miniapp.module.admin.auth.support.AdminBrowserSession;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.*;
 import org.springframework.context.annotation.*;
 import org.springframework.http.MediaType;
@@ -28,6 +30,7 @@ import java.util.List;
 
 import static cn.jualn.miniapp.module.admin.auth.enums.AdminQrLoginV2Status.*;
 import static org.mockito.Mockito.*;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -39,6 +42,7 @@ class AdminQrLoginMvcTest {
     private cn.dev33.satoken.dao.SaTokenDao oldDao;
     private cn.dev33.satoken.context.SaTokenContext oldContext;
     private SaTokenConfig oldConfig;
+    private cn.dev33.satoken.stp.StpLogic oldLogic;
     private cn.dev33.satoken.fun.strategy.SaRouteMatchFunction oldMatcher;
     private final String root = "/v1/admin/auth/qr-login-sessions";
     private final String scene = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef";
@@ -60,6 +64,7 @@ class AdminQrLoginMvcTest {
         }
         @Bean AdminQrLoginService qrService() { return mock(AdminQrLoginService.class); }
         @Bean AdminTokenService tokenService() { return mock(AdminTokenService.class); }
+        @Bean cn.jualn.miniapp.module.user.service.UserAccountService users(){return mock(cn.jualn.miniapp.module.user.service.UserAccountService.class);}
         @Bean ContextInterceptor context(AdminTokenService tokens) { return new ContextInterceptor(tokens); }
     }
     @RestController static class ProtectedController {
@@ -68,6 +73,8 @@ class AdminQrLoginMvcTest {
     @BeforeEach void setup() {
         oldMatcher = cn.dev33.satoken.strategy.SaStrategy.instance.routeMatcher;
         cn.dev33.satoken.strategy.SaStrategy.instance.routeMatcher = (pattern, path) -> new org.springframework.util.AntPathMatcher().match(pattern, path);
+        oldLogic = StpUtil.getStpLogic();
+        StpUtil.setStpLogic(new cn.dev33.satoken.jwt.StpLogicJwtForSimple());
         oldDao = SaManager.getSaTokenDao(); oldContext = SaManager.getSaTokenContext(); oldConfig = SaManager.getConfig();
         SaManager.setSaTokenDao(new SaTokenDaoDefaultImpl());
         SaManager.setSaTokenContext(new SaTokenContextForSpringInJakartaServlet());
@@ -80,7 +87,7 @@ class AdminQrLoginMvcTest {
         mvc = MockMvcBuilders.webAppContextSetup(context).addFilter(new AdminQrLoginCacheFilter()).build();
     }
     @AfterEach void teardown() {
-        context.close(); SaManager.setSaTokenDao(oldDao); SaManager.setSaTokenContext(oldContext); SaManager.setConfig(oldConfig);
+        context.close(); StpUtil.setStpLogic(oldLogic); SaManager.setSaTokenDao(oldDao); SaManager.setSaTokenContext(oldContext); SaManager.setConfig(oldConfig);
         cn.dev33.satoken.strategy.SaStrategy.instance.routeMatcher = oldMatcher;
     }
     private AdminQrSessionBO state(cn.jualn.miniapp.module.admin.auth.enums.AdminQrLoginV2Status status) {
@@ -112,14 +119,51 @@ class AdminQrLoginMvcTest {
         when(service.readCode(any(), any(), any())).thenReturn(new byte[]{1,2,3});
         mvc.perform(get(root + "/synthetic-session/code").header("X-Admin-Login-Secret", "owner"))
                 .andExpect(status().isOk()).andExpect(content().contentType("image/png")).andExpect(content().bytes(new byte[]{1,2,3}));
-        when(service.consumeSession(any(), any(), any())).thenReturn(new AdminQrLoginResultBO("synthetic-token",
-                new AdminQrIdentityBO("9", "同学", "同", "admin", "管理员", List.of("*"))));
+        when(service.consumeSession(any(), any(), any(), any())).thenReturn(new AdminQrLoginResultBO("synthetic-token",
+                new AdminQrIdentityBO("9", "同学", "同", null, null, null, "ASSIGNMENT"), System.currentTimeMillis() + 60_000));
         mvc.perform(post(root + "/synthetic-session:consume").header("X-Admin-Login-Secret", "owner"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.token").value("synthetic-token")).andExpect(jsonPath("$.profile.id").value("9"));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.token").value("synthetic-token")).andExpect(jsonPath("$.profile.id").value("9")).andExpect(jsonPath("$.profile.authorizationModel").value("ASSIGNMENT"))
+                .andExpect(jsonPath("$.profile.roleCode").doesNotExist()).andExpect(jsonPath("$.profile.permissions").doesNotExist())
+                .andExpect(header().doesNotExist("Set-Cookie"));
+        verify(service).consumeSession(any(), any(), any(), eq("RBAC_V1"));
         when(service.cancelSession(any(), any(), any())).thenReturn(state(CANCELLED));
         mvc.perform(post(root + "/synthetic-session:cancel").header("X-Admin-Login-Secret", "owner"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"));
         verifyNoInteractions(tokens);
+    }
+
+    @Test void sameOriginBrowserCanRestoreAndClearTheExistingSession() throws Exception {
+        var result = new AdminQrLoginResultBO("synthetic-token",
+                new AdminQrIdentityBO("9", "同学", "同", null, null, null, "ASSIGNMENT"), System.currentTimeMillis() + 60_000);
+        var cookie = new Cookie(AdminBrowserSession.COOKIE, result.token());
+        when(service.consumeSession(any(), any(), any(), any())).thenReturn(result);
+        when(tokens.resumeBrowserSession(result.token())).thenReturn(result);
+        mvc.perform(post(root + "/synthetic-session:consume")
+                        .header(AdminBrowserSession.HEADER, "1").header("Sec-Fetch-Site", "same-site"))
+                .andExpect(status().isForbidden()).andExpect(header().doesNotExist("Set-Cookie"));
+        verifyNoInteractions(service);
+        mvc.perform(post(root + "/synthetic-session:consume")
+                        .header(AdminBrowserSession.HEADER, "1").header("Sec-Fetch-Site", "same-origin"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Set-Cookie", containsString(AdminBrowserSession.COOKIE + "=" + result.token())))
+                .andExpect(header().string("Set-Cookie", containsString("Secure; HttpOnly; SameSite=Strict")));
+        mvc.perform(post(AdminBrowserSession.PATH).cookie(cookie)
+                        .header(AdminBrowserSession.HEADER, "1").header("Sec-Fetch-Site", "cross-site"))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(tokens);
+        mvc.perform(post(AdminBrowserSession.PATH)
+                        .header(AdminBrowserSession.HEADER, "1").header("Sec-Fetch-Site", "same-origin"))
+                .andExpect(status().isNoContent()).andExpect(header().string("Cache-Control", "no-store"));
+        mvc.perform(post(AdminBrowserSession.PATH).cookie(cookie)
+                        .header(AdminBrowserSession.HEADER, "1").header("Sec-Fetch-Site", "same-origin"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.token").value(result.token()))
+                .andExpect(header().string("Cache-Control", "no-store")).andExpect(header().doesNotExist("Set-Cookie"));
+        mvc.perform(post("/v1/admin/auth/logout").cookie(cookie).header("Authorization", "Bearer other-session")
+                        .header(AdminBrowserSession.HEADER, "1").header("Sec-Fetch-Site", "same-origin"))
+                .andExpect(status().isOk()).andExpect(header().doesNotExist("Set-Cookie"));
+        mvc.perform(post("/v1/admin/auth/logout").cookie(cookie).header("Authorization", "Bearer " + result.token())
+                        .header(AdminBrowserSession.HEADER, "1").header("Sec-Fetch-Site", "same-origin"))
+                .andExpect(status().isOk()).andExpect(header().string("Set-Cookie", containsString("Max-Age=0")));
     }
 
     @Test void mobileRequiresOrdinaryLoginAndCannotUseAdminToken() throws Exception {
@@ -170,9 +214,66 @@ class AdminQrLoginMvcTest {
                 .andExpect(header().string("Cache-Control", "no-store"));
         mvc.perform(options(root).header("Origin", "https://synthetic.example").header("Access-Control-Request-Method", "POST")
                 .header("Access-Control-Request-Headers", "X-Admin-Login-Secret,Authorization")).andExpect(status().isOk());
-        when(tokens.requireValidLogin()).thenThrow(new cn.jualn.miniapp.common.exception.BusinessException(cn.jualn.miniapp.common.result.ResultCode.UNAUTHORIZED));
+        when(tokens.requireAdminAccess()).thenThrow(new cn.jualn.miniapp.common.exception.BusinessException(cn.jualn.miniapp.common.result.ResultCode.UNAUTHORIZED));
         mvc.perform(get("/v1/admin/synthetic-protected")).andExpect(status().isUnauthorized());
-        verify(tokens).requireValidLogin();
+        verify(tokens).requireAdminAccess();
+    }
+
+    @Test void onlyTrustedRestrictedAdminSessionsCarryExitReason() throws Exception {
+        var users = mock(cn.jualn.miniapp.module.user.service.UserService.class);
+        var accounts = context.getBean(cn.jualn.miniapp.module.user.service.UserAccountService.class);
+        var revoked = mock(cn.jualn.miniapp.module.admin.auth.store.AdminAuthStore.class);
+        var qr = mock(AdminQrLoginStore.class);
+        var authorization = mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class);
+        var actual = new AdminTokenService(users, accounts,
+                new cn.jualn.miniapp.module.admin.auth.support.AdminPermissionPolicy(), revoked,
+                new cn.jualn.miniapp.module.admin.auth.config.AdminAuthProperties(), qr,
+                context.getBean(com.fasterxml.jackson.databind.ObjectMapper.class), authorization);
+        when(tokens.requireAdminAccess()).thenAnswer(call -> actual.requireAdminAccess());
+        String session = "ABCDEFGHIJKLMNOPQRSTUV";
+        var logic = AdminStpUtil.STP_LOGIC;
+        String token = logic.createTokenValue(9L, "default-device", 300, java.util.Map.of(
+                AdminTokenService.QR_MARKER, session,
+                cn.jualn.miniapp.module.user.service.UserAccountService.SESSION_VERSION, "1"));
+        logic.createLoginSession(9L, new cn.dev33.satoken.stp.parameter.SaLoginParameter()
+                .setToken(token).setTimeout(300).setIsWriteHeader(false));
+        when(qr.activated(eq(session), anyString(), eq(9L))).thenReturn(true);
+
+        String path = "/v1/admin/synthetic-protected";
+        mvc.perform(get(path).header("Authorization", "Bearer invalid"))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").doesNotExist());
+        when(revoked.isTokenRevoked(anyString())).thenReturn(true);
+        mvc.perform(get(path).header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").doesNotExist());
+        verifyNoInteractions(accounts);
+
+        when(revoked.isTokenRevoked(anyString())).thenReturn(false);
+        var unauthorized = new cn.jualn.miniapp.common.exception.BusinessException(
+                cn.jualn.miniapp.common.result.ResultCode.UNAUTHORIZED);
+        doThrow(unauthorized).when(accounts).requireSessionVersion(eq(9L), any());
+        mvc.perform(get(path).header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").doesNotExist());
+        when(accounts.isAdminSessionRestricted(9L)).thenReturn(true);
+        mvc.perform(get(path).header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.type").value("/problems/unauthorized"))
+                .andExpect(jsonPath("$.code").value("ADMIN_ACCOUNT_RESTRICTED"));
+
+        doNothing().when(accounts).requireSessionVersion(eq(9L), any());
+        var profile = new cn.jualn.miniapp.module.user.bo.UserProfileBO();
+        profile.setStatus(cn.jualn.miniapp.module.user.enums.UserStatus.NORMAL);
+        when(users.getUserProfile(9L)).thenReturn(profile);
+        when(authorization.current(9L)).thenReturn(new cn.jualn.miniapp.module.authorization.model.RbacModels.Decision(
+                9, cn.jualn.miniapp.module.authorization.model.RbacModels.Source.ASSIGNMENT,
+                "v", "c", java.time.LocalDateTime.now(), true, List.of(), List.of()));
+        mvc.perform(get(path).header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").doesNotExist());
+
+        clearInvocations(accounts);
+        SaManager.getSaTokenDao().updateTimeout(logic.splicingKeyTokenValue(token), 1);
+        Thread.sleep(1100);
+        mvc.perform(get(path).header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").doesNotExist());
+        verifyNoInteractions(accounts);
     }
 
     @Test void allExpectedErrorsAndPngFailureUseProblemDetailsAndNoStore() throws Exception {

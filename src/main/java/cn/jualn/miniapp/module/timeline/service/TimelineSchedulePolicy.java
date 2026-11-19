@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.timeline.service;
 
 import cn.jualn.miniapp.module.timeline.bo.TimelineItemBO;
-import cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO;
+import cn.jualn.miniapp.module.timeline.bo.TimelineFactBO;
 import cn.jualn.miniapp.module.timeline.dto.request.TimelineScheduleRequest;
 import cn.jualn.miniapp.module.timeline.vo.TimelineScheduleVO;
 import java.time.LocalDateTime;
@@ -62,7 +62,7 @@ public final class TimelineSchedulePolicy {
         }
     }
 
-    public static TimelineScheduleVO view(TimelineItemDTO item) {
+    public static TimelineScheduleVO view(TimelineFactBO item) {
         return view(item.getStartTime(), item.getEndTime(), item.getStartPrecision(), item.getEndPrecision(), item.getTimeDescription());
     }
 

@@ -10,6 +10,23 @@ import java.util.Collection;
 import java.util.List;
 
 public interface CommentMapper extends BaseMapper<Comment> {
+    @Select("SELECT id,target_type,target_id,parent_id,community_thread,status,deleted_at FROM comment WHERE id=#{id}")
+    Comment selectInteractionTarget(@Param("id") long id);
+
+    Comment lockReplyTarget(long id);
+
+    Comment lockArticleComment(@Param("id") long id);
+
+    Comment articleCommentIncludingDeleted(@Param("id") long id);
+
+    List<Comment> articlePage(@Param("articleId") long articleId, @Param("parentId") Long parentId,
+                              @Param("afterTime") java.time.LocalDateTime afterTime, @Param("afterId") Long afterId, @Param("size") int size);
+
+    int deleteArticleComment(@Param("id") long id, @Param("userId") long userId, @Param("now") java.time.LocalDateTime now);
+
+    long articleReplyCount(long id);
+
+    List<cn.jualn.miniapp.module.comment.bo.CommentCountBO> visibleCounts(@Param("type") int type, @Param("ids") Collection<Long> ids);
 
     @Select("SELECT user_id FROM comment WHERE id = #{id} AND deleted_at IS NULL")
     Long selectUserIdById(Long id);

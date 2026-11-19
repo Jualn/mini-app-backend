@@ -7,6 +7,9 @@ import cn.jualn.miniapp.module.content.bo.AdminContentQueryBO;
 import cn.jualn.miniapp.module.content.enums.AdminContentType;
 
 public interface AdminContentService {
+    void lockReportTarget(AdminContentType type,long id);
+    AdminContentDetailBO getContentDetailForReport(AdminContentType type,Long contentId);
+    void authorizeDisposal(AdminContentType type,Long contentId,long actor);
 
     AdminContentPageBO pageContents(AdminContentQueryBO query);
 

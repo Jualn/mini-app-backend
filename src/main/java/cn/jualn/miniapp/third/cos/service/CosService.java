@@ -43,17 +43,28 @@ public class CosService {
      * @return 上传凭证
      */
     public CosUploadCredentialDTO generateUploadCredential(List<String> objectKeys) {
+        return generateScopedUploadCredential(objectKeys);
+    }
+
+    public CosUploadCredentialDTO generateExactUploadCredential(List<String> objectKeys) {
+        return generateScopedUploadCredential(objectKeys);
+    }
+
+    public void downloadObject(String objectKey,java.nio.file.Path destination,long maxBytes) {
+        cosClient.downloadObject(objectKey,destination,maxBytes);
+    }
+
+    private CosUploadCredentialDTO generateScopedUploadCredential(List<String> objectKeys) {
         if (objectKeys == null || objectKeys.isEmpty()) {
             throw new BusinessException(ResultCode.INVALID_OPERATION, "objectKeys 不能为空");
         }
         // 调用 SDK 的 STS 接口获取临时凭证
-        String prefix = objectKeys.get(0).substring(0, objectKeys.get(0).lastIndexOf("/") + 1);
-        Response resp = cosClient.getCredential(prefix);
+        Response resp = cosClient.getExactCredential(objectKeys);
         // Response.toString() 返回 JSON 字符串，解析出 credentials
         CosUploadCredentialDTO.CosUploadCredentialDTOBuilder builder = CosUploadCredentialDTO.builder()
-                .bucket(cosProperties.getBucket())
+                .bucket(cosClient.bucketFor(objectKeys.get(0)))
                 .region(cosProperties.getRegion())
-                .customDomain(cosProperties.getCustomDomain())
+                .customDomain(objectKeys.get(0).startsWith("private/")?cosClient.bucketFor(objectKeys.get(0))+".cos."+cosProperties.getRegion()+".myqcloud.com":cosProperties.getCustomDomain())
                 .objectKeys(objectKeys);
 
         try {
@@ -66,7 +77,7 @@ public class CosService {
             String token = cred.path("sessionToken").asText(null);
 
             long expiredTime = root.path("expiredTime").asLong(0L);
-            LocalDateTime expireAt = LocalDateTime.ofInstant(java.time.Instant.ofEpochSecond(expiredTime), ZoneId.systemDefault());
+            LocalDateTime expireAt = LocalDateTime.ofInstant(java.time.Instant.ofEpochSecond(expiredTime), ZoneId.of("Asia/Shanghai"));
 
             builder.tmpSecretId(tmpSecretId)
                     .tmpSecretKey(tmpSecretKey)

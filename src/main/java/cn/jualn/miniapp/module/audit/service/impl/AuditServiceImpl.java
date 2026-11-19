@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.audit.service.impl;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
-import cn.jualn.miniapp.common.enums.AuditScene;
+import cn.jualn.miniapp.module.audit.enums.AuditScene;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
@@ -45,7 +45,12 @@ public class AuditServiceImpl implements AuditService {
                     AuditScene.USER_NICKNAME,
                     AuditScene.USER_AVATAR,
                     AuditScene.USER_BIO,
-                    AuditScene.USER_BACKGROUND
+                    AuditScene.USER_BACKGROUND,
+                    AuditScene.ARTICLE,
+                    AuditScene.POST_EDIT,
+                    AuditScene.OFFICIAL_CONTENT_CANDIDATE,
+                    AuditScene.POINTS_MATERIAL,
+                    AuditScene.LEARNING_TASK_MATERIAL
             );
 
     private final WxClient wxClient;
@@ -98,7 +103,7 @@ public class AuditServiceImpl implements AuditService {
                 : String.format("微信审核拒绝：suggest=%s, label=%s", suggest,
                 label == null ? "unknown" : label);
         if (!resultPersistenceService.completeText(bo.getAuditLogId(), bo.getAuditScene(), bo.getTargetId(),
-                wxResponse.getTraceId(), finalResult, toJson(wxResponse), reason)) {
+                wxResponse.getTraceId(), finalResult, textFacts(wxResponse,bo.getAuditScene()), reason)) {
             log.warn("[AuditService.doTextCheck] 文本审核记录未更新，可能已处理或记录不存在，auditLogId={}, targetType={}, targetId={}",
                     bo.getAuditLogId(), bo.getAuditScene().getTargetType(), bo.getTargetId());
         }
@@ -206,16 +211,16 @@ public class AuditServiceImpl implements AuditService {
                     message.getTraceId(), binding.getAuditScene(), binding.getTargetId());
         }
 
-        boolean profileScene = binding.getAuditScene() == AuditScene.USER_AVATAR || binding.getAuditScene() == AuditScene.USER_BACKGROUND;
-        String suggest = profileScene
+        boolean definitiveScene = binding.getAuditScene() == AuditScene.USER_AVATAR || binding.getAuditScene() == AuditScene.USER_BACKGROUND || binding.getAuditScene() == AuditScene.ARTICLE || binding.getAuditScene() == AuditScene.POST_EDIT || binding.getAuditScene() == AuditScene.OFFICIAL_CONTENT_CANDIDATE || binding.getAuditScene() == AuditScene.POINTS_MATERIAL || binding.getAuditScene() == AuditScene.LEARNING_TASK_MATERIAL;
+        String suggest = definitiveScene
                 ? (message.getResult() == null ? null : message.getResult().getSuggest()) : extractSuggest(message);
-        if (profileScene && (!Integer.valueOf(0).equals(message.getErrCode())
+        if (definitiveScene && (!Integer.valueOf(0).equals(message.getErrCode())
                 || !("pass".equals(suggest) || "risky".equals(suggest) || "reject".equals(suggest))
                 || (message.getDetail() != null && message.getDetail().stream().anyMatch(detail ->
                     detail == null || !Integer.valueOf(0).equals(detail.getErrCode())
                             || ("pass".equals(suggest) && !"pass".equals(detail.getSuggest())))))) {
-            // An incomplete provider decision cannot be a definitive Profile rejection or pass.
-            // Retain PENDING evidence; the requesting writer times out without changing the profile.
+            // An incomplete decision cannot authorize an atomic Profile/Article candidate write.
+            // Retain PENDING evidence; the requesting writer times out without changing public content.
             return;
         }
         Integer label = extractLabel(message);
@@ -254,6 +259,14 @@ public class AuditServiceImpl implements AuditService {
      * @param suggest 微信审核建议：pass/risky/reject 等
      * @return 审核结论（通过或拒绝），PASS 当 suggest=pass，否则返回 REJECT
      */
+    private String textFacts(cn.jualn.miniapp.third.wx.dto.WxMsgSecCheckResponse response,AuditScene scene) {
+        if(!cn.jualn.miniapp.module.audit.service.ContentSafetyReviewService.supported(scene)) return toJson(response);
+        com.fasterxml.jackson.databind.node.ObjectNode raw=objectMapper.valueToTree(response);
+        raw.put("_verifiedPass", response.isVerifiedPassStructure()
+                || response.isVerifiedEmptyKeywordPassStructure());
+        return raw.toString();
+    }
+
     private AuditStatus mapFinalResult(String suggest) {
         if (SUGGEST_PASS.equalsIgnoreCase(suggest)) {
             return AuditStatus.PASS;

@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.activity.converter;
 
 import cn.jualn.miniapp.common.exception.BusinessException;
-import cn.jualn.miniapp.common.enums.ActivityCategory;
+import cn.jualn.miniapp.module.activity.enums.ActivityCategory;
 import cn.jualn.miniapp.module.activity.bo.ActivityDetailBO;
 import cn.jualn.miniapp.module.activity.bo.AdminActivityDetailBO;
 import cn.jualn.miniapp.module.activity.dto.admin.AdminActivitySaveRequest;
@@ -19,6 +19,31 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AdminActivityConverterTest {
     private final AdminActivityConverter converter = new AdminActivityConverter();
+
+    @Test void unknownParticipationIsOmittedAndUnsupportedCodesNeverBecomeIndividual() throws Exception {
+        for (Integer mode : java.util.Arrays.asList(null, 0, 1, 2)) {
+            var detail = converter.toDetailVO(AdminActivityDetailBO.builder().id(7L).participantMode(mode).build());
+            var json = new ObjectMapper().valueToTree(detail.draft());
+            if (mode == null || mode == 0) assertTrue(!json.has("participantMode"));
+            else assertEquals(mode == 1 ? "INDIVIDUAL" : "TEAM", json.path("participantMode").asText());
+        }
+        for (int mode : new int[]{-1, 3, 9}) {
+            assertThrows(IllegalStateException.class, () -> converter.toDetailVO(
+                    AdminActivityDetailBO.builder().id(7L).participantMode(mode).build()));
+        }
+        var request = validRequest();
+        request.setParticipantMode(null);
+        assertNull(converter.toSaveBO(request, null, 9L).getParticipantMode());
+        request.setParticipantMode("UNKNOWN");
+        assertThrows(BusinessException.class, () -> converter.toSaveBO(request, null, 9L));
+        var publicConverter = new ActivityResourceConverter(new ObjectMapper());
+        for (int mode : new int[]{0, 3, 9}) {
+            var value = ActivityDetailBO.builder().id(7L).category(ActivityCategory.OTHER)
+                    .audienceDepartmentIds("[]").registrationMode(1).participantMode(mode).build();
+            var failure = assertThrows(IllegalStateException.class, () -> publicConverter.detail(value));
+            assertTrue(failure.getMessage().contains("participant mode"));
+        }
+    }
 
     @Test
     void canonicalDraftMapsStableKeysReferencesAndOffsetTimes() {
@@ -77,13 +102,25 @@ class AdminActivityConverterTest {
         for (List<String> ids : List.of(List.of("information", "finance"), List.of("1", "unknown-department"))) {
             request.getAudienceScope().setDepartmentIds(ids);
             var saved = converter.toSaveBO(request, 7L, 9L);
-            assertEquals(0, saved.getAudienceScope());
             assertEquals(ids, new ObjectMapper().readValue(saved.getAudienceDepartmentIds(),
                     new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {}));
             var detail = AdminActivityDetailBO.builder().id(7L)
-                    .audienceScope(saved.getAudienceScope()).audienceDepartmentIds(saved.getAudienceDepartmentIds()).build();
+                    .audienceDepartmentIds(saved.getAudienceDepartmentIds()).build();
             assertEquals(ids, converter.toDetailVO(detail).draft().getAudienceScope().departmentIds());
         }
+    }
+
+    @Test
+    void distinguishesCampusFromAnOmittedDraftAudience() {
+        var request = validRequest();
+        var campus = converter.toSaveBO(request, 7L, 9L);
+        assertEquals("[]", campus.getAudienceDepartmentIds());
+        assertEquals("CAMPUS", converter.toDetailVO(AdminActivityDetailBO.builder().id(7L)
+                .audienceDepartmentIds(campus.getAudienceDepartmentIds()).build()).draft().getAudienceScope().type());
+        request.setAudienceScope(null);
+        var unset = converter.toSaveBO(request, 7L, 9L);
+        assertNull(unset.getAudienceDepartmentIds());
+        assertNull(converter.toDetailVO(AdminActivityDetailBO.builder().id(7L).build()).draft().getAudienceScope());
     }
 
     @Test
@@ -105,7 +142,7 @@ class AdminActivityConverterTest {
         request.setActions(actions);
         var saved = converter.toSaveBO(request, 7L, 9L);
         var detail = ActivityDetailBO.builder().id(7L)
-                .category(ActivityCategory.OTHER).audienceScope(1)
+                .category(ActivityCategory.OTHER).audienceDepartmentIds("[]")
                 .registrationMode(3).participantMode(1).publishStatus(1).lifecycleStatus(0)
                 .participationState("EXTERNAL").evaluatedAt(java.time.LocalDateTime.of(2026, 10, 8, 13, 0))
                 .contacts(List.of()).sections(List.of()).actions(saved.getActions())

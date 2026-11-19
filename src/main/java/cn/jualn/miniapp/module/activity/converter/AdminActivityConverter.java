@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.activity.converter;
 
-import cn.jualn.miniapp.common.enums.ActivityCategory;
+import cn.jualn.miniapp.module.activity.enums.ActivityCategory;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.module.activity.bo.AdminActivityDetailBO;
@@ -46,7 +46,7 @@ public class AdminActivityConverter {
             .setSerializationInclusion(JsonInclude.Include.NON_NULL);
 
     public AdminActivityQueryBO toQueryBO(AdminActivityPageQuery query) {
-        return AdminActivityQueryBO.builder().keyword(trim(query.getQ()))
+        return AdminActivityQueryBO.builder().deleted(query.isDeleted()).keyword(trim(query.getQ()))
                 .publishStatus(publication(query.getPublishStatus()))
                 .lifecycleStatus(lifecycle(query.getLifecycleStatus())).sort(query.getSort())
                 .page(query.getPage()).pageSize(query.getPageSize()).build();
@@ -55,9 +55,9 @@ public class AdminActivityConverter {
     public AdminActivitySaveBO toSaveBO(AdminActivitySaveRequest request, Long id, Long operatorId) {
         validateDraft(request);
         return AdminActivitySaveBO.builder().canonicalFullReplacement(true).id(id).operatorId(operatorId)
+                .allowRegistrationAfterStart(Boolean.TRUE.equals(request.getAllowRegistrationAfterStart()))
                 .title(request.getTitle().trim()).summary(trim(request.getSummary()))
                 .category(category(request.getCategory())).organizer(trim(request.getOrganizer()))
-                .audienceScope(audienceMask(request.getAudienceScope()))
                 .audienceDepartmentIds(departmentJson(request.getAudienceScope()))
                 .audienceSummary(trim(request.getAudienceSummary())).location(trim(request.getPrimaryLocation()))
                 .registrationMode(registrationMode(request.getRegistrationMode()))
@@ -81,12 +81,13 @@ public class AdminActivityConverter {
 
     public AdminActivityDetailResourceVO toDetailVO(AdminActivityDetailBO value) {
         var draft = new AdminActivityDraftResourceVO();
+        draft.setAllowRegistrationAfterStart(Boolean.TRUE.equals(value.getAllowRegistrationAfterStart()));
         draft.setTitle(value.getTitle());
         draft.setSummary(value.getSummary());
         draft.setCoverAttachmentId(string(value.getCoverAttachmentId()));
         draft.setCategory(category(value.getCategory()));
         draft.setOrganizer(value.getOrganizer());
-        draft.setAudienceScope(audience(value.getAudienceScope(), value.getAudienceDepartmentIds()));
+        draft.setAudienceScope(audience(value.getAudienceDepartmentIds()));
         draft.setAudienceSummary(value.getAudienceSummary());
         draft.setPrimaryLocation(value.getLocation());
         draft.setRegistrationMode(registrationMode(value.getRegistrationMode()));
@@ -95,8 +96,8 @@ public class AdminActivityConverter {
         draft.setCapacityUnit(capacityUnit(value.getCapacityUnit()));
         draft.setRegistrationForm(form(value.getFormSchema()));
         draft.setTimeline(safe(value.getTimeline()).stream().sorted(java.util.Comparator
-                .comparingInt(cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO::getSortOrder)
-                .thenComparing(cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO::getNodeKey)).map(item -> new ActivityDetailResourceVO.TimelineNode(
+                .comparingInt(cn.jualn.miniapp.module.timeline.bo.TimelineFactBO::getSortOrder)
+                .thenComparing(cn.jualn.miniapp.module.timeline.bo.TimelineFactBO::getNodeKey)).map(item -> new ActivityDetailResourceVO.TimelineNode(
                 item.getNodeKey(), timelineType(item.getNodeType()), item.getLabel(), item.getDescription(),
                 TimelineSchedulePolicy.view(item), item.getLocation(), item.getSortOrder())).toList());
         draft.setSections(safe(value.getSections()).stream().sorted(java.util.Comparator
@@ -113,11 +114,12 @@ public class AdminActivityConverter {
                 new AdminActivityDraftResourceVO.AttachmentLink(item.getId().toString(), displayOrder(item.getSortOrder()))).toList());
         return new AdminActivityDetailResourceVO(value.getId().toString(), draft,
                 publication(value.getPublishStatus()), lifecycle(value.getLifecycleStatus()),
-                time(value.getCreatedAt()), time(value.getUpdatedAt()), time(value.getPublishedAt()), value.getFormVersion());
+                time(value.getCreatedAt()), time(value.getUpdatedAt()), time(value.getPublishedAt()), value.getFormVersion()).withDeletion(time(value.getDeletedAt()), string(value.getDeletedBy()));
     }
 
     private AdminActivityListVO summary(AdminActivityListBO value) {
-        return AdminActivityListVO.builder().activityId(value.getId().toString()).title(value.getTitle())
+        return AdminActivityListVO.builder().deletedAt(time(value.getDeletedAt()))
+                .stage(new ActivitySummaryVO.Availability(value.getStageState(), time(value.getEvaluatedAt()))).activityId(value.getId().toString()).title(value.getTitle())
                 .publishStatus(publication(value.getPublishStatus())).lifecycleStatus(lifecycle(value.getLifecycleStatus()))
                 .updatedAt(time(value.getUpdatedAt())).build();
     }
@@ -219,7 +221,7 @@ public class AdminActivityConverter {
         }
     }
 
-    private ActivitySummaryVO.AudienceScope audience(Integer mask, String json) {
+    private ActivitySummaryVO.AudienceScope audience(String json) {
         if (json != null && !json.isBlank()) {
             try {
                 List<String> ids = new ArrayList<>();
@@ -227,13 +229,12 @@ public class AdminActivityConverter {
                 if (!ids.isEmpty()) return new ActivitySummaryVO.AudienceScope("DEPARTMENTS", ids);
             } catch (JsonProcessingException exception) { throw new IllegalStateException("Invalid stored audience", exception); }
         }
-        return mask == null ? null : new ActivitySummaryVO.AudienceScope("CAMPUS", null);
+        return json == null ? null : new ActivitySummaryVO.AudienceScope("CAMPUS", null);
     }
 
     private String departmentJson(AdminActivitySaveRequest.AudienceScope value) {
-        return value == null || !"DEPARTMENTS".equals(value.getType()) ? null : JSON.valueToTree(value.getDepartmentIds()).toString();
+        return value == null ? null : "CAMPUS".equals(value.getType()) ? "[]" : JSON.valueToTree(value.getDepartmentIds()).toString();
     }
-    private Integer audienceMask(AdminActivitySaveRequest.AudienceScope value) { return value == null ? null : "CAMPUS".equals(value.getType()) ? 1 : 0; }
     private ActivityCategory category(String value) { return value == null ? null : switch (value) {
         case "LECTURE" -> ActivityCategory.ACADEMIC_SEMINAR; case "COMPETITION" -> ActivityCategory.TALENT_SHOW;
         case "SPORTS" -> ActivityCategory.SPORTS_EVENT; case "VOLUNTEERING" -> ActivityCategory.VOLUNTEER_SERVICE;
@@ -242,13 +243,21 @@ public class AdminActivityConverter {
         case ACADEMIC_SEMINAR -> "LECTURE"; case TALENT_SHOW -> "COMPETITION"; case SPORTS_EVENT -> "SPORTS";
         case VOLUNTEER_SERVICE -> "VOLUNTEERING"; case POLITICAL_THEME -> "THEMED"; case OTHER -> "OTHER"; }; }
     private Integer publication(String value) { return value == null ? null : switch (value) { case "DRAFT" -> 0; case "PUBLISHED" -> 1; case "UNPUBLISHED" -> 2; default -> throw invalid("publishStatus不合法"); }; }
-    private String publication(Integer value) { return Integer.valueOf(1).equals(value) ? "PUBLISHED" : Integer.valueOf(2).equals(value) ? "UNPUBLISHED" : "DRAFT"; }
+    static String publication(Integer value) { return Integer.valueOf(1).equals(value) ? "PUBLISHED" : Integer.valueOf(2).equals(value) ? "UNPUBLISHED" : "DRAFT"; }
     private Integer lifecycle(String value) { return value == null ? null : switch (value) { case "ACTIVE" -> 0; case "ENDED" -> 1; case "CANCELLED" -> 2; default -> throw invalid("lifecycleStatus不合法"); }; }
-    private String lifecycle(Integer value) { return Integer.valueOf(1).equals(value) ? "ENDED" : Integer.valueOf(2).equals(value) ? "CANCELLED" : "ACTIVE"; }
+    static String lifecycle(Integer value) { return Integer.valueOf(1).equals(value) ? "ENDED" : Integer.valueOf(2).equals(value) ? "CANCELLED" : "ACTIVE"; }
     private Integer registrationMode(String value) { return value == null ? null : switch (value) { case "NONE" -> 1; case "MINI_PROGRAM" -> 2; case "EXTERNAL" -> 3; case "MINI_PROGRAM_AND_EXTERNAL" -> 4; default -> throw invalid("registrationMode不合法"); }; }
     private String registrationMode(Integer value) { return value == null ? null : switch (value) { case 2 -> "MINI_PROGRAM"; case 3 -> "EXTERNAL"; case 4 -> "MINI_PROGRAM_AND_EXTERNAL"; default -> "NONE"; }; }
-    private Integer participantMode(String value) { return value == null ? null : "TEAM".equals(value) ? 2 : 1; }
-    private String participantMode(Integer value) { return Integer.valueOf(2).equals(value) ? "TEAM" : value == null ? null : "INDIVIDUAL"; }
+    private Integer participantMode(String value) {
+        if (value == null) return null;
+        return switch (value) { case "INDIVIDUAL" -> 1; case "TEAM" -> 2; default -> throw invalid("participantMode不合法"); };
+    }
+    private String participantMode(Integer value) {
+        // V5/V10 explicitly retained unknown draft values as 0. Never infer INDIVIDUAL.
+        if (value == null || value == 0) return null;
+        return switch (value) { case 1 -> "INDIVIDUAL"; case 2 -> "TEAM";
+            default -> throw new IllegalStateException("Unsupported activity participant mode " + value); };
+    }
     private Integer capacityUnit(String value) { return value == null ? null : "TEAM".equals(value) ? 2 : 1; }
     private String capacityUnit(Integer value) { return Integer.valueOf(2).equals(value) ? "TEAM" : value == null ? null : "PERSON"; }
     private String timelineType(String value) { return TimelineSemantic.normalizeForRead(value); }

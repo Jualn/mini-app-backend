@@ -1,4 +1,8 @@
 package cn.jualn.miniapp.module.notify.service;
+import cn.jualn.miniapp.module.notify.service.inbox.NotificationStreamCursorCodec;
+import cn.jualn.miniapp.module.notify.service.inbox.NotificationSnapshotProjection;
+import cn.jualn.miniapp.module.notify.service.inbox.NotificationInboxService;
+import cn.jualn.miniapp.module.notify.service.inbox.NotificationCenterService;
 
 import cn.jualn.miniapp.common.constant.UserContext;
 import cn.jualn.miniapp.common.exception.ContractProblemException;
@@ -8,7 +12,7 @@ import cn.jualn.miniapp.module.notify.bo.NotificationCenterBO;
 import cn.jualn.miniapp.module.notify.converter.NotifyConverter;
 import cn.jualn.miniapp.module.notify.entity.Notification;
 import cn.jualn.miniapp.module.notify.mapper.NotificationMapper;
-import cn.jualn.miniapp.module.notify.service.impl.NotificationCenterServiceImpl;
+import cn.jualn.miniapp.module.notify.service.inbox.NotificationCenterServiceImpl;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -67,6 +71,7 @@ class NotificationCenterDatabaseTest {
         clear(); UserContext.clear(); context.close();
     }
     private void clear() {
+        jdbc.update("DELETE FROM notification_source_receipt");
         jdbc.update("DELETE FROM notification WHERE user_id IN (?,?)", user, user + 1);
         jdbc.update("DELETE FROM notification_inbox_counter WHERE user_id IN (?,?)", user, user + 1);
     }
@@ -131,11 +136,26 @@ class NotificationCenterDatabaseTest {
         assertEquals(1, incremental.newCount()); assertEquals(newest.getId().toString(), incremental.latestNewNotification().id());
         assertEquals(3, incremental.unreadCount());
     }
+    @Test void summaryChecksRecipientAccessBeforeShowingNewNotification() {
+        var baseline = center.summary(null);
+        Notification newest = create(user, 1, true);
+        jdbc.update("UPDATE notification SET target_type=1, target_id=? WHERE id=?", 55L, newest.getId());
+        var access = context.getBean(NotificationContentAccess.class);
+        org.mockito.Mockito.when(access.evaluate(user, 1, 55L))
+                .thenReturn(new NotificationContentAccess.Decision(true, false, "55"));
+
+        var summary = center.summary(baseline.headCursor());
+        assertEquals(1, summary.newCount());
+        assertEquals(newest.getId().toString(), summary.latestNewNotification().id());
+        assertEquals("内容不可用", summary.latestNewNotification().title());
+        assertNull(summary.latestNewNotification().body());
+        assertNull(summary.latestNewNotification().target());
+    }
     @Test void throughHeadCannotReadFutureOrExternalRowsEvenWithOlderCreatedAt() {
         Notification old = create(user, 8, true);
         String boundary = center.list(query("SYSTEM", 20)).headCursor();
         Notification late = create(user, 1, true);
-        jdbc.update("UPDATE notification SET created_at='2000-01-01 00:00:00' WHERE id=?", late.getId());
+        jdbc.update("UPDATE notification SET created_at=? WHERE id=?", java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(1), late.getId());
         Notification external = create(user, 8, false);
         assertEquals(1, center.readThrough(boundary).changedCount());
         assertEquals(0, center.readThrough(boundary).changedCount());
@@ -209,20 +229,20 @@ class NotificationCenterDatabaseTest {
         var notifications = context.getBean(NotifyService.class);
         Notification row = create(user, 8, true);
         assertEquals(1, notifications.countCurrentUnreadNotifications());
-        String oldKey = values.keySet().iterator().next();
+        String oldKey = "obsolete-unread-cache";
         center.batchRead(List.of(row.getId().toString()));
         values.put(oldKey, 1L); // Delayed pre-read projection write after invalidation.
         assertEquals(0, notifications.countCurrentUnreadNotifications());
         values.clear();
         assertEquals(0, notifications.countCurrentUnreadNotifications());
-        assertEquals(1, values.size());
+        assertEquals(0, values.size());
     }
 
     @Test void reminderPlanRebuildAndOffsetChangeKeepOneNotificationButNewAnchorCreatesAnother() {
         var plans = context.getBean(cn.jualn.miniapp.module.notify.mapper.NotifyPlanMapper.class);
         var enrollment = context.getBean(cn.jualn.miniapp.module.activity.service.ActivityEnrollmentService.class);
         var plan = cn.jualn.miniapp.module.notify.entity.NotifyPlan.builder().id(51L).sourceType(1).sourceId(42L)
-                .notifyType(8).timelineId(17L).generation(1L).recipientScope("SUBSCRIBERS").scope(0).status(3)
+                .notifyType(8).timelineId(17L).generation(1L).recipientScope("SUBSCRIBERS").scope(0).status(3).recipientUpperUserId(user)
                 .title("synthetic reminder").content("synthetic content")
                 .subjectStartsAt(java.time.LocalDateTime.of(2030, 1, 1, 15, 0))
                 .sendAt(java.time.LocalDateTime.of(2030, 1, 1, 14, 0)).build();
@@ -252,7 +272,7 @@ class NotificationCenterDatabaseTest {
                 new NotificationCenterBO.Actor("7", "old actor", "https://example.com/a.png"),
                 new NotificationCenterBO.Subject("COMMENT", "18"), NotificationSnapshotProjection.post("42", "19"));
         context.getBean(NotifyService.class).processNotificationPayload(cn.jualn.miniapp.module.notify.payload.NotifyPayload.builder()
-                .receiverId(user).senderId(7L).type(cn.jualn.miniapp.common.enums.NotifyType.COMMENT_REPLIED)
+                .receiverId(user).senderId(7L).type(cn.jualn.miniapp.module.notify.enums.NotifyType.COMMENT_REPLIED)
                 .title("reply").content("new reply").sourceKey("synthetic:snapshot:user:" + user).snapshot(snapshot).build());
         var item = center.list(query(null, 20)).items().get(0);
         assertEquals(item, center.get(item.id()));
@@ -302,25 +322,49 @@ class NotificationCenterDatabaseTest {
         @Bean NotifyService notifications(NotificationMapper mapper, RedisService redis, TransactionTemplate tx, NotificationInboxService inbox,
                 cn.jualn.miniapp.module.notify.mapper.NotifyPlanMapper plans,
                 cn.jualn.miniapp.module.activity.service.ActivityEnrollmentService enrollment, ObjectMapper json) {
-            var validator = mock(cn.jualn.miniapp.infrastructure.validator.TargetValidator.class);
+            var validator = mock(cn.jualn.miniapp.module.subject.service.SubjectExistenceService.class);
             org.mockito.Mockito.when(validator.exists(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong())).thenReturn(true);
             var status = mock(cn.jualn.miniapp.module.notify.reminder.ReminderSubjectStatus.class);
             org.mockito.Mockito.when(status.sourceType()).thenReturn(1);
+            org.mockito.Mockito.when(status.isCurrentAndEligible(org.mockito.ArgumentMatchers.any(cn.jualn.miniapp.module.notify.reminder.ReminderExecution.class),org.mockito.ArgumentMatchers.any())).thenReturn(true);
+            org.mockito.Mockito.when(status.lockCurrentAndEligible(org.mockito.ArgumentMatchers.any(cn.jualn.miniapp.module.notify.reminder.ReminderExecution.class),org.mockito.ArgumentMatchers.any())).thenReturn(true);
+
             org.mockito.Mockito.when(status.isCurrentAndEligible(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any())).thenReturn(true);
             var settings = mock(cn.jualn.miniapp.module.setting.service.SettingService.class);
             org.mockito.Mockito.when(settings.getSettingByUserId(org.mockito.ArgumentMatchers.anyLong()))
                     .thenReturn(cn.jualn.miniapp.module.setting.bo.UserSettingBO.builder().notifyReply(false).build());
             return new cn.jualn.miniapp.module.notify.service.impl.NotifyServiceImpl(mapper,
-                    new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), inbox, plans, enrollment,
-                    mock(cn.jualn.miniapp.module.exam.service.ExamSubscriptionService.class),
-                    mock(cn.jualn.miniapp.module.user.service.UserService.class), settings,
-                    redis, validator, Mappers.getMapper(NotifyConverter.class), mock(cn.jualn.miniapp.infrastructure.async.job.JobService.class), tx,
-                    mock(NotificationDeliveryService.class), json, List.of(status), mock(cn.jualn.miniapp.module.notify.reminder.ReminderReconcileService.class),
-                    mock(cn.jualn.miniapp.module.notify.mapper.NotificationPreferenceMapper.class), mock(cn.jualn.miniapp.module.notify.mapper.NotificationPreferenceOwnerMapper.class),
-                    mock(cn.jualn.miniapp.module.user.mapper.UserProfileMapper.class));
+                    new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                    plans,
+                    mock(cn.jualn.miniapp.module.user.service.UserService.class),
+                    java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollment),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(mock(cn.jualn.miniapp.module.publicevent.service.PublicEventSubscriptionService.class))),
+                    redis,
+                    Mappers.getMapper(NotifyConverter.class),
+                    mock(cn.jualn.miniapp.infrastructure.async.job.JobService.class),
+                    tx,
+                    new cn.jualn.miniapp.module.notify.service.impl.NotificationCreationService(mapper,
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                inbox,
+                mock(NotificationDeliveryService.class),
+                settings,
+                redis,
+                validator,
+                json,
+                mock(cn.jualn.miniapp.module.notify.mapper.NotificationPreferenceMapper.class),
+                mock(cn.jualn.miniapp.module.notify.mapper.NotificationPreferenceOwnerMapper.class),
+                new cn.jualn.miniapp.module.user.service.UserNotificationIdentityService(mock(cn.jualn.miniapp.module.user.mapper.UserProfileMapper.class)),
+                java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollment),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(mock(cn.jualn.miniapp.module.publicevent.service.PublicEventSubscriptionService.class)))),
+                    List.of(status),
+                    mock(cn.jualn.miniapp.module.notify.reminder.ReminderReconcileService.class));
         }
-        @Bean NotificationSnapshotProjection projection(ObjectMapper json) { return new NotificationSnapshotProjection(json,
-                new io.micrometer.core.instrument.simple.SimpleMeterRegistry()); }
+        @Bean NotificationContentAccess contentAccess() {
+            return mock(NotificationContentAccess.class, invocation ->
+                    new NotificationContentAccess.Decision(false, true, null));
+        }
+        @Bean NotificationSnapshotProjection projection(ObjectMapper json, NotificationContentAccess access) {
+            return new NotificationSnapshotProjection(json,
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), List.of(access));
+        }
         @Bean NotificationCenterService center(NotificationMapper mapper, NotificationStreamCursorCodec cursors,
                 NotificationSnapshotProjection projection, TransactionTemplate tx, RedisService redis) {
             return new NotificationCenterServiceImpl(mapper, cursors, projection, redis, tx,

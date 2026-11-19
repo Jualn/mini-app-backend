@@ -19,6 +19,14 @@ import java.util.List;
 @Mapper
 public interface ActivityEnrollmentMapper extends BaseMapper<ActivityEnrollment> {
 
+    @Select("SELECT EXISTS(SELECT 1 FROM activity_enrollment WHERE activity_id=#{activityId} "
+            + "AND user_id=#{userId} AND status=1 AND notify_enable=1)")
+    boolean isNotifyEnabledSubscriber(@Param("activityId") long activityId, @Param("userId") long userId);
+
+    @Select("SELECT EXISTS(SELECT 1 FROM activity_registration WHERE activity_id=#{activityId} "
+            + "AND user_id=#{userId} AND status=1)")
+    boolean isSubmittedRegistrant(@Param("activityId") long activityId, @Param("userId") long userId);
+
     /**
      * 查询用户对活动的报名记录。
      *
@@ -58,7 +66,7 @@ public interface ActivityEnrollmentMapper extends BaseMapper<ActivityEnrollment>
               SELECT user_id FROM activity_registration
               WHERE activity_id=#{activityId} AND status=1
             ) recipients
-            WHERE user_id &gt; #{lastUserId} AND user_id &lt;= #{upperUserId}
+            WHERE user_id > #{lastUserId} AND user_id <= #{upperUserId}
             ORDER BY user_id LIMIT #{limit}
             """)
     List<Long> selectSubscriberOrRegisteredUserIds(@Param("activityId") Long activityId,

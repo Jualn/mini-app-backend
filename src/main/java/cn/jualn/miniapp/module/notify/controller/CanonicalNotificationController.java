@@ -4,11 +4,14 @@ import cn.jualn.miniapp.common.exception.ContractProblemException;
 import cn.jualn.miniapp.module.notify.dto.request.CanonicalNotificationQuery;
 import cn.jualn.miniapp.module.notify.dto.request.MarkNotificationReadRequest;
 import cn.jualn.miniapp.module.notify.dto.request.UpdateNotificationPreferencesRequest;
-import cn.jualn.miniapp.module.notify.service.CanonicalNotificationService;
+import cn.jualn.miniapp.module.notify.service.inbox.PersonalNotificationInbox;
+import cn.jualn.miniapp.module.notify.service.preference.NotificationPreferences;
+import cn.jualn.miniapp.module.notify.service.capability.NotificationCapabilityQueries;
+import cn.jualn.miniapp.module.notify.converter.NotificationPersonalConverter;
 import cn.jualn.miniapp.module.notify.vo.NotificationChannelCapabilitiesVO;
 import cn.jualn.miniapp.module.notify.vo.NotificationPreferencesVO;
 import cn.jualn.miniapp.module.notify.vo.NotificationUnreadCountVO;
-import cn.jualn.miniapp.module.notify.service.NotificationCenterService;
+import cn.jualn.miniapp.module.notify.service.inbox.NotificationCenterService;
 import cn.jualn.miniapp.module.notify.converter.NotificationCenterConverter;
 import cn.jualn.miniapp.module.notify.dto.request.BatchReadNotificationsRequest;
 import cn.jualn.miniapp.module.notify.dto.request.ReadNotificationsThroughRequest;
@@ -25,6 +28,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -38,30 +42,33 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/v1/users/me")
 @RequiredArgsConstructor
 public class CanonicalNotificationController {
-    private final CanonicalNotificationService notificationService;
+    private final PersonalNotificationInbox notificationService;
+    private final NotificationPreferences preferences;
+    private final NotificationCapabilityQueries capabilities;
+    private final NotificationPersonalConverter personalConverter;
     private final NotificationCenterService centerService;
     private final NotificationCenterConverter centerConverter;
 
     @GetMapping("/notification-preferences")
     public ResponseEntity<NotificationPreferencesVO> getPreferences() {
-        return noStore(notificationService.getPreferences());
+        return noStore(personalConverter.preferences(preferences.getPreferences()));
     }
 
     @PatchMapping("/notification-preferences")
     public ResponseEntity<NotificationPreferencesVO> updatePreferences(
             @Valid @RequestBody UpdateNotificationPreferencesRequest request) {
-        return noStore(notificationService.updatePreferences(request));
+        return noStore(personalConverter.preferences(preferences.updatePreferences(personalConverter.patch(request))));
     }
 
     @PostMapping("/notification-preferences:batch-update")
     public ResponseEntity<NotificationPreferencesVO> batchUpdatePreferences(
             @Valid @RequestBody UpdateNotificationPreferencesRequest request) {
-        return noStore(notificationService.updatePreferences(request));
+        return noStore(personalConverter.preferences(preferences.updatePreferences(personalConverter.patch(request))));
     }
 
     @GetMapping("/notification-channel-capabilities")
     public ResponseEntity<NotificationChannelCapabilitiesVO> getCapabilities() {
-        return noStore(notificationService.getCapabilities());
+        return noStore(personalConverter.capabilities(capabilities.getCapabilities()));
     }
 
     @GetMapping("/notifications")
@@ -74,12 +81,18 @@ public class CanonicalNotificationController {
         if ("structured".equals(query.getRepresentation())) {
             return noStore(centerConverter.page(centerService.list(centerConverter.query(query))));
         }
-        return noStore(notificationService.list(query));
+        return noStore(personalConverter.page(notificationService.list(personalConverter.query(query))));
     }
 
     @GetMapping("/notifications/summary")
     public ResponseEntity<NotificationSummaryVO> summary(@RequestParam(required = false) String afterCursor) {
         return noStore(centerConverter.summary(centerService.summary(afterCursor)));
+    }
+
+    @DeleteMapping("/notifications/{notificationId}")
+    public ResponseEntity<Void> delete(@PathVariable @NotBlank @Size(max = 128) String notificationId) {
+        notificationService.delete(notificationId);
+        return ResponseEntity.noContent().header(HttpHeaders.CACHE_CONTROL, "no-store").build();
     }
 
     @GetMapping("/notifications/{notificationId}")

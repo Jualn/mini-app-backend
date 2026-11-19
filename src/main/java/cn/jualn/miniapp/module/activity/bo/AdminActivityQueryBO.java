@@ -6,6 +6,8 @@ import lombok.Data;
 @Data
 @Builder
 public class AdminActivityQueryBO {
+    private boolean deleted;
+
 
     private String keyword;
     private Integer publishStatus;

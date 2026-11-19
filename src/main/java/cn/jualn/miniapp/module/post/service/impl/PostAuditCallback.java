@@ -1,15 +1,14 @@
 package cn.jualn.miniapp.module.post.service.impl;
 
-import cn.jualn.miniapp.common.annotation.AuditTarget;
+import cn.jualn.miniapp.module.audit.annotation.AuditTarget;
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
-import cn.jualn.miniapp.common.enums.AuditScene;
+import cn.jualn.miniapp.module.audit.enums.AuditScene;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.module.audit.entity.ContentAuditLog;
 import cn.jualn.miniapp.module.audit.enums.AuditStatus;
-import cn.jualn.miniapp.module.audit.mapper.ContentAuditLogMapper;
+import cn.jualn.miniapp.module.audit.service.AuditLogService;
 import cn.jualn.miniapp.module.audit.service.AuditResultCallback;
 import cn.jualn.miniapp.module.post.entity.Post;
-import cn.jualn.miniapp.common.enums.PostStatus;
+import cn.jualn.miniapp.module.post.enums.PostStatus;
 import cn.jualn.miniapp.module.post.mapper.PostMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -24,47 +23,18 @@ import org.springframework.stereotype.Component;
 public class PostAuditCallback implements AuditResultCallback {
 
     private final PostMapper postMapper;
-    private final ContentAuditLogMapper contentAuditLogMapper;
+    private final AuditLogService auditLogs;
     private final RedisService redisService;
 
     @Override
     public void onPass(Long postId, Long auditLogId) {
-        long total = contentAuditLogMapper.selectCount(
-                new LambdaQueryWrapper<ContentAuditLog>()
-                        .eq(ContentAuditLog::getTargetId, postId)
-                        .eq(ContentAuditLog::getTargetType, AuditScene.POST.getCode())
-        );
-
-        if (total <= 0) {
-            return;
-        }
-
-        long rejected = contentAuditLogMapper.selectCount(
-                new LambdaQueryWrapper<ContentAuditLog>()
-                        .eq(ContentAuditLog::getTargetId, postId)
-                        .eq(ContentAuditLog::getTargetType, AuditScene.POST.getCode())
-                        .eq(ContentAuditLog::getFinalResult, AuditStatus.REJECT.getCode())
-        );
-
-        if (rejected > 0) {
-            return;
-        }
-
-        long passed = contentAuditLogMapper.selectCount(
-                new LambdaQueryWrapper<ContentAuditLog>()
-                        .eq(ContentAuditLog::getTargetId, postId)
-                        .eq(ContentAuditLog::getTargetType, AuditScene.POST.getCode())
-                        .eq(ContentAuditLog::getFinalResult, AuditStatus.PASS.getCode())
-        );
-
-        if (passed < total) {
-            return;
-        }
+        if (!auditLogs.allPassed(AuditScene.POST, postId)) return;
 
         postMapper.update(
                 new LambdaUpdateWrapper<Post>()
                         .set(Post::getAuditStatus, AuditStatus.PASS.getCode())
                         .eq(Post::getId, postId)
+                        .eq(Post::getAuditRevision, 0L)
                         .eq(Post::getStatus, PostStatus.PUBLISHED.getCode())
                         .eq(Post::getAuditStatus, AuditStatus.PENDING.getCode())
         );
@@ -78,6 +48,7 @@ public class PostAuditCallback implements AuditResultCallback {
                         .set(Post::getAuditStatus, AuditStatus.PENDING.getCode())
                         .set(Post::getRejectReason, null)
                         .eq(Post::getId, postId)
+                        .eq(Post::getAuditRevision, 0L)
                         .ne(Post::getStatus, PostStatus.DELETED.getCode())
         );
 

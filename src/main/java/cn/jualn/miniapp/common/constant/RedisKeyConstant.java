@@ -12,6 +12,8 @@ public final class RedisKeyConstant {
 
     // 原本前缀为 "miniapp:" 但节省点redis内存，且目前没有其他业务线，所以直接空前缀，后续如果有需要再加
     public static final String PREFIX = "";
+    public static final String LOGIN_ATTEMPT_RATE_PREFIX = PREFIX + "auth:login-attempt:";
+    public static final String PARTY_APPLICATION_RATE_PREFIX = PREFIX + "person:party-application:rate:";
 
     // ── 用户 ──────────────────────────────────────────────
     public static final String USER_TOKEN_PREFIX = PREFIX + "user:token:";
@@ -209,14 +211,29 @@ public final class RedisKeyConstant {
         return WX_CREDENTIAL_PREFIX + accountType + ":" + appId + ":access-token";
     }
 
-    public static String adminQrSession(String id) { return "jualn:admin:qr-login:v2:session:" + id; }
-    public static String adminQrScene(String hash) { return "jualn:admin:qr-login:v2:scene:" + hash; }
-    public static String adminQrImage(String id) { return "jualn:admin:qr-login:v2:image:" + id; }
-    public static String adminQrActivation(String id) { return "jualn:admin:qr-login:v2:activation:" + id; }
+    public static String adminQrSession(String id) {
+        return "jualn:admin:qr-login:v2:session:" + id;
+    }
+
+    public static String adminQrScene(String hash) {
+        return "jualn:admin:qr-login:v2:scene:" + hash;
+    }
+
+    public static String adminQrImage(String id) {
+        return "jualn:admin:qr-login:v2:image:" + id;
+    }
+
+    public static String adminQrActivation(String id) {
+        return "jualn:admin:qr-login:v2:activation:" + id;
+    }
+
     public static String adminQrRate(String operation, String hash) {
         return "jualn:admin:auth:rate:v2:" + operation + ":" + hash;
     }
-    public static String adminRevokedToken(String hash) { return "jualn:admin:auth:revoked:" + hash; }
+
+    public static String adminRevokedToken(String hash) {
+        return "jualn:admin:auth:revoked:" + hash;
+    }
 
     public static String wxJsApiTicket(String appId) {
         return WX_CREDENTIAL_PREFIX + "mp:" + appId + ":jsapi-ticket";

@@ -15,7 +15,7 @@ $temporaryPom = Join-Path $projectDirectory (".event-validation-" + [guid]::NewG
 $tests = @('ActivityFormPolicyTest','ActivityRegistrationDatabaseTest','EventContentServiceImplTest','MediaAttachmentIdentityTest','TimelineIdentityTest',
     'AdminActivityConverterTest','MediaServiceImplTest','TimelineServiceImplTest',
     'EventTimePolicyTest','EventInformationDatabaseTest','OperationsPublishingTest','OperationsRequestContractTest','OperationsReminderTest','ActivityAuditCallbackTest','OperationsEventDatabaseTest',
-    'ActivityServiceImplTest','ExamServiceImplTest','ActivityEnrollmentServiceImplTest','ExamSubscriptionServiceImplTest')
+    'ActivityServiceImplTest','PublicEventServiceImplTest','ActivityEnrollmentServiceImplTest','PublicEventSubscriptionServiceImplTest')
 if ($TestNames.Count -gt 0) {
     foreach ($testName in $TestNames) {
         if ($testName -notmatch '^[A-Za-z][A-Za-z0-9_]*Tests?$') {

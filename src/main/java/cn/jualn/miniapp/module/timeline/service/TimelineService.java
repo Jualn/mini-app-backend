@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.timeline.service;
 
 import cn.jualn.miniapp.common.enums.TargetType;
-import cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO;
+import cn.jualn.miniapp.module.timeline.bo.TimelineFactBO;
 import cn.jualn.miniapp.module.timeline.bo.TimelineUpdateBO;
 import cn.jualn.miniapp.module.timeline.bo.TimelineSaveBO;
 
@@ -35,7 +35,7 @@ public interface TimelineService {
      * @param targetId   活动/考试ID
      * @return 时间线列表
      */
-    List<TimelineItemDTO> listTimelinesByTarget(TargetType targetType, Long targetId);
+    List<TimelineFactBO> listTimelinesByTarget(TargetType targetType, Long targetId);
 
-    Map<Long, List<TimelineItemDTO>> listTimelinesByTargets(TargetType targetType, List<Long> targetIds);
+    Map<Long, List<TimelineFactBO>> listTimelinesByTargets(TargetType targetType, List<Long> targetIds);
 }

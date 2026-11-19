@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.media.dto.request;
 
-import cn.jualn.miniapp.common.enums.MediaType;
+import cn.jualn.miniapp.module.media.enums.MediaType;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 

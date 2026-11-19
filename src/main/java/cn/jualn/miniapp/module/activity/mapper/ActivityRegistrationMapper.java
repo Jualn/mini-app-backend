@@ -10,6 +10,8 @@ import java.util.Collection;
 
 @Mapper
 public interface ActivityRegistrationMapper extends BaseMapper<ActivityRegistration> {
+    List<ActivityRegistration> pageMine(@Param("user") long user, @Param("status") Integer status,
+            @Param("before") java.time.LocalDateTime before, @Param("beforeId") Long beforeId, @Param("limit") int limit);
     List<ActivityRegistrationBO> page(@Param("activityId") Long activityId, @Param("status") Integer status,
             @Param("beforeId") Long beforeId, @Param("limit") int limit);
     List<ActivityRegistration> exportRows(@Param("activityId") Long activityId,

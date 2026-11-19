@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.media.converter;
 
-import cn.jualn.miniapp.common.enums.MediaType;
+import cn.jualn.miniapp.module.media.enums.MediaType;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.module.media.bo.AttachmentItemBO;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentSimpleBO;
@@ -15,7 +15,7 @@ import org.mapstruct.Mapping;
 import java.util.List;
 import java.util.stream.Collectors;
 
-@Mapper(componentModel = "spring", uses = EnumConverter.class)
+@Mapper(componentModel = "spring", uses = {EnumConverter.class, cn.jualn.miniapp.module.media.converter.MediaEnumMappings.class})
 public interface MediaConverter {
 
     MediaAttachmentSaveBO toSaveDTO(MediaAttachmentSaveRequest request);

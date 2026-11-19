@@ -11,6 +11,8 @@ import lombok.Data;
  */
 @Data
 public class InteractShareRequest {
+    private String action;
+    private String eventId;
 
     @NotNull(message = "targetType 不能为空")
     private TargetType targetType;

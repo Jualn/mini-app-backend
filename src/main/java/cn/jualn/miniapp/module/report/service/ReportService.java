@@ -10,6 +10,7 @@ import cn.jualn.miniapp.module.report.bo.ReportPageBO;
  * 举报服务。
  */
 public interface ReportService {
+    ReportBO getMyReport(long id);
 
     /**
      * 创建举报。

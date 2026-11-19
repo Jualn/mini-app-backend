@@ -1,17 +1,16 @@
 package cn.jualn.miniapp.module.search.service.impl;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
-import cn.jualn.miniapp.common.enums.ActivityStatus;
+import cn.jualn.miniapp.common.constant.UserContext;
+import cn.jualn.miniapp.module.activity.enums.ActivityStatus;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.result.PageResult;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.module.activity.bo.ActivityListBO;
-import cn.jualn.miniapp.module.activity.service.ActivityService;
 import cn.jualn.miniapp.module.audit.enums.AuditStatus;
 import cn.jualn.miniapp.module.post.bo.PostListBO;
 import cn.jualn.miniapp.module.post.bo.PostSearchBO;
-import cn.jualn.miniapp.common.enums.PostStatus;
-import cn.jualn.miniapp.module.post.service.PostService;
+import cn.jualn.miniapp.module.post.enums.PostStatus;
+import cn.jualn.miniapp.module.post.service.PostQueries;
 import cn.jualn.miniapp.module.search.bo.SearchPageBO;
 import cn.jualn.miniapp.module.search.bo.SearchResultBO;
 import cn.jualn.miniapp.module.search.bo.SearchTabCountBO;
@@ -19,6 +18,7 @@ import cn.jualn.miniapp.module.search.dto.request.SearchQuery;
 import cn.jualn.miniapp.module.search.mapper.SearchDocMapper;
 import cn.jualn.miniapp.module.activity.bo.ActivitySearchBO;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -35,19 +35,24 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class SearchServiceImplTest {
+    @AfterEach
+    void clearContext() {
+        UserContext.clear();
+    }
 
     @Mock
     private SearchDocMapper searchDocMapper;
     @Mock
     private RedisService redisService;
     @Mock
-    private PostService postService;
-    @Mock
-    private ActivityService activityService;
+    private PostQueries postService;
 
     @Test
     void searchPosts_shouldDelegateAndRecordHotKeyword() {
-        SearchServiceImpl service = new SearchServiceImpl(searchDocMapper, redisService, postService, activityService);
+        UserContext.setUserId(7L);
+        when(redisService.setIfAbsent(RedisKeyConstant.searchHotDedup(7L, "java"),
+                "1", RedisKeyConstant.SEARCH_HOT_DEDUP_TTL)).thenReturn(true);
+        SearchServiceImpl service = new SearchServiceImpl(searchDocMapper, redisService, postService);
         PageResult<PostListBO> pageResult = PageResult.of(List.of(
                 PostListBO.builder().id(10L).build()
         ), false);
@@ -67,29 +72,8 @@ class SearchServiceImplTest {
     }
 
     @Test
-    void searchActivities_shouldDelegateAndRecordHotKeyword() {
-        SearchServiceImpl service = new SearchServiceImpl(searchDocMapper, redisService, postService, activityService);
-        PageResult<ActivityListBO> pageResult = PageResult.of(List.of(
-                ActivityListBO.builder().id(20L).build()
-        ), false);
-        pageResult.setNextCursor(20L);
-        when(activityService.searchActivities("java", 88L, 2)).thenReturn(pageResult);
-
-        SearchQuery query = new SearchQuery();
-        query.setKeyword("java");
-        query.setPageSize(2);
-        query.setLastId(88L);
-
-        var result = service.searchActivities(query);
-
-        assertEquals(20L, result.getNextCursor());
-        verify(redisService).zIncrementScore(RedisKeyConstant.SEARCH_HOT_ZSET, "java", 1D);
-        verify(activityService).searchActivities("java", 88L, 2);
-    }
-
-    @Test
     void pageSearch_shouldReturnHasMoreAndNextCursor() {
-        SearchServiceImpl service = new SearchServiceImpl(searchDocMapper, redisService, postService, activityService);
+        SearchServiceImpl service = new SearchServiceImpl(searchDocMapper, redisService, postService);
         when(searchDocMapper.selectSearchResults(
                 any(), any(), any(), any(), any()
         )).thenReturn(List.of(
@@ -112,8 +96,8 @@ class SearchServiceImplTest {
     }
 
     @Test
-    void countSearchTabs_shouldFillMissingTabAndCacheResult() {
-        SearchServiceImpl service = new SearchServiceImpl(searchDocMapper, redisService, postService, activityService);
+    void countSearchTabs_shouldReadCurrentVisibilityAndFillMissingTabs() {
+        SearchServiceImpl service = new SearchServiceImpl(searchDocMapper, redisService, postService);
         when(searchDocMapper.selectTabCounts("java")).thenReturn(List.of(
                 SearchTabCountBO.builder().targetType(TargetType.POST).count(12L).build()
         ));
@@ -123,12 +107,12 @@ class SearchServiceImplTest {
         assertEquals(2, result.size());
         assertEquals(12L, result.get(0).getCount());
         assertEquals(0L, result.get(1).getCount());
-        verify(redisService).set(contains(RedisKeyConstant.SEARCH_COUNT_PREFIX), any(), any(Duration.class));
+        org.mockito.Mockito.verifyNoInteractions(redisService);
     }
 
     @Test
     void syncPost_shouldUpsertOnlyWhenPostIsPublishedAndPassed() {
-        SearchServiceImpl service = new SearchServiceImpl(searchDocMapper, redisService, postService, activityService);
+        SearchServiceImpl service = new SearchServiceImpl(searchDocMapper, redisService, postService);
         PostSearchBO post = PostSearchBO.builder()
                 .id(5L)
                 .status(PostStatus.PUBLISHED)
@@ -144,7 +128,7 @@ class SearchServiceImplTest {
 
     @Test
     void syncActivity_shouldHideUnpublishedActivity() {
-        SearchServiceImpl service = new SearchServiceImpl(searchDocMapper, redisService, postService, activityService);
+        SearchServiceImpl service = new SearchServiceImpl(searchDocMapper, redisService, postService);
         ActivitySearchBO activity = ActivitySearchBO.builder()
                 .id(9L)
                 .publishStatus(0)

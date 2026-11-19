@@ -50,7 +50,9 @@ public class PersonalRegistrationConverter {
                 answers, time(Objects.requireNonNull(value.getSubmittedAt(), "submitted time")),
                 time(Objects.requireNonNull(value.getUpdatedAt(), "updated time")), time(value.getCancelledAt()),
                 Objects.requireNonNull(value.getCanModify(), "modification capability"),
-                Objects.requireNonNull(value.getCanCancel(), "cancellation capability"));
+                Objects.requireNonNull(value.getCanCancel(), "cancellation capability"),
+                value.getStatus() == 2 ? value.getInvalidatedAt() != null ? value.getInvalidatedBy()!=null && value.getInvalidReason()!=null ? "ADMIN" : "UNKNOWN" : "SELF" : null,
+                value.getStatus() == 2 ? value.getInvalidReason() : null);
     }
 
     private OffsetDateTime time(LocalDateTime value) {

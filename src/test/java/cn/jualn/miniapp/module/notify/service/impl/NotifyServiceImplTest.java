@@ -1,15 +1,16 @@
 package cn.jualn.miniapp.module.notify.service.impl;
+import cn.jualn.miniapp.module.notify.service.inbox.NotificationInboxService;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.constant.UserContext;
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.infrastructure.async.job.JobService;
 import cn.jualn.miniapp.infrastructure.async.job.JobDefinition;
-import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
+import cn.jualn.miniapp.module.subject.service.SubjectExistenceService;
 import cn.jualn.miniapp.module.activity.service.ActivityEnrollmentService;
-import cn.jualn.miniapp.module.exam.service.ExamSubscriptionService;
+import cn.jualn.miniapp.module.publicevent.service.PublicEventSubscriptionService;
 import cn.jualn.miniapp.module.notify.converter.NotifyConverter;
 import cn.jualn.miniapp.module.notify.entity.Notification;
 import cn.jualn.miniapp.module.notify.entity.NotifyPlan;
@@ -27,7 +28,7 @@ import cn.jualn.miniapp.module.setting.bo.UserSettingBO;
 import cn.jualn.miniapp.module.setting.service.SettingService;
 import cn.jualn.miniapp.module.user.service.UserService;
 import cn.jualn.miniapp.module.user.mapper.UserProfileMapper;
-import cn.jualn.miniapp.module.wx.notice.data.CommentNoticeData;
+import cn.jualn.miniapp.module.notify.payload.data.CommentNoticeData;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
@@ -74,7 +75,7 @@ class NotifyServiceImplTest {
     @Mock
     private ActivityEnrollmentService enrollmentService;
     @Mock
-    private ExamSubscriptionService examSubService;
+    private PublicEventSubscriptionService examSubService;
     @Mock
     private UserService userService;
     @Mock
@@ -82,7 +83,7 @@ class NotifyServiceImplTest {
     @Mock
     private RedisService redisService;
     @Mock
-    private TargetValidator targetValidator;
+    private SubjectExistenceService targetValidator;
     @Mock
     private NotifyConverter notifyConverter;
     @Mock
@@ -100,23 +101,58 @@ class NotifyServiceImplTest {
     @Mock
     private UserProfileMapper userProfileMapper;
 
+    @org.junit.jupiter.api.BeforeEach
+    void initializeTransactionAndGeneratedIds() {
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        org.mockito.Mockito.lenient().doAnswer(call -> { ((Notification)call.getArgument(0)).setId(71L); return 1; })
+                .when(notificationMapper).insert(any(Notification.class));
+    }
+
     @AfterEach
     void tearDown() {
         UserContext.clear();
         MDC.clear();
+        org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
     }
 
     private NotifyServiceImpl createService() {
         return createService(List.of());
     }
 
+    @Test
+    void articleCommentInteractionEntersInboxWithoutCreatingWeChatDelivery() {
+        var payload=NotifyPayload.builder().receiverId(43L).senderId(42L).type(NotifyType.COMMENT_REPLIED)
+                .title("有人回复了你").content("回复摘录").inAppOnly(true)
+                .sourceKey("reply:synthetic:receiver:43:approved").build();
+        createService().processNotificationPayload(payload);
+        verify(notificationMapper).insert(any(Notification.class));
+        verifyNoInteractions(deliveryService,settingService,userService);
+    }
+
     private NotifyServiceImpl createService(List<ReminderSubjectStatus> statuses) {
-        return new NotifyServiceImpl(notificationMapper, meters,
-                org.mockito.Mockito.mock(cn.jualn.miniapp.module.notify.service.NotificationInboxService.class),
-                notifyPlanMapper, enrollmentService, examSubService, userService,
-                settingService, redisService, targetValidator, notifyConverter, jobService, transactionTemplate,
-                deliveryService, new ObjectMapper().findAndRegisterModules(), statuses,
-                reminderReconcileService, preferenceMapper, preferenceOwnerMapper, userProfileMapper);
+        return new NotifyServiceImpl(notificationMapper,
+                    meters,
+                    notifyPlanMapper,
+                    userService,
+                    java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollmentService),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(examSubService)),
+                    redisService,
+                    notifyConverter,
+                    jobService,
+                    transactionTemplate,
+                    new cn.jualn.miniapp.module.notify.service.impl.NotificationCreationService(notificationMapper,
+                meters,
+                org.mockito.Mockito.mock(cn.jualn.miniapp.module.notify.service.inbox.NotificationInboxService.class),
+                deliveryService,
+                settingService,
+                redisService,
+                targetValidator,
+                new ObjectMapper().findAndRegisterModules(),
+                preferenceMapper,
+                preferenceOwnerMapper,
+                new cn.jualn.miniapp.module.user.service.UserNotificationIdentityService(userProfileMapper),
+                java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollmentService),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(examSubService))),
+                    statuses,
+                    reminderReconcileService);
     }
 
     @Test
@@ -152,8 +188,7 @@ class NotifyServiceImplTest {
     void countCurrentUnreadNotifications_shouldReturnCachedValueClampedToZero() {
         UserContext.setUserId(3L);
         NotifyServiceImpl service = createService();
-        when(notificationMapper.selectUnreadProjectionVersion(3L)).thenReturn("10:3");
-        when(redisService.getLong(RedisKeyConstant.userUnreadCount(3L) + ":10:3")).thenReturn(-5L);
+        when(notificationMapper.countCanonicalUnread(3L)).thenReturn(0L);
 
         Long count = service.countCurrentUnreadNotifications();
 
@@ -170,6 +205,7 @@ class NotifyServiceImplTest {
         service.markAsRead(9L);
 
         verify(notificationMapper).markCanonicalRead(9L, 3L);
+        org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations().forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit);
         verify(redisService).delete(RedisKeyConstant.userUnreadCount(3L));
     }
 
@@ -212,9 +248,9 @@ class NotifyServiceImplTest {
     void reminderFanOutResolvesCurrentUnregisteredSubscribersInOnePagedQuery() {
         ReminderSubjectStatus status = org.mockito.Mockito.mock(ReminderSubjectStatus.class);
         when(status.sourceType()).thenReturn(1);
-        when(status.isCurrentAndEligible(eq(8L), eq(4L), eq(null), any())).thenReturn(true);
+        when(status.isCurrentAndEligible(any(cn.jualn.miniapp.module.notify.reminder.ReminderExecution.class), any())).thenReturn(true);
         NotifyPlan plan = NotifyPlan.builder().id(20L).status(3).sourceType(1).sourceId(8L)
-                .generation(4L).recipientScope("SUBSCRIBERS_NOT_REGISTERED").scope(0)
+                .generation(4L).recipientUpperUserId(7L).recipientScope("SUBSCRIBERS_NOT_REGISTERED").scope(0)
                 .notifyType(NotifyType.ACTIVITY_REGISTRATION_DEADLINE_REMINDER.getCode())
                 .subjectStartsAt(LocalDateTime.of(2026, 10, 1, 15, 0))
                 .title("活动").content("报名即将截止").build();
@@ -222,11 +258,13 @@ class NotifyServiceImplTest {
         when(enrollmentService.listNotifyEnabledUnregisteredUserIds(8L, 0L, 100))
                 .thenReturn(List.of(3L, 7L));
 
+        when(transactionTemplate.execute(any())).thenReturn(true);
         createService(List.of(status)).broadcastPlanFanOut(20L);
 
         verify(enrollmentService).listNotifyEnabledUnregisteredUserIds(8L, 0L, 100);
         verify(enrollmentService, never()).listEnrolledUserIds(8L, 0L, 100);
-        verify(transactionTemplate, times(3)).executeWithoutResult(any());
+        verify(transactionTemplate).execute(any());
+        verify(transactionTemplate).executeWithoutResult(any());
     }
 
     @Test
@@ -240,7 +278,7 @@ class NotifyServiceImplTest {
                 .content("content")
                 .targetType(TargetType.POST)
                 .targetId(99L)
-                .wxData(new CommentNoticeData(99L, 1L, "测试标题", "测试内容", "小明", LocalDateTime.now()))
+                .contentData(new CommentNoticeData(99L, 1L, "测试标题", "测试内容", "小明", LocalDateTime.now()))
                 .build();
         when(targetValidator.exists(TargetType.POST, 99L)).thenReturn(true);
         when(settingService.getSettingByUserId(3L)).thenReturn(UserSettingBO.builder()
@@ -256,9 +294,9 @@ class NotifyServiceImplTest {
         service.processNotificationPayload(payload);
 
         verify(notificationMapper).insert(any(Notification.class));
+        org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations().forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit);
         verify(redisService).delete(RedisKeyConstant.userUnreadCount(3L));
-        verify(userService, never()).getMiniOpenid(any());
-        verifyNoInteractions(deliveryService);
+        verifyNoInteractions(userService, deliveryService);
     }
 
     @Test
@@ -284,6 +322,7 @@ class NotifyServiceImplTest {
         assertEquals("CANONICAL", notification.getValue().getInboxGeneration());
         verify(deliveryService).planCanonicalDeliveries(eq(notification.getValue()),
                 eq(NotifyType.ACTIVITY_CANCELLED), eq(java.util.Set.of(NotificationChannel.IN_APP)));
+        org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations().forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit);
         verify(redisService).delete(RedisKeyConstant.userUnreadCount(3L));
         assertEquals(1.0, meters.get("jualn.notification.creation").tag("result", "created").counter().count());
         assertEquals(List.of(new io.micrometer.core.instrument.ImmutableTag("result", "created")),
@@ -292,13 +331,9 @@ class NotifyServiceImplTest {
 
     @Test void failedCacheRebuildStillReturnsDurableUnreadAndUsesBoundedResultTag() {
         UserContext.setUserId(3L);
-        when(notificationMapper.selectUnreadProjectionVersion(3L)).thenReturn("10:3");
         when(notificationMapper.countCanonicalUnread(3L)).thenReturn(2L);
-        when(redisService.getLong(RedisKeyConstant.userUnreadCount(3L) + ":10:3")).thenReturn(null);
         assertEquals(2L, createService().countCurrentUnreadNotifications());
-        var counter = meters.get("jualn.notification.unread.rebuild").tag("result", "cache_failure").counter();
-        assertEquals(1.0, counter.count());
-        assertEquals(List.of(new io.micrometer.core.instrument.ImmutableTag("result", "cache_failure")), counter.getId().getTags());
+        verifyNoInteractions(redisService);
     }
 
     @Test
@@ -344,4 +379,22 @@ class NotifyServiceImplTest {
         verify(deliveryService).planCanonicalDeliveries(any(), eq(NotifyType.ACTIVITY_START_REMINDER),
                 eq(java.util.Set.of(NotificationChannel.IN_APP)));
     }
+    @Test void timedNotificationsFreezeProducerBusinessTimesWithoutLookingUpCurrentTimes() throws Exception {
+        var types=List.of(NotifyType.ACTIVITY_REGISTRATION_START_REMINDER,NotifyType.ACTIVITY_REGISTRATION_DEADLINE_REMINDER,
+                NotifyType.ACTIVITY_START_REMINDER,NotifyType.PUBLIC_EVENT_START_REMINDER,NotifyType.PUBLIC_EVENT_REGISTRATION_DEADLINE_REMINDER);
+        var keys=List.of("registrationStartTime","registrationDeadlineTime","startTime","publicEventStartTime","registrationDeadlineTime");
+        var time=LocalDateTime.of(2027,3,1,10,30);
+        when(targetValidator.exists(any(),eq(9L))).thenReturn(true);
+        for(var type:types) createService().processNotificationPayload(NotifyPayload.builder().receiverId(3L).type(type)
+                .targetType(type.name().startsWith("PUBLIC_EVENT")?TargetType.EXAM:TargetType.ACTIVITY).targetId(9L)
+                .title("fixture").content("fixture").businessTime(time).businessLocation("fixture-room").build());
+        var capture=ArgumentCaptor.forClass(Notification.class);verify(notificationMapper,times(5)).insert(capture.capture());
+        for(int n=0;n<5;n++) {
+            var frozen=new ObjectMapper().readTree(capture.getAllValues().get(n).getContentPayload());
+            assertEquals(time.toString(),frozen.get(keys.get(n)).asText());
+            assertEquals(time.toString(),frozen.get("businessTime").asText());assertEquals(9,frozen.get("targetId").asInt());
+        }
+        verifyNoInteractions(enrollmentService,examSubService);
+    }
+
 }

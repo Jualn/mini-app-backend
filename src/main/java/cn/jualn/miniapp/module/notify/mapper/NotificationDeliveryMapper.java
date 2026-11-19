@@ -17,9 +17,15 @@ public interface NotificationDeliveryMapper extends BaseMapper<NotificationDeliv
             "WHERE id=#{id} AND status='PENDING'")
     int startProcessing(@Param("id") long id);
 
-    @Update("UPDATE notification_delivery SET status='PROCESSING', attempt_count=attempt_count+1, " +
-            "last_attempt_at=#{now}, result_category=NULL, provider_error_code=NULL, last_error_message=NULL " +
-            "WHERE id=#{id} AND status='PENDING'")
+    @Update("""
+        UPDATE notification_delivery d JOIN notification n ON n.id=d.notification_id
+        LEFT JOIN notification_delivery i ON i.notification_id=n.id AND i.channel='IN_APP'
+        SET d.status='PROCESSING',d.attempt_count=d.attempt_count+1,d.last_attempt_at=#{now},
+            d.result_category=NULL,d.provider_error_code=NULL,d.last_error_message=NULL
+        WHERE d.id=#{id} AND d.status='PENDING'
+        AND NOT (n.created_at<=DATE_SUB(#{now},INTERVAL 90 DAY)
+          AND (n.inbox_generation='LEGACY' OR n.inbox_seq IS NOT NULL OR i.id IS NOT NULL))
+        """)
     int startProviderAttempt(@Param("id") long id, @Param("now") LocalDateTime now);
 
     @Update("UPDATE notification_delivery SET attempt_count=attempt_count+1, last_attempt_at=#{now} " +

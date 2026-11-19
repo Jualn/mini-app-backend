@@ -5,8 +5,8 @@ import cn.jualn.miniapp.common.exception.ContractProblemException;
 import cn.jualn.miniapp.common.exception.SystemException;
 import cn.jualn.miniapp.common.observability.ObservabilityContext;
 import cn.jualn.miniapp.common.result.ResultCode;
-import cn.jualn.miniapp.infrastructure.cache.AdminQrLoginStore;
-import cn.jualn.miniapp.infrastructure.cache.AdminQrLoginStore.Snapshot;
+import cn.jualn.miniapp.module.admin.auth.store.AdminQrLoginStore;
+import cn.jualn.miniapp.module.admin.auth.store.AdminQrLoginStore.Snapshot;
 import cn.jualn.miniapp.module.admin.auth.bo.qrlogin.*;
 import cn.jualn.miniapp.module.admin.auth.config.AdminQrLoginProperties;
 import cn.jualn.miniapp.module.admin.auth.enums.AdminQrLoginV2Status;
@@ -23,7 +23,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.concurrent.Semaphore;
 
-import static cn.jualn.miniapp.infrastructure.cache.AdminQrLoginStore.problem;
+import static cn.jualn.miniapp.module.admin.auth.store.AdminQrLoginStore.problem;
 import static cn.jualn.miniapp.module.admin.auth.enums.AdminQrLoginV2Status.*;
 
 @Slf4j
@@ -37,18 +37,21 @@ public class AdminQrLoginServiceImpl implements AdminQrLoginService {
     private final WxClient wx;
     private final MeterRegistry meters;
     private final Semaphore generation;
+    private final cn.jualn.miniapp.module.authorization.service.CurrentAuthorization authorization;
 
     public AdminQrLoginServiceImpl(AdminQrLoginStore store, AdminTokenService tokens, UserService users,
-            AdminPermissionPolicy policy, AdminQrLoginProperties properties, WxClient wx, MeterRegistry meters) {
+            AdminPermissionPolicy policy, AdminQrLoginProperties properties, WxClient wx, MeterRegistry meters,
+            cn.jualn.miniapp.module.authorization.service.CurrentAuthorization authorization) {
         this.store = store; this.tokens = tokens; this.users = users; this.policy = policy;
         this.properties = properties; this.wx = wx; this.meters = meters;
+        this.authorization=authorization;
         generation = new Semaphore(properties.getGenerationConcurrency());
     }
 
     @Override public AdminQrCreatedBO createSession(String ip) {
         store.limit("create-ip", ip, properties.getCreateIpLimit());
         store.limit("create-global", "global", properties.getCreateGlobalLimit());
-        if (!properties.isEnabled() || !generation.tryAcquire()) throw problem(HttpStatus.SERVICE_UNAVAILABLE, "code-unavailable");
+        if (!generation.tryAcquire()) throw problem(HttpStatus.SERVICE_UNAVAILABLE, "code-unavailable");
         try {
             store.requireSameTokenStorage();
             for (int i = 0; i < 3; i++) {
@@ -96,11 +99,14 @@ public class AdminQrLoginServiceImpl implements AdminQrLoginService {
         store.limit("confirm-subject", Long.toString(subject), 10);
         String sceneHash = sceneHash(scene);
         Snapshot state = store.mobile("inspect", sceneHash, subject);
-        if (state.session().status() == CONSUMED) return state.session();
+        if (state.session().status() == CONSUMED) {
+            if (!authorization.current(subject).canUseAdmin() || state.candidate() == null
+                    || !tokens.validQrResult(subject, state.session().sessionId(), state.candidate(), state.now())) throw denied();
+            return state.session();
+        }
         assertUsable(state);
-        if (state.session().status() == CONFIRMED) return store.mobile("confirm", sceneHash, subject).session();
-        if (state.session().status() != SCANNED || state.userId() == null) throw problem(HttpStatus.CONFLICT, "invalid-state");
-        if (!policy.canLogin(profile(subject))) {
+        if (state.session().status() != SCANNED && state.session().status()!=CONFIRMED || state.userId() == null) throw problem(HttpStatus.CONFLICT, "invalid-state");
+        if (!authorization.current(subject).canUseAdmin()) {
             store.mobile("denyMobile", sceneHash, subject);
             throw denied();
         }
@@ -114,6 +120,11 @@ public class AdminQrLoginServiceImpl implements AdminQrLoginService {
     }
 
     @Override public AdminQrLoginResultBO consumeSession(String id, String secret, String ip) {
+        return consumeSession(id,secret,ip,"RBAC_V1");
+    }
+    @Override public AdminQrLoginResultBO consumeSession(String id, String secret, String ip,String representation) {
+        if(!"RBAC_V1".equals(representation)) throw ContractProblemException.validation(
+            new ContractProblemException.Violation("header","X-Admin-Identity-Representation","INVALID","Unsupported representation"));
         var previous = ObservabilityContext.capture();
         try {
             Snapshot state = owner("consume", id, secret, ip, 60, 20);
@@ -121,11 +132,13 @@ public class AdminQrLoginServiceImpl implements AdminQrLoginService {
             assertUsable(state);
             if (state.session().status() != CONFIRMED && state.session().status() != CONSUMED) throw problem(HttpStatus.CONFLICT, "invalid-state");
             UserProfileBO current = requireAdmission(state, hash(secret));
+            representation(state,representation);
             if (state.session().status() == CONSUMED) return replay(state, hash(secret));
             boolean recovering = state.candidate() != null;
             AdminQrCandidateBO candidate = recovering ? state.candidate()
-                    : tokens.prepareQrCandidate(state.userId(), id, current, state.now());
+                    : tokens.prepareQrCandidate(state.userId(), id, current, state.now(),representation);
             state = store.web("reserve", id, hash(secret), candidate, null);
+            representation(state,representation);
             if (state.session().status() == CONSUMED) return replay(state, hash(secret));
             candidate = state.candidate();
             // Only the reserved candidate may materialize. Unknown results retain this candidate for the next request.
@@ -134,9 +147,11 @@ public class AdminQrLoginServiceImpl implements AdminQrLoginService {
             discardUncommitted(state);
             assertUsable(state);
             requireAdmission(state, hash(secret));
+            representation(state,representation);
             if (state.session().status() == CONSUMED) return replay(state, hash(secret));
             state = store.web("finalize", id, hash(secret), candidate, tokens.qrMappingKey(candidate));
             requireAdmission(state, hash(secret));
+            representation(state,representation);
             if (!tokens.validQrResult(state.userId(), id, state.candidate(), state.now())) throw problem(HttpStatus.CONFLICT, "session-already-consumed");
             String outcome = state.outcome().equals("COMMITTED") ? (recovering ? "recovered" : "committed") : "replayed";
             count(outcome);
@@ -164,11 +179,18 @@ public class AdminQrLoginServiceImpl implements AdminQrLoginService {
     private UserProfileBO requireAdmission(Snapshot state, String secretHash) {
         if (state.userId() == null) throw new SystemException("QR login subject missing");
         UserProfileBO profile = profile(state.userId());
-        if (policy.canLogin(profile)) return profile;
+        if (profile!=null && authorization.current(state.userId()).canUseAdmin()) return profile;
         log.info("result=denied errorCategory=authorization operation=qrAdmission sessionId={}", state.session().sessionId());
         if (state.session().status() == CONFIRMED) discardUncommitted(
                 store.web("denyWeb", state.session().sessionId(), secretHash, null, null));
         throw denied();
+    }
+
+    private void representation(Snapshot state,String selected) {
+        var source=authorization.current(state.userId()).source();
+        boolean frozen=state.candidate()==null || "ASSIGNMENT".equals(tokens.qrResult(state.candidate()).profile().authorizationModel());
+        if(source!=cn.jualn.miniapp.module.authorization.model.RbacModels.Source.ASSIGNMENT || !"RBAC_V1".equals(selected) || !frozen)
+            throw ContractProblemException.conflict("admin-identity-representation-required","Use the original ASSIGNMENT identity representation");
     }
 
     private void discardUncommitted(Snapshot state) {

@@ -1,0 +1,767 @@
+{
+  "catalogVersion": "unified-duty-v1-final-r11",
+  "rbacCatalogVersion": "rbac-v1-unified-final-r10",
+  "businessConfirmation": "docs/coordination/person-identity-org-auth-unified-v1.md",
+  "readiness": "NOT_READY",
+  "description": "模板仅映射既有Role×namespace和逐职责业务范围；不是授权事实，不开放Role/Permission编辑。新POINTS_READER_V1只含points:read，不改变旧组合。正式可用性按每个目标环境逐切片验收，不整体开启NOT_READY。 Article组织发布增量仅新增旧内容角色的ARTICLE_EDIT/ARTICLE_PUBLISH组织目标映射，不增加Role/Permission；旧GLOBAL Assignment不自动获组织范围。 2026-10-23全面收口：新增日常工作仅为非生效定义；scopeActions是各业务owning policy执行义务，不是通用权限裁剪器。旧Role/Duty成员与语义保留；新PLATFORM仅该职责明确业务模块，需同源目标，旧GLOBAL不自动获得。 Points V1复用POINTS_MANAGER作为单管理员纠错组合，POINTS_CORRECTION独立按原受理组织或显式PERSON/PLATFORM授权；不改变其他角色/职责。Points切片READY是目标目录定义，实际可用性仍需Provider支持、目标环境匹配发布和验收。 成长记录仅为POST_MODERATE、POST_SAFETY_REVIEW、REPORT_HANDLE增加精确ORGANIZATION目标，原PLATFORM不自动获得成长范围；实际支持仍由Provider目标环境计算。 V1正式来源仅ASSIGNMENT；单ROOT无需普通Duty，但只消费本期支持且运行ENABLED/READY的能力。MENTOR_MANAGE复用既有导师角色，ACTIVITY_REGISTRATION_DISPOSE为独立报名作废职责；两者登记NOT_READY，不自动发布。",
+  "templates": [
+    {
+      "dutyCode": "PARTY_ORG_PERSONNEL_MANAGE",
+      "roleCode": "PARTY_ORG_PERSONNEL_MANAGER_V1",
+      "namespace": "ORGANIZATION",
+      "targetTypes": [
+        "ORGANIZATION",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_PARTY_ORGANIZATIONS",
+        "READ_PARTY_MEMBERS",
+        "MATCH_PERSONNEL",
+        "MAINTAIN_PARTY_PERSONNEL",
+        "IMPORT_PARTY_PERSONNEL",
+        "CONFIRM_PARTY_ROSTER",
+        "READ_PARTY_PERSONNEL_HISTORY"
+      ],
+      "permissionCodes": [
+        "party-personnel:manage"
+      ],
+      "readiness": "READY",
+      "grantable": true
+    },
+    {
+      "dutyCode": "HOME_BANNER_MANAGE",
+      "roleCode": "HOME_BANNER_MANAGER_V1",
+      "namespace": "HOME",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_BANNERS",
+        "MANAGE_BANNERS",
+        "SELECT_BANNER_TARGET"
+      ],
+      "permissionCodes": [
+        "home-banner:manage"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "PERSON_IDENTITY_MAINTAIN",
+      "roleCode": "PERSON_FACT_STEWARD_V1",
+      "namespace": "IDENTITY",
+      "targetTypes": [
+        "PERSON",
+        "ORGANIZATION",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ",
+        "MAINTAIN"
+      ],
+      "permissionCodes": [
+        "identity:map-manage",
+        "identity:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "ORG_MEMBER_MAINTAIN",
+      "roleCode": "PERSON_FACT_STEWARD_V1",
+      "namespace": "ORGANIZATION",
+      "targetTypes": [
+        "ORGANIZATION"
+      ],
+      "scopeActions": [
+        "READ_LOCAL_MEMBERSHIP",
+        "MAINTAIN_LOCAL_MEMBERSHIP"
+      ],
+      "permissionCodes": [
+        "organization:map-manage",
+        "organization:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "POINTS_REVIEW",
+      "roleCode": "POINTS_REVIEWER",
+      "namespace": "POINTS",
+      "targetTypes": [
+        "ORGANIZATION",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_APPLICATION",
+        "REVIEW_APPLICATION"
+      ],
+      "permissionCodes": [
+        "points:read",
+        "points:review"
+      ],
+      "readiness": "READY",
+      "grantable": true
+    },
+    {
+      "dutyCode": "POINTS_PERSON_LEDGER",
+      "roleCode": "POINTS_READER_V1",
+      "namespace": "POINTS",
+      "targetTypes": [
+        "PERSON",
+        "ORGANIZATION",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_PERSON_LEDGER"
+      ],
+      "permissionCodes": [
+        "points:read"
+      ],
+      "readiness": "READY",
+      "grantable": true
+    },
+    {
+      "dutyCode": "POINTS_STATS_CURRENT",
+      "roleCode": "POINTS_READER_V1",
+      "namespace": "POINTS",
+      "targetTypes": [
+        "ORGANIZATION",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "STATISTICS_CURRENT"
+      ],
+      "permissionCodes": [
+        "points:read"
+      ],
+      "readiness": "READY",
+      "grantable": true
+    },
+    {
+      "dutyCode": "POINTS_STATS_ACCEPTING",
+      "roleCode": "POINTS_READER_V1",
+      "namespace": "POINTS",
+      "targetTypes": [
+        "ORGANIZATION",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "STATISTICS_ACCEPTING"
+      ],
+      "permissionCodes": [
+        "points:read"
+      ],
+      "readiness": "READY",
+      "grantable": true
+    },
+    {
+      "dutyCode": "LEARNING_MANAGE",
+      "roleCode": "LEARNING_MANAGER",
+      "namespace": "LEARNING_TASK",
+      "targetTypes": [
+        "ORGANIZATION",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "MANAGE_TASK",
+        "ASSIGN_AUDIENCE"
+      ],
+      "permissionCodes": [
+        "learning-task:assign",
+        "learning-task:edit",
+        "learning-task:lifecycle",
+        "learning-task:publish",
+        "learning-task:read",
+        "learning-task:revoke"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "LEARNING_REVIEW",
+      "roleCode": "LEARNING_REVIEWER",
+      "namespace": "LEARNING_TASK",
+      "targetTypes": [
+        "ORGANIZATION",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_SUBMISSION",
+        "REVIEW_SUBMISSION"
+      ],
+      "permissionCodes": [
+        "learning-submission:read",
+        "learning-submission:review",
+        "learning-task:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "ARTICLE_EDIT",
+      "roleCode": "CONTENT_EDITOR",
+      "namespace": "ARTICLE",
+      "targetTypes": [
+        "ORGANIZATION"
+      ],
+      "scopeActions": [
+        "READ",
+        "EDIT"
+      ],
+      "permissionCodes": [
+        "article-category:read",
+        "article-publisher:read",
+        "article:edit",
+        "article:read",
+        "content:read",
+        "media:read",
+        "media:write"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "ARTICLE_PUBLISH",
+      "roleCode": "CONTENT_PUBLISHER",
+      "namespace": "ARTICLE",
+      "targetTypes": [
+        "ORGANIZATION"
+      ],
+      "scopeActions": [
+        "READ",
+        "PUBLISH",
+        "UNPUBLISH"
+      ],
+      "permissionCodes": [
+        "article:publish",
+        "article:read",
+        "article:unpublish",
+        "media:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "ARTICLE_CATEGORY_MAINTAIN",
+      "roleCode": "ARTICLE_CATEGORY_STEWARD_V1",
+      "namespace": "ARTICLE",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_CATEGORY",
+        "MAINTAIN_CATEGORY"
+      ],
+      "permissionCodes": [
+        "article-category:manage",
+        "article-category:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "POST_DICTIONARY_MAINTAIN",
+      "roleCode": "POST_DICTIONARY_STEWARD_V1",
+      "namespace": "POST",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_DICTIONARY",
+        "MAINTAIN_DICTIONARY"
+      ],
+      "permissionCodes": [
+        "post-dictionary:manage",
+        "post-dictionary:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "POST_MODERATE",
+      "roleCode": "POST_MODERATOR_V1",
+      "namespace": "POST",
+      "targetTypes": [
+        "PLATFORM",
+        "ORGANIZATION"
+      ],
+      "scopeActions": [
+        "READ_CONTENT",
+        "CURATE_POST",
+        "DISPOSE_POST",
+        "DISPOSE_COMMENT"
+      ],
+      "permissionCodes": [
+        "comment:dispose",
+        "content:read",
+        "post:curate",
+        "post:dispose"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false,
+      "description": " ORGANIZATION仅覆盖固定组织的GrowthRecord及其评论/审核/举报；PLATFORM保留原普通Post/QA范围，不自动包含成长。组织精确匹配且不得跨独立来源借权；不授Person资料维护或读取。"
+    },
+    {
+      "dutyCode": "OFFICIAL_CONTENT_EDIT",
+      "roleCode": "CONTENT_EDITOR",
+      "namespace": "OFFICIAL_CONTENT",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ",
+        "EDIT",
+        "READ_MEDIA",
+        "WRITE_MEDIA"
+      ],
+      "permissionCodes": [
+        "content:read",
+        "media:read",
+        "media:write",
+        "official-content:edit",
+        "official-content:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "OFFICIAL_CONTENT_PUBLISH",
+      "roleCode": "CONTENT_PUBLISHER",
+      "namespace": "OFFICIAL_CONTENT",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ",
+        "PUBLISH",
+        "UNPUBLISH",
+        "READ_MEDIA"
+      ],
+      "permissionCodes": [
+        "media:read",
+        "official-content:publish",
+        "official-content:read",
+        "official-content:unpublish"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "ACTIVITY_MANAGE",
+      "roleCode": "EVENT_OPERATOR",
+      "namespace": "ACTIVITY",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ",
+        "EDIT",
+        "PUBLISH",
+        "UNPUBLISH",
+        "MANAGE_LIFECYCLE",
+        "READ_MEDIA",
+        "WRITE_MEDIA"
+      ],
+      "permissionCodes": [
+        "activity:edit",
+        "activity:lifecycle",
+        "activity:publish",
+        "activity:read",
+        "activity:unpublish",
+        "media:read",
+        "media:write"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "PUBLIC_EVENT_MANAGE",
+      "roleCode": "EVENT_OPERATOR",
+      "namespace": "PUBLIC_EVENT",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ",
+        "EDIT",
+        "PUBLISH",
+        "UNPUBLISH",
+        "MANAGE_LIFECYCLE",
+        "READ_MEDIA",
+        "WRITE_MEDIA"
+      ],
+      "permissionCodes": [
+        "media:read",
+        "media:write",
+        "public-event:edit",
+        "public-event:lifecycle",
+        "public-event:publish",
+        "public-event:read",
+        "public-event:unpublish"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "ACTIVITY_REGISTRATION_READ",
+      "roleCode": "REGISTRATION_READER",
+      "namespace": "ACTIVITY",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_REGISTRATION"
+      ],
+      "permissionCodes": [
+        "activity:registration:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "ACTIVITY_REGISTRATION_EXPORT",
+      "roleCode": "REGISTRATION_EXPORTER",
+      "namespace": "ACTIVITY",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_REGISTRATION",
+        "EXPORT_REGISTRATION"
+      ],
+      "permissionCodes": [
+        "activity:registration:export",
+        "activity:registration:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "PERSON_IDENTITY_READ",
+      "roleCode": "PERSON_FACT_READER_V1",
+      "namespace": "IDENTITY",
+      "targetTypes": [
+        "PERSON",
+        "ORGANIZATION",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ"
+      ],
+      "permissionCodes": [
+        "identity:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "ORG_MEMBER_READ",
+      "roleCode": "PERSON_FACT_READER_V1",
+      "namespace": "ORGANIZATION",
+      "targetTypes": [
+        "ORGANIZATION"
+      ],
+      "scopeActions": [
+        "READ_LOCAL_MEMBERSHIP"
+      ],
+      "permissionCodes": [
+        "organization:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "PERSON_ORGANIZATION_READ",
+      "roleCode": "PERSON_FACT_READER_V1",
+      "namespace": "ORGANIZATION",
+      "targetTypes": [
+        "PERSON",
+        "ORGANIZATION",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_PERSON_MEMBERSHIPS"
+      ],
+      "permissionCodes": [
+        "organization:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "USER_ACCOUNT_GOVERN",
+      "roleCode": "USER_GOVERNOR",
+      "namespace": "USER",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_ACCOUNT",
+        "GOVERN_ACCOUNT"
+      ],
+      "permissionCodes": [
+        "user:manage",
+        "user:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "REPORT_HANDLE",
+      "roleCode": "REPORT_HANDLER",
+      "namespace": "REPORT",
+      "targetTypes": [
+        "PLATFORM",
+        "ORGANIZATION"
+      ],
+      "scopeActions": [
+        "READ_REPORT",
+        "HANDLE_REPORT"
+      ],
+      "permissionCodes": [
+        "report:handle",
+        "report:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false,
+      "description": " ORGANIZATION仅覆盖固定组织的GrowthRecord及其评论/审核/举报；PLATFORM保留原普通Post/QA范围，不自动包含成长。组织精确匹配且不得跨独立来源借权；不授Person资料维护或读取。"
+    },
+    {
+      "dutyCode": "NOTICE_MONITOR",
+      "roleCode": "NOTICE_MONITOR",
+      "namespace": "NOTIFICATION",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_NOTICE"
+      ],
+      "permissionCodes": [
+        "notice:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "SYSTEM_MONITOR",
+      "roleCode": "NOTICE_MONITOR",
+      "namespace": "SYSTEM",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_SYSTEM"
+      ],
+      "permissionCodes": [
+        "system:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "POST_SAFETY_REVIEW",
+      "roleCode": "CONTENT_REVIEWER",
+      "namespace": "POST",
+      "targetTypes": [
+        "PLATFORM",
+        "ORGANIZATION"
+      ],
+      "scopeActions": [
+        "READ_SAFETY_REVIEW",
+        "DECIDE_SAFETY_REVIEW"
+      ],
+      "permissionCodes": [
+        "review:decide",
+        "review:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false,
+      "description": " ORGANIZATION仅覆盖固定组织的GrowthRecord及其评论/审核/举报；PLATFORM保留原普通Post/QA范围，不自动包含成长。组织精确匹配且不得跨独立来源借权；不授Person资料维护或读取。"
+    },
+    {
+      "dutyCode": "ACTIVITY_SAFETY_REVIEW",
+      "roleCode": "CONTENT_REVIEWER",
+      "namespace": "ACTIVITY",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_SAFETY_REVIEW",
+        "DECIDE_SAFETY_REVIEW"
+      ],
+      "permissionCodes": [
+        "review:decide",
+        "review:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "PUBLIC_EVENT_COMMENT_REVIEW",
+      "roleCode": "CONTENT_REVIEWER",
+      "namespace": "PUBLIC_EVENT",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_COMMENT_REVIEW",
+        "DECIDE_COMMENT_REVIEW"
+      ],
+      "permissionCodes": [
+        "review:decide",
+        "review:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "ACTIVITY_COMMENT_MODERATE",
+      "roleCode": "CONTENT_OPERATOR",
+      "namespace": "ACTIVITY",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_CONTENT",
+        "DISPOSE_COMMENT"
+      ],
+      "permissionCodes": [
+        "comment:dispose",
+        "content:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "PUBLIC_EVENT_COMMENT_MODERATE",
+      "roleCode": "CONTENT_OPERATOR",
+      "namespace": "PUBLIC_EVENT",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_CONTENT",
+        "DISPOSE_COMMENT"
+      ],
+      "permissionCodes": [
+        "comment:dispose",
+        "content:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "POINTS_ACCEPTANCE_MANAGE",
+      "roleCode": "POINTS_ACCEPTANCE_STEWARD_V1",
+      "namespace": "POINTS",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_ACCEPTANCE",
+        "MANAGE_ACCEPTANCE"
+      ],
+      "permissionCodes": [
+        "points:acceptance-manage"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "POINTS_CORRECTION",
+      "roleCode": "POINTS_MANAGER",
+      "namespace": "POINTS",
+      "targetTypes": [
+        "PERSON",
+        "ORGANIZATION",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_CORRECTION",
+        "CORRECT_GRANT"
+      ],
+      "permissionCodes": [
+        "points:adjust",
+        "points:adjust-approve",
+        "points:read"
+      ],
+      "readiness": "READY",
+      "grantable": true
+    },
+    {
+      "dutyCode": "MENTOR_MANAGE",
+      "roleCode": "MENTOR_REGISTRAR",
+      "namespace": "MENTOR",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_MENTOR",
+        "MAINTAIN_PROFILE",
+        "MANAGE_QUALIFICATION"
+      ],
+      "permissionCodes": [
+        "mentor:qualification-manage"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    },
+    {
+      "dutyCode": "ACTIVITY_REGISTRATION_DISPOSE",
+      "roleCode": "REGISTRATION_DISPOSER_V1",
+      "namespace": "ACTIVITY",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_REGISTRATION",
+        "INVALIDATE_REGISTRATION"
+      ],
+      "permissionCodes": [
+        "activity:registration:dispose",
+        "activity:registration:read"
+      ],
+      "readiness": "NOT_READY",
+      "grantable": false
+    }
+  ],
+  "excludedDailyCombinations": [
+    {
+      "roleCode": "CONTENT_PUBLISHER",
+      "namespaces": [
+        "ACTIVITY",
+        "PUBLIC_EVENT"
+      ],
+      "reason": "仅media:read，无发布权；活动发布使用已定义EVENT_OPERATOR相应域完整职责，不能冒充窄发布。"
+    },
+    {
+      "roleCode": "EVENT_OPERATOR",
+      "namespaces": [
+        "ARTICLE",
+        "OFFICIAL_CONTENT"
+      ],
+      "reason": "仅媒体读写，不是文章编辑/发布；文章需CONTENT_EDITOR/CONTENT_PUBLISHER相应域独立授予。"
+    },
+    {
+      "roleCode": "IDENTITY_ORG_STEWARD",
+      "namespaces": [
+        "IDENTITY",
+        "ORGANIZATION"
+      ],
+      "reason": "旧map-manage不含read；新日常模板使用PERSON_FACT_STEWARD_V1分别授予各域，审计迁移，不原地扩权。"
+    }
+  ],
+  "constraints": {
+    "maximumDelegationDepth": 1,
+    "canRedelegate": false,
+    "rootDelegable": false,
+    "selfGrant": false,
+    "permissionCustomization": false,
+    "taskOwnersPerTask": 1,
+    "namespaceGlobalImpliesPlatformTarget": false,
+    "authorizationSource": "ASSIGNMENT",
+    "maximumRootSubjects": 1
+  },
+  "previousRbacCatalogVersion": "rbac-v1-draft-2026-10-15"
+}

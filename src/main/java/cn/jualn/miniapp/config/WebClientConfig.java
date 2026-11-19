@@ -8,6 +8,8 @@ import io.netty.channel.ChannelOption;
 import io.netty.handler.timeout.ReadTimeoutHandler;
 import io.netty.handler.timeout.WriteTimeoutHandler;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
+import cn.jualn.miniapp.common.observability.ObservabilityContext;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,7 +23,6 @@ import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
 
-import java.net.URI;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import javax.xml.stream.XMLInputFactory;
@@ -93,28 +94,22 @@ public class WebClientConfig {
 
     private ExchangeFilterFunction logFilter() {
         return (request, next) -> {
-            String safeUrl = sanitizeUrl(request.url());
-            log.debug("[WebClient] 请求: {} {}", request.method(), safeUrl);
+            log.debug("[WebClient] 请求 method={} host={}", request.method(), request.url().getHost());
+            var correlation = ObservabilityContext.capture();
 
             return next.exchange(request)
-                    .doOnNext(response -> log.debug("[WebClient] 响应: {}", response.statusCode()));
+                    .doOnNext(response -> {
+                        var previous = MDC.getCopyOfContextMap();
+                        MDC.clear();
+                        ObservabilityContext.install(correlation);
+                        try {
+                            log.debug("[WebClient] 响应 status={}", response.statusCode().value());
+                        } finally {
+                            MDC.clear();
+                            if (previous != null) MDC.setContextMap(previous);
+                        }
+                    });
         };
-    }
-
-    private String sanitizeUrl(URI uri) {
-        if (uri == null) {
-            return "";
-        }
-
-        StringBuilder builder = new StringBuilder();
-        if (uri.getScheme() != null) {
-            builder.append(uri.getScheme()).append("://");
-        }
-        if (uri.getAuthority() != null) {
-            builder.append(uri.getAuthority());
-        }
-        builder.append(uri.getPath() == null ? "" : uri.getPath());
-        return builder.toString();
     }
 
 }

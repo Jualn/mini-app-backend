@@ -6,7 +6,9 @@ import cn.jualn.miniapp.module.comment.bo.CommentPageBO;
 import cn.jualn.miniapp.module.comment.dto.request.CommentCreateRequest;
 import cn.jualn.miniapp.module.comment.dto.request.CommentPageQuery;
 import cn.jualn.miniapp.module.comment.entity.Comment;
-import cn.jualn.miniapp.module.comment.service.impl.CommentServiceImpl;
+import cn.jualn.miniapp.module.comment.bo.CommentReadContext;
+import cn.jualn.miniapp.module.comment.bo.CommentItemBO;
+import cn.jualn.miniapp.module.comment.bo.ReplyItemBO;
 import cn.jualn.miniapp.module.comment.vo.CommentVO;
 import cn.jualn.miniapp.module.comment.vo.ReplyVO;
 import cn.jualn.miniapp.module.user.bo.UserSimpleBO;
@@ -32,17 +34,24 @@ public interface CommentConverter {
     @Mapping(target = "liked", expression = "java(mapLiked(comment.getId(), context.getLikedMap()))")
     @Mapping(target = "likeCount", expression = "java(mapLikedCount(comment.getId(), context.getLikeCountMap()))")
     @Mapping(target = "previewReplies", expression = "java(mapPreviewReplies(comment.getId(), context.getPreviewRepliesMap()))")
-    CommentVO toCommentVO(Comment comment, @Context CommentServiceImpl.CommentContext context);
+    @Mapping(target = "replyPermission", ignore = true)
+    CommentItemBO toCommentItemBO(Comment comment, @Context CommentReadContext context);
 
     @Mapping(target = "author", expression = "java(mapUserSimple(comment.getUserId(),context.getUserMap()))")
     @Mapping(target = "replyToUser", expression = "java(mapReplyUserSimple(comment.getReplyToUid(),context.getReplyUserMap()))")
     @Mapping(target = "liked", expression = "java(mapLiked(comment.getId(), context.getLikedMap()))")
     @Mapping(target = "likeCount", expression = "java(mapLikedCount(comment.getId(), context.getLikeCountMap()))")
-    ReplyVO toReplyVO(Comment comment, @Context CommentServiceImpl.CommentContext context);
+    @Mapping(target = "replyPermission", ignore = true)
+    ReplyItemBO toReplyItemBO(Comment comment, @Context CommentReadContext context);
 
-    List<CommentVO> toVOList(List<Comment> comments, @Context CommentServiceImpl.CommentContext context);
+    List<CommentItemBO> toItemBOList(List<Comment> comments, @Context CommentReadContext context);
 
-    List<ReplyVO> toReplyVOList(List<Comment> comments, @Context CommentServiceImpl.CommentContext context);
+    List<ReplyItemBO> toReplyItemBOList(List<Comment> comments, @Context CommentReadContext context);
+
+    CommentVO toCommentVO(CommentItemBO item);
+    ReplyVO toReplyVO(ReplyItemBO item);
+    List<CommentVO> toVOList(List<CommentItemBO> items);
+    List<ReplyVO> toReplyVOList(List<ReplyItemBO> items);
 
     default UserSimpleBO mapUserSimple(Long userId, @Context Map<Long, UserSimpleBO> userMap) {
         return userMap.getOrDefault(userId, null);
@@ -60,7 +69,7 @@ public interface CommentConverter {
         return likeCountMap.getOrDefault(id, 0);
     }
 
-    default List<ReplyVO> mapPreviewReplies(Long id, @Context Map<Long, List<ReplyVO>> previewRepliesMap) {
+    default List<ReplyItemBO> mapPreviewReplies(Long id, @Context Map<Long, List<ReplyItemBO>> previewRepliesMap) {
         return previewRepliesMap.getOrDefault(id, List.of());
     }
 

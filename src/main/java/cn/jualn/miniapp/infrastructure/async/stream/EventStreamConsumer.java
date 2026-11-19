@@ -1,6 +1,7 @@
 package cn.jualn.miniapp.infrastructure.async.stream;
 
 import cn.jualn.miniapp.common.observability.ObservabilityContext;
+import org.slf4j.MDC;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.infrastructure.async.AsyncMetricNames;
 import cn.jualn.miniapp.infrastructure.async.message.DeadMessageService;
@@ -35,7 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @Component
-public class EventStreamConsumer implements SmartLifecycle {
+public class EventStreamConsumer implements SmartLifecycle, org.springframework.beans.factory.DisposableBean {
     private static final Duration BLOCK = Duration.ofSeconds(2);
     private static final Duration RECLAIM_IDLE = Duration.ofSeconds(120);
     private static final int MAX_DELIVERY_ATTEMPTS = 8;
@@ -47,6 +48,9 @@ public class EventStreamConsumer implements SmartLifecycle {
     private final MeterRegistry meters;
     private final AtomicBoolean running = new AtomicBoolean();
     private final AtomicBoolean redisUnavailable = new AtomicBoolean();
+    private final Object lifecycleMonitor = new Object();
+    private final List<Runnable> stopCallbacks = new ArrayList<>();
+    private int activeConsumers;
     private final String instanceId = UUID.randomUUID().toString().substring(0, 8);
 
     public EventStreamConsumer(RedisTemplate<String, Object> redisTemplate, EventStreamTransport transport,
@@ -62,10 +66,26 @@ public class EventStreamConsumer implements SmartLifecycle {
 
     @Override
     public void start() {
-        if (!running.compareAndSet(false, true)) return;
-        for (int index = 0; index < 2; index++) {
-            String consumerName = instanceId + "-" + index;
-            executor.execute(() -> consumeLoop(consumerName));
+        synchronized (lifecycleMonitor) {
+            if (running.get()) return;
+            if (activeConsumers != 0) throw new IllegalStateException("Event consumers are still stopping");
+            running.set(true);
+            activeConsumers = 2;
+            int submitted = 0;
+            try {
+                for (; submitted < 2; submitted++) {
+                    String consumerName = instanceId + "-" + submitted;
+                    executor.execute(() -> {
+                        try { consumeLoop(consumerName); }
+                        finally { consumerStopped(); }
+                    });
+                }
+            } catch (RuntimeException failure) {
+                activeConsumers -= 2 - submitted;
+                running.set(false);
+                lifecycleMonitor.notifyAll();
+                throw failure;
+            }
         }
     }
 
@@ -141,6 +161,19 @@ public class EventStreamConsumer implements SmartLifecycle {
     }
 
     void process(MapRecord<String, Object, Object> record, int attempt) {
+        Map<String, String> previous = MDC.getCopyOfContextMap();
+        MDC.clear();
+        ObservabilityContext.install(Map.of(ObservabilityContext.TRACE_ID, ObservabilityContext.newTraceId(),
+                ObservabilityContext.ATTEMPT, String.valueOf(attempt)));
+        try {
+            processDelivery(record, attempt);
+        } finally {
+            MDC.clear();
+            if (previous != null) MDC.setContextMap(previous);
+        }
+    }
+
+    private void processDelivery(MapRecord<String, Object, Object> record, int attempt) {
         Timer.Sample sample = Timer.start(meters);
         MessageEnvelope envelope;
         try {
@@ -148,7 +181,7 @@ public class EventStreamConsumer implements SmartLifecycle {
         } catch (IllegalArgumentException poison) {
             deadMessages.record(record.getId().getValue(), null, attempt, "validation", poison);
             log.error("result=dead errorCategory=validation streamRecordId={} exceptionType={}",
-                    record.getId(), poison.getClass().getSimpleName());
+                    record.getId(), poison.getClass().getSimpleName(), poison);
             acknowledge(record);
             meters.counter(AsyncMetricNames.STREAM_DELIVERY, "topic", "unreadable",
                     "result", "dead", "error.category", "validation").increment();
@@ -161,7 +194,7 @@ public class EventStreamConsumer implements SmartLifecycle {
         String errorCategory = "internal";
         Map<String, String> previous = ObservabilityContext.capture();
         Map<String, String> context = new LinkedHashMap<>();
-        context.put(ObservabilityContext.TRACE_ID, ObservabilityContext.newTraceId());
+        context.put(ObservabilityContext.TRACE_ID, MDC.get(ObservabilityContext.TRACE_ID));
         context.put(ObservabilityContext.MESSAGE_ID, envelope.messageId());
         context.put(ObservabilityContext.ATTEMPT, String.valueOf(attempt));
         if (envelope.operationId() != null) context.put(ObservabilityContext.OPERATION_ID, envelope.operationId());
@@ -174,7 +207,7 @@ public class EventStreamConsumer implements SmartLifecycle {
         } catch (EventHandlerRegistry.UnsupportedEventException | IllegalArgumentException | BusinessException poison) {
             deadMessages.record(record.getId().getValue(), envelope, attempt, "validation", poison);
             log.error("result=dead errorCategory=validation topic={} exceptionType={}",
-                    topic, poison.getClass().getSimpleName());
+                    topic, poison.getClass().getSimpleName(), poison);
             acknowledge(record);
             result = "dead";
             errorCategory = "validation";
@@ -182,7 +215,7 @@ public class EventStreamConsumer implements SmartLifecycle {
             if (attempt >= MAX_DELIVERY_ATTEMPTS) {
                 deadMessages.record(record.getId().getValue(), envelope, attempt, "internal", failure);
                 log.error("result=dead errorCategory=internal topic={} exceptionType={}",
-                        topic, failure.getClass().getSimpleName());
+                        topic, failure.getClass().getSimpleName(), failure);
                 acknowledge(record);
                 result = "dead";
             } else {
@@ -205,14 +238,54 @@ public class EventStreamConsumer implements SmartLifecycle {
     }
 
     private void sleep(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
+        synchronized (lifecycleMonitor) {
+            if (!running.get()) return;
+            try {
+                lifecycleMonitor.wait(millis);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
-    @Override public void stop() { running.set(false); }
+    private void consumerStopped() {
+        List<Runnable> callbacks;
+        synchronized (lifecycleMonitor) {
+            if (--activeConsumers != 0) return;
+            running.set(false);
+            callbacks = new ArrayList<>(stopCallbacks);
+            stopCallbacks.clear();
+        }
+        callbacks.forEach(Runnable::run);
+    }
+
+    @Override public void stop() { stop(() -> { }); }
+
+    @Override public void stop(Runnable callback) {
+        synchronized (lifecycleMonitor) {
+            running.set(false);
+            lifecycleMonitor.notifyAll();
+            if (activeConsumers != 0) {
+                stopCallbacks.add(callback);
+                return;
+            }
+        }
+        callback.run();
+    }
+
+    @Override public void destroy() {
+        var stopped = new java.util.concurrent.CountDownLatch(1);
+        stop(stopped::countDown);
+        try {
+            if (!stopped.await(30, java.util.concurrent.TimeUnit.SECONDS)) {
+                log.warn("Event stream consumers did not finish within the shutdown deadline");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted while waiting for event stream consumers to stop");
+        }
+    }
+
     @Override public boolean isRunning() { return running.get(); }
     @Override public int getPhase() { return Integer.MAX_VALUE - 100; }
 }

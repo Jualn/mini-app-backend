@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.points.mapper.PointsMapper">
+ <insert id="audit">INSERT INTO point_authorization_audit(actor_user_id,target_user_id,operation_name,application_id,ledger_id,request_key,tx_context_id,authority_epoch,evaluated_at,checked_at,policy_source)
+ VALUES(#{actorUserId},#{targetUserId},#{operationName},#{applicationId},#{ledgerId},#{requestKey},#{txContextId},#{authorityEpoch},#{evaluatedAt},#{checkedAt},#{policySource})</insert>
+ <sql id="applicationColumns">a.id,a.person_id,a.submitted_binding_id,a.applicant_user_id,a.title,a.description,a.file_ids,a.status,a.revision,a.reviewer_user_id,a.review_note,a.awarded_points,a.grant_ledger_id,a.created_at,a.reviewed_at,a.accepting_organization_id,a.membership_id,a.closed_at,a.closed_by_user_id,a.closure_reason,
+ (SELECT p.real_name FROM person_profile p WHERE p.id=a.person_id) person_name,
+ (SELECT o.name FROM person_organization o WHERE o.id=a.accepting_organization_id) accepting_organization_name,
+ (SELECT l.id FROM point_ledger l WHERE l.application_id=a.id AND l.kind IN ('GRANT','CORRECTION_GRANT') AND NOT EXISTS(SELECT 1 FROM point_ledger r WHERE r.kind='REVERSAL' AND r.original_ledger_id=l.id)) effective_ledger_id,
+ (SELECT l.points_delta FROM point_ledger l WHERE l.application_id=a.id AND l.kind IN ('GRANT','CORRECTION_GRANT') AND NOT EXISTS(SELECT 1 FROM point_ledger r WHERE r.kind='REVERSAL' AND r.original_ledger_id=l.id)) effective_points</sql>
+ <sql id="ledgerColumns">id,person_id,submitted_binding_id,applicant_user_id,application_id,kind,points_delta,operator_user_id,reason,original_ledger_id,created_at,trace_id,accepting_organization_id,membership_id,correction_id,basis</sql>
+ <insert id="ensureSubject">INSERT INTO point_subject_lock(person_id) VALUES(#{personId}) ON DUPLICATE KEY UPDATE person_id=VALUES(person_id)</insert>
+ <select id="lockSubject" resultType="string">SELECT person_id FROM point_subject_lock WHERE person_id=#{personId} FOR UPDATE</select>
+ <select id="application" resultType="cn.jualn.miniapp.module.points.entity.PointApplication">SELECT <include refid="applicationColumns"/> FROM point_application a WHERE a.id=#{id}</select>
+ <select id="lockApplication" resultType="cn.jualn.miniapp.module.points.entity.PointApplication">SELECT <include refid="applicationColumns"/> FROM point_application a WHERE a.id=#{id} FOR UPDATE</select>
+ <select id="ledger" resultType="cn.jualn.miniapp.module.points.entity.PointLedger">SELECT <include refid="ledgerColumns"/> FROM point_ledger WHERE id=#{id}</select>
+ <select id="reversal" resultType="long">SELECT id FROM point_ledger WHERE kind='REVERSAL' AND original_ledger_id=#{originalId} FOR UPDATE</select>
+ <insert id="insertApplication" useGeneratedKeys="true" keyProperty="id">
+  INSERT INTO point_application(person_id,submitted_binding_id,applicant_user_id,title,description,file_ids,status,created_at,accepting_organization_id,membership_id)
+  VALUES(#{personId},#{submittedBindingId},#{applicantUserId},#{title},#{description},#{fileIds},'PENDING',#{createdAt},#{acceptingOrganizationId},#{membershipId})
+ </insert>
+ <update id="finishApplication">
+  UPDATE point_application SET status=#{status},reviewer_user_id=#{reviewerUserId},review_note=#{reviewNote},awarded_points=#{awardedPoints},grant_ledger_id=#{grantLedgerId},reviewed_at=#{reviewedAt},revision=revision+1
+  WHERE id=#{id} AND status='PENDING' AND revision=#{revision}
+ </update>
+ <update id="closeApplication">UPDATE point_application SET status='CLOSED',closed_at=#{closedAt},closed_by_user_id=#{closedByUserId},closure_reason=#{closureReason},revision=revision+1 WHERE id=#{id} AND status='PENDING' AND revision=#{revision}</update>
+ <select id="qualification" resultType="cn.jualn.miniapp.module.points.bo.PointsBO$Qualification" flushCache="true" useCache="false">
+  SELECT q.organization_id,e.verification,e.enabled,e.id evidence_id,e.organization_id evidence_organization_id
+  FROM point_organization_acceptance q LEFT JOIN point_acceptance_evidence e ON e.id=q.evidence_id WHERE q.organization_id=#{organization}
+ </select>
+ <insert id="insertLedger" useGeneratedKeys="true" keyProperty="id">
+  INSERT INTO point_ledger(person_id,submitted_binding_id,applicant_user_id,application_id,kind,points_delta,operator_user_id,reason,original_ledger_id,created_at,trace_id,accepting_organization_id,membership_id,correction_id,basis)
+  VALUES(#{personId},#{submittedBindingId},#{applicantUserId},#{applicationId},#{kind},#{pointsDelta},#{operatorUserId},#{reason},#{originalLedgerId},#{createdAt},#{traceId},#{acceptingOrganizationId},#{membershipId},#{correctionId},#{basis})
+ </insert>
+ <select id="totals" resultType="cn.jualn.miniapp.module.points.bo.PointsBO$Totals">
+  SELECT COALESCE(SUM(CASE WHEN kind IN ('GRANT','CORRECTION_GRANT') THEN points_delta ELSE 0 END),0) granted,
+  COALESCE(SUM(CASE WHEN kind='REVERSAL' THEN -CAST(points_delta AS DECIMAL(65,0)) ELSE 0 END),0) reversed
+  FROM point_ledger WHERE person_id=#{personId}
+ </select> <select id="lockedTotals" resultType="cn.jualn.miniapp.module.points.bo.PointsBO$Totals">
+  SELECT COALESCE(SUM(CASE WHEN kind IN ('GRANT','CORRECTION_GRANT') THEN points_delta ELSE 0 END),0) granted,
+  COALESCE(SUM(CASE WHEN kind='REVERSAL' THEN -CAST(points_delta AS DECIMAL(65,0)) ELSE 0 END),0) reversed
+  FROM point_ledger WHERE person_id=#{personId} FOR UPDATE
+ </select>
+ <sql id="applicationWhere">WHERE person_id=#{personId}<if test="q.status != null"> AND status=#{q.status}</if></sql>
+ <select id="applications" resultType="cn.jualn.miniapp.module.points.entity.PointApplication">
+  <bind name="offset" value="q.getOffset()"/>
+  SELECT <include refid="applicationColumns"/> FROM point_application a <include refid="applicationWhere"/> ORDER BY id DESC LIMIT #{q.pageSize} OFFSET #{offset}
+ </select>
+ <select id="applicationCount" resultType="long">SELECT COUNT(*) FROM point_application a <include refid="applicationWhere"/></select>
+ <sql id="ledgerWhere">WHERE person_id=#{personId}<if test="q.applicationId != null"> AND application_id=#{q.applicationId}</if><if test="q.kind != null"> AND kind=#{q.kind}</if></sql>
+ <select id="ledgers" resultType="cn.jualn.miniapp.module.points.entity.PointLedger">
+  <bind name="offset" value="q.getOffset()"/>
+  SELECT <include refid="ledgerColumns"/> FROM point_ledger <include refid="ledgerWhere"/> ORDER BY id DESC LIMIT #{q.pageSize} OFFSET #{offset}
+ </select>
+ <select id="ledgerCount" resultType="long">SELECT COUNT(*) FROM point_ledger <include refid="ledgerWhere"/></select>
+ <select id="receipt" resultType="cn.jualn.miniapp.module.points.bo.PointsBO$Receipt">
+  SELECT fingerprint,result_json FROM point_request WHERE actor_user_id=#{actor} AND session_kind=#{session} AND operation_name=#{operation} AND target_id=#{target} AND idempotency_key=#{key}
+ </select>
+ <insert id="saveReceipt">
+  INSERT INTO point_request(actor_user_id,session_kind,operation_name,target_id,idempotency_key,fingerprint,result_json,created_at)
+  VALUES(#{s.actor},#{s.session},#{s.operation},#{s.target},#{s.key},#{fingerprint},#{json},#{now})
+ </insert>
+
+ <!-- Only owner-created transaction-bound plans can execute the shared owning predicate. -->
+ <sql id="planParameters">
+  <bind name="actor" value="p.actor()"/><bind name="checks" value="p.checks()"/>
+  <bind name="now" value="p.now()"/><bind name="personId" value="p.personId()"/>
+  <bind name="organizationId" value="p.organizationId()"/><bind name="rootOwner" value="p.rootOwner()"/>
+  <bind name="dutyTargets" value="p.dutyTargets()"/>
+ </sql>
+ <sql id="participants">
+  SELECT u.id FROM person_profile u LEFT JOIN person_fact_current h ON h.person_id=u.id
+  WHERE <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.personFilter"/>
+  AND (EXISTS(SELECT 1 FROM point_application pc WHERE pc.person_id=u.id)
+    OR EXISTS(SELECT 1 FROM point_ledger pc WHERE pc.person_id=u.id))
+ </sql>
+ <sql id="adminApplicationWhere">WHERE person_id IN (<include refid="participants"/>)
+  <if test="q.status != null">AND status=#{q.status}</if>
+ </sql>
+ <select id="adminApplications" resultType="cn.jualn.miniapp.module.points.entity.PointApplication">
+  <include refid="planParameters"/><bind name="offset" value="q.getOffset()"/>
+  SELECT <include refid="applicationColumns"/> FROM point_application a <include refid="adminApplicationWhere"/>
+  ORDER BY id DESC LIMIT #{q.pageSize} OFFSET #{offset}
+ </select>
+ <select id="adminApplicationCount" resultType="long"><include refid="planParameters"/>
+  SELECT COUNT(*) FROM point_application a <include refid="adminApplicationWhere"/>
+ </select>
+ <select id="participantCount" resultType="long"><include refid="planParameters"/>
+  SELECT COUNT(*) FROM (<include refid="participants"/>) candidates
+ </select>
+ <sql id="ledgerTotals">
+  SELECT person_id,SUM(CASE WHEN kind IN ('GRANT','CORRECTION_GRANT') THEN CAST(points_delta AS DECIMAL(65,0)) ELSE 0 END) granted,
+  SUM(CASE WHEN kind='REVERSAL' THEN -CAST(points_delta AS DECIMAL(65,0)) ELSE 0 END) reversed
+  FROM point_ledger WHERE person_id IN (<include refid="participants"/>) GROUP BY person_id
+ </sql>
+ <select id="personStatistics" resultType="cn.jualn.miniapp.module.points.bo.PointsBO$ParticipantTotals">
+  <include refid="planParameters"/><bind name="offset" value="q.getOffset()"/>
+  SELECT c.id person_id,COALESCE(l.granted,0) granted,COALESCE(l.reversed,0) reversed,
+  COALESCE(a.application_count,0) application_count,COALESCE(a.pending_count,0) pending_count,
+  COALESCE(a.approved_count,0) approved_count,COALESCE(a.rejected_count,0) rejected_count,COALESCE(a.closed_count,0) closed_count
+  FROM (<include refid="participants"/>) c LEFT JOIN (<include refid="ledgerTotals"/>) l ON l.person_id=c.id
+  LEFT JOIN (SELECT person_id,COUNT(*) application_count,SUM(status='PENDING') pending_count,
+   SUM(status='APPROVED') approved_count,SUM(status='REJECTED') rejected_count,SUM(status='CLOSED') closed_count FROM point_application
+   WHERE person_id IN (<include refid="participants"/>) GROUP BY person_id) a
+   ON a.person_id=c.id ORDER BY c.id LIMIT #{q.pageSize} OFFSET #{offset}
+ </select>
+ <sql id="organizationGroups">
+  SELECT gm.organization_id,COUNT(DISTINCT c.id) participant_count,
+   SUM(COALESCE(l.granted,0)) granted,SUM(COALESCE(l.reversed,0)) reversed
+  FROM (<include refid="participants"/>) c
+  JOIN person_membership gm ON gm.person_id=c.id AND gm.ended_event_id IS NULL
+   AND gm.valid_from&lt;=#{now} AND (gm.valid_until IS NULL OR gm.valid_until&gt;#{now})
+  LEFT JOIN (<include refid="ledgerTotals"/>) l ON l.person_id=c.id
+  <if test="organizationId != null">WHERE gm.organization_id=#{organizationId}</if>
+  GROUP BY gm.organization_id
+ </sql>
+ <select id="organizationStatistics" resultType="cn.jualn.miniapp.module.points.bo.PointsBO$OrganizationTotals">
+  <include refid="planParameters"/><bind name="offset" value="q.getOffset()"/>
+  <include refid="organizationGroups"/> ORDER BY gm.organization_id LIMIT #{q.pageSize} OFFSET #{offset}
+ </select>
+ <select id="organizationCount" resultType="long"><include refid="planParameters"/>
+  SELECT COUNT(*) FROM (<include refid="organizationGroups"/>) groups_count
+ </select>
+
+ <select id="correctionLedgers" resultType="cn.jualn.miniapp.module.points.entity.PointLedger">SELECT <include refid="ledgerColumns"/> FROM point_ledger WHERE correction_id=#{correctionId} ORDER BY id</select>
+ <insert id="notificationResolution">INSERT INTO point_notification_resolution(occurrence,outcome,recorded_at) VALUES(#{occurrence},#{outcome},#{now}) ON DUPLICATE KEY UPDATE occurrence=VALUES(occurrence)</insert>
+</mapper>

@@ -1,0 +1,54 @@
+{
+  "verifiedAt" : "2026-10-17T11:11:43.197978500Z",
+  "userRolesAndStatusPreserved" : true,
+  "authority" : [ {
+    "source" : "ASSIGNMENT",
+    "accounts" : "16"
+  } ],
+  "assignments" : [ {
+    "user_id" : "1",
+    "role_code" : "ROOT",
+    "namespace" : "AUTHORIZATION",
+    "scope_type" : "GLOBAL",
+    "expires_at" : null,
+    "revoked_at" : null
+  } ],
+  "operations" : [ {
+    "id" : "f918773b-1057-4b93-b4dd-8251a7a136e2",
+    "kind" : "BOOTSTRAP",
+    "snapshot_version" : "2",
+    "effects" : "16",
+    "occurred_at" : "2026-10-17 11:10:35.878180"
+  } ],
+  "effectCount" : [ {
+    "effects" : "16"
+  } ],
+  "offlinePreflight" : [ {
+    "query" : 0,
+    "rows" : [ {
+      "target_database" : "jualncampus",
+      "evaluated_at" : "2026-10-17 11:11:43.206954"
+    } ]
+  }, {
+    "query" : 1,
+    "rows" : [ {
+      "kind" : "BOOTSTRAP",
+      "committed_operations" : "1"
+    } ]
+  }, {
+    "query" : 2,
+    "rows" : [ ]
+  }, {
+    "query" : 3,
+    "rows" : [ ]
+  }, {
+    "query" : 4,
+    "rows" : [ ]
+  }, {
+    "query" : 5,
+    "rows" : [ ]
+  }, {
+    "query" : 6,
+    "rows" : [ ]
+  } ]
+}

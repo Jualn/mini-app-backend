@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.notify.service;
 
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.module.notify.entity.Notification;
 
 import java.util.Map;

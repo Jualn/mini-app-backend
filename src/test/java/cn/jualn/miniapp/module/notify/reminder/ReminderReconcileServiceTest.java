@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.notify.reminder;
 
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.infrastructure.async.job.JobDefinition;
 import cn.jualn.miniapp.infrastructure.async.job.JobService;
 import cn.jualn.miniapp.module.notify.entity.NotifyPlan;
@@ -98,6 +98,31 @@ class ReminderReconcileServiceTest {
 
     private ReminderReconcileService service() {
         return new ReminderReconcileService(planMapper, jobService);
+    }
+
+    @Test void overdueOldScopeIsReplacedWithCurrentRecipientsWithinTheAnchorWindow() {
+        var now=LocalDateTime.of(2030,1,1,9,0);
+        var sendAt=now.minusMinutes(20);
+        var old=NotifyPlan.builder().id(1L).sourceType(1).sourceId(7L).timelineId(8L).ruleKey("ACTIVITY_START_REMINDER")
+                .notifyType(8).recipientScope("SUBSCRIBERS").sendAt(sendAt).subjectStartsAt(sendAt.plusHours(1)).status(0).build();
+        var spec=new ReminderSpec("ACTIVITY_START_REMINDER",9L,sendAt,"SUBSCRIBERS_OR_REGISTERED_USERS",
+                NotifyType.ACTIVITY_START_REMINDER,"new title","content",sendAt.plusHours(1),"new room");
+        when(planMapper.selectActiveBySource(1,7L)).thenReturn(List.of(old));
+        when(planMapper.cancelPlan(1L)).thenReturn(1);
+        when(planMapper.insert(any(NotifyPlan.class))).thenAnswer(i->{((NotifyPlan)i.getArgument(0)).setId(2L);return 1;});
+        service().reconcile(1,7L,99L,List.of(spec),now);
+        verify(planMapper).cancelPlan(1L);
+        var plan=ArgumentCaptor.forClass(NotifyPlan.class);verify(planMapper).insert(plan.capture());
+        assertEquals("SUBSCRIBERS_OR_REGISTERED_USERS",plan.getValue().getRecipientScope());
+        assertEquals(sendAt.plusHours(1),plan.getValue().getSubjectStartsAt());
+    }
+
+    @Test void completedBusinessOccurrenceIsNotRecreatedAfterOrdinarySave() {
+        var sendAt=LocalDateTime.now().plusHours(2);
+        when(planMapper.selectActiveBySource(1,7L)).thenReturn(List.of());
+        when(planMapper.hasCompletedOccurrence(1,7L,"start",sendAt.plusHours(1))).thenReturn(true);
+        service().reconcile(1,7L,4L,List.of(spec(sendAt)),LocalDateTime.now());
+        verify(planMapper,never()).insert(any(NotifyPlan.class)); verify(jobService,never()).create(any());
     }
 
     private ReminderSpec spec(LocalDateTime sendAt) {

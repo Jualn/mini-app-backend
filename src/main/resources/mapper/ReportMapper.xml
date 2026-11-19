@@ -57,7 +57,25 @@
     </sql>
 
     <sql id="adminCaseFilters">
-        <where>
+        <where>AND NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN case_view.target_type='post' THEN case_view.target_id ELSE (SELECT gc.target_id FROM comment gc WHERE gc.id=case_view.target_id AND gc.target_type=1) END)
+            <if test="keyword != null">
+                AND (title LIKE CONCAT('%', #{keyword}, '%')
+                    OR content_preview LIKE CONCAT('%', #{keyword}, '%')
+                    OR author_name LIKE CONCAT('%', #{keyword}, '%')
+                    OR CAST(target_id AS CHAR) = #{keyword})
+            </if>
+            <if test="status != null">AND status = #{status}</if>
+            <if test="targetType != null">AND target_type = #{targetType}</if>
+            <if test="reason == 'illegal'">AND illegal_count &gt; 0</if>
+            <if test="reason == 'porn'">AND porn_count &gt; 0</if>
+            <if test="reason == 'advertising'">AND advertising_count &gt; 0</if>
+            <if test="reason == 'false-info'">AND false_info_count &gt; 0</if>
+            <if test="reason == 'other'">AND other_count &gt; 0</if>
+            <if test="cursorId != null">AND latest_report_id &lt; #{cursorId}</if>
+        </where>
+    </sql>
+    <sql id="growthCaseFilters">
+        <where>AND EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN case_view.target_type='post' THEN case_view.target_id ELSE (SELECT gc.target_id FROM comment gc WHERE gc.id=case_view.target_id AND gc.target_type=1) END <if test="growthType != null and growthType != 'ALL'">AND g.record_type=#{growthType}</if><if test="growthOrganizationId != null">AND g.organization_id=#{growthOrganizationId}</if> AND g.organization_id IN <foreach collection="growthOrganizations" item="org" open="(" separator="," close=")">#{org}</foreach>)
             <if test="keyword != null">
                 AND (title LIKE CONCAT('%', #{keyword}, '%')
                     OR content_preview LIKE CONCAT('%', #{keyword}, '%')
@@ -86,6 +104,17 @@
         ORDER BY latest_report_id DESC
         LIMIT #{limit}
     </select>
+    <select id="selectGrowthCasePage" resultType="cn.jualn.miniapp.module.report.mapper.AdminReportCaseRow">
+        <include refid="adminCaseCte"/>
+        SELECT latest_report_id, target_type, target_id, title, content_preview,
+               author_id, author_name, report_count, illegal_count, porn_count,
+               advertising_count, false_info_count, other_count, status,
+               first_reported_at, last_reported_at, handler_id, handle_remark, handled_at
+        FROM case_view
+        <include refid="growthCaseFilters"/>
+        ORDER BY latest_report_id DESC
+        LIMIT #{limit}
+    </select>
 
     <select id="selectAdminCase" resultType="cn.jualn.miniapp.module.report.mapper.AdminReportCaseRow">
         <include refid="adminCaseCte"/>
@@ -102,15 +131,30 @@
         WITH case_base AS (
             SELECT target_type, target_id, COUNT(*) AS report_count, SUM(status = 0) AS pending_count
             FROM report
-            WHERE target_type IN (1, 4)
+            WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN report.target_type=1 THEN report.target_id ELSE (SELECT gc.target_id FROM comment gc WHERE report.target_type=4 AND gc.id=report.target_id AND gc.target_type=1) END) AND target_type IN (1, 4)
             GROUP BY target_type, target_id
         )
         SELECT COALESCE(SUM(pending_count &gt; 0), 0) AS pending_cases,
                COALESCE(SUM(pending_count &gt; 0 AND report_count &gt;= 4), 0) AS urgent_cases,
                (SELECT COUNT(*) FROM report
-                WHERE target_type IN (1, 4) AND created_at &gt;= CURRENT_DATE) AS reports_today,
+                WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN report.target_type=1 THEN report.target_id ELSE (SELECT gc.target_id FROM comment gc WHERE report.target_type=4 AND gc.id=report.target_id AND gc.target_type=1) END) AND target_type IN (1, 4) AND created_at &gt;= CURRENT_DATE) AS reports_today,
                (SELECT COUNT(DISTINCT CONCAT(target_type, ':', target_id)) FROM report
-                WHERE target_type IN (1, 4) AND handled_at &gt;= CURRENT_DATE) AS completed_today
+                WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN report.target_type=1 THEN report.target_id ELSE (SELECT gc.target_id FROM comment gc WHERE report.target_type=4 AND gc.id=report.target_id AND gc.target_type=1) END) AND target_type IN (1, 4) AND handled_at &gt;= CURRENT_DATE) AS completed_today
+        FROM case_base
+    </select>
+    <select id="selectDashboardCaseSummary" resultType="cn.jualn.miniapp.module.report.mapper.AdminReportCaseSummaryRow">
+        WITH case_base AS (
+            SELECT target_type, target_id, COUNT(*) AS report_count, SUM(status = 0) AS pending_count
+            FROM report
+            WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN report.target_type=1 THEN report.target_id ELSE (SELECT gc.target_id FROM comment gc WHERE report.target_type=4 AND gc.id=report.target_id AND gc.target_type=1) END) AND target_type IN (1, 4)
+            GROUP BY target_type, target_id
+        )
+        SELECT COALESCE(SUM(pending_count &gt; 0), 0) AS pending_cases,
+               COALESCE(SUM(pending_count &gt; 0 AND report_count &gt;= 4), 0) AS urgent_cases,
+               (SELECT COUNT(*) FROM report
+                WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN report.target_type=1 THEN report.target_id ELSE (SELECT gc.target_id FROM comment gc WHERE report.target_type=4 AND gc.id=report.target_id AND gc.target_type=1) END) AND target_type IN (1, 4) AND created_at &gt;= #{dayStart} AND created_at &lt; #{dayEnd}) AS reports_today,
+               (SELECT COUNT(DISTINCT CONCAT(target_type, ':', target_id)) FROM report
+                WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN report.target_type=1 THEN report.target_id ELSE (SELECT gc.target_id FROM comment gc WHERE report.target_type=4 AND gc.id=report.target_id AND gc.target_type=1) END) AND target_type IN (1, 4) AND handled_at &gt;= #{dayStart} AND handled_at &lt; #{dayEnd}) AS completed_today
         FROM case_base
     </select>
 

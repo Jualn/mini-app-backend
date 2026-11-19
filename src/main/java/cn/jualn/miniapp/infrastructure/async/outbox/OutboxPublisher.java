@@ -45,35 +45,35 @@ public class OutboxPublisher {
             String topic = handlers.metricTopic(event.getTopic(), event.getSchemaVersion());
             try {
                 transport.publish(event);
-                if (mapper.markPublished(event.getId(), owner, LocalDateTime.now()) == 1) {
+                if (mapper.markPublished(event.getId(), owner, LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))) == 1) {
                     meters.counter(AsyncMetricNames.OUTBOX_PUBLISH, "topic", topic, "result", "success").increment();
                 } else {
                     meters.counter(AsyncMetricNames.OUTBOX_PUBLISH, "topic", topic, "result", "stale_owner").increment();
                     log.warn("result=failure errorCategory=conflict reason=stale_outbox_owner topic={}", topic);
                 }
             } catch (IllegalArgumentException permanent) {
-                int updated = mapper.markDead(event.getId(), owner, "validation", sanitize(permanent), LocalDateTime.now());
+                int updated = mapper.markDead(event.getId(), owner, "validation", sanitize(permanent), LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")));
                 meters.counter(AsyncMetricNames.OUTBOX_PUBLISH, "topic", topic, "result", "failure").increment();
                 if (updated == 1) {
                     meters.counter(AsyncMetricNames.OUTBOX_DEAD, "topic", topic,
                             "error.category", "validation").increment();
                     log.error("result=dead errorCategory=validation topic={} exceptionType={}",
-                            topic, permanent.getClass().getSimpleName());
+                            topic, permanent.getClass().getSimpleName(), permanent);
                 } else {
                     log.warn("result=failure errorCategory=conflict reason=stale_outbox_owner topic={}", topic);
                 }
             } catch (RuntimeException retryableOrUnknown) {
                 if (event.getAttempt() >= MAX_ATTEMPTS) {
-                    if (mapper.markDead(event.getId(), owner, "redis", sanitize(retryableOrUnknown), LocalDateTime.now()) == 1) {
+                    if (mapper.markDead(event.getId(), owner, "redis", sanitize(retryableOrUnknown), LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))) == 1) {
                         meters.counter(AsyncMetricNames.OUTBOX_DEAD, "topic", topic,
                                 "error.category", "redis").increment();
                         log.error("result=dead errorCategory=redis topic={} exceptionType={}",
-                                topic, retryableOrUnknown.getClass().getSimpleName());
+                                topic, retryableOrUnknown.getClass().getSimpleName(), retryableOrUnknown);
                     } else {
                         log.warn("result=failure errorCategory=conflict reason=stale_outbox_owner topic={}", topic);
                     }
                 } else {
-                    if (mapper.markRetry(event.getId(), owner, LocalDateTime.now().plus(retries.delay(event.getAttempt())),
+                    if (mapper.markRetry(event.getId(), owner, LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")).plus(retries.delay(event.getAttempt())),
                             "redis", sanitize(retryableOrUnknown)) == 1) {
                         meters.counter(AsyncMetricNames.OUTBOX_RETRY, "topic", topic,
                                 "error.category", "redis").increment();

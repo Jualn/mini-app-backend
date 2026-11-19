@@ -23,6 +23,9 @@ public class NotificationDelivery {
     private Long notificationId;
     private String channel;
     private String status;
+    /** NULL only for pre-V34 intents: never backfilled from current configuration. */
+    private Integer templateSnapshotVersion;
+    private String templateSnapshot;
     private Integer attemptCount;
     private String providerMessageId;
     private String resultCategory;

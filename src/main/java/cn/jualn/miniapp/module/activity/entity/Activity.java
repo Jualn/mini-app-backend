@@ -14,6 +14,11 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @TableName("activity")
 public class Activity {
+    private Boolean allowRegistrationAfterStart;
+
+    private Long deletedBy;
+    private String lastPublicSummary;
+    private String frozenFormFields;
     private Long contractVersion;
     private Integer lifecycleStatus;
     private String formVersion;
@@ -34,7 +39,6 @@ public class Activity {
     private Long coverAttachmentId;
 
 
-
     @TableId(type = IdType.AUTO)
     private Long id;
 
@@ -48,7 +52,6 @@ public class Activity {
 
     private String organizer;
 
-    private Integer audienceScope;
 
     private Integer commentCount;
 

@@ -4,6 +4,8 @@ import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
+import org.springframework.http.InvalidMediaTypeException;
+import org.springframework.http.MediaType;
 import org.springframework.web.util.HtmlUtils;
 
 import java.io.BufferedReader;
@@ -16,6 +18,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class XssHttpServletRequestWrapper extends HttpServletRequestWrapper {
+
+    private static final MediaType STRUCTURED_JSON = MediaType.parseMediaType("application/*+json");
 
     private final byte[] body;
 
@@ -94,14 +98,25 @@ public class XssHttpServletRequestWrapper extends HttpServletRequestWrapper {
             return original;
         }
 
-        // 如果是 JSON 格式，直接返回原始字节，不进行 htmlEscape
-        String contentType = request.getContentType();
-        if (contentType != null && contentType.contains("application/json")) {
+        // Preserve JSON syntax, including structured JSON types such as Merge Patch.
+        if (isJson(request.getContentType())) {
             return original;
         }
 
         String content = new String(original, StandardCharsets.UTF_8);
         return sanitize(content).getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static boolean isJson(String contentType) {
+        if (contentType == null) {
+            return false;
+        }
+        try {
+            MediaType mediaType = MediaType.parseMediaType(contentType);
+            return MediaType.APPLICATION_JSON.includes(mediaType) || STRUCTURED_JSON.includes(mediaType);
+        } catch (InvalidMediaTypeException ignored) {
+            return false;
+        }
     }
 
     private String sanitize(String value) {

@@ -12,7 +12,9 @@ class DocumentImportSuggestionValidatorTest {
 
     @Test
     void activityAcceptsFiveTimeBranchesAndCompleteComplexValues() {
-        String source = "标题 活动 日期 精确点 精确段 日期点 日期段 另行通知 规则 姓名 上午 邮件 help@example.org";
+        String source = "标题 活动 日期 精确点 精确段 日期点 日期段 另行通知 规则 姓名 上午 邮件 help@example.org "
+                + "2027-03-15T18:00:00+08:00 2027-03-20T09:00:00+08:00—2027-03-20T11:00:00+08:00 "
+                + "2027-04-20 2027-05-01—2027-05-07";
         String raw = """
                 {"suggestions":[
                   {"target":"/title","value":"标题 活动","excerpts":["标题 活动"]},
@@ -22,7 +24,7 @@ class DocumentImportSuggestionValidatorTest {
                     {"type":"EXAM","title":"日期点","schedule":{"kind":"DATE_POINT","date":"2027-04-20"}},
                     {"type":"CERTIFICATE_COLLECTION","title":"日期段","schedule":{"kind":"DATE_RANGE","startDate":"2027-05-01","endDate":"2027-05-07"}},
                     {"type":"RESULT","title":"结果","schedule":{"kind":"TEXT","timeDescription":"另行通知"}}
-                  ],"excerpts":["精确点 精确段 日期点 日期段 另行通知"]},
+                  ],"excerpts":["精确点 精确段 日期点 日期段 另行通知","2027-03-15T18:00:00+08:00 2027-03-20T09:00:00+08:00—2027-03-20T11:00:00+08:00 2027-04-20 2027-05-01—2027-05-07"]},
                   {"target":"/sections","value":[{"title":"规则","content":"规则","format":"PLAIN_TEXT"}],"excerpts":["规则"]},
                   {"target":"/actions","value":[{"type":"EMAIL_SUBMISSION","title":"邮件","url":"mailto:help@example.org"}],"excerpts":["邮件 help@example.org"]},
                   {"target":"/contacts","value":[{"name":"邮件","contact":"help@example.org"}],"excerpts":["邮件 help@example.org"]},

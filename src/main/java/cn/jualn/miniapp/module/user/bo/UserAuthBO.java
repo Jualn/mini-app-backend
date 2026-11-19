@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.user.bo;
 
-import cn.jualn.miniapp.common.enums.UserRole;
-import cn.jualn.miniapp.common.enums.UserStatus;
+import cn.jualn.miniapp.module.user.enums.UserRole;
+import cn.jualn.miniapp.module.user.enums.UserStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

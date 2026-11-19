@@ -2,19 +2,19 @@ package cn.jualn.miniapp.common.web;
 
 import cn.jualn.miniapp.common.constant.UserContext;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
+import cn.jualn.miniapp.module.subject.service.SubjectExistenceService;
 import cn.jualn.miniapp.module.activity.entity.Activity;
 import cn.jualn.miniapp.module.activity.entity.ActivityEnrollment;
 import cn.jualn.miniapp.module.activity.mapper.ActivityEnrollmentMapper;
 import cn.jualn.miniapp.module.activity.mapper.ActivityMapper;
 import cn.jualn.miniapp.module.activity.service.ActivityEnrollmentService;
 import cn.jualn.miniapp.module.activity.service.impl.ActivityEnrollmentServiceImpl;
-import cn.jualn.miniapp.module.exam.entity.ExamInfo;
-import cn.jualn.miniapp.module.exam.entity.ExamSubscription;
-import cn.jualn.miniapp.module.exam.mapper.ExamInfoMapper;
-import cn.jualn.miniapp.module.exam.mapper.ExamSubscriptionMapper;
-import cn.jualn.miniapp.module.exam.service.ExamSubscriptionService;
-import cn.jualn.miniapp.module.exam.service.impl.ExamSubscriptionServiceImpl;
+import cn.jualn.miniapp.module.publicevent.entity.PublicEvent;
+import cn.jualn.miniapp.module.publicevent.entity.PublicEventSubscription;
+import cn.jualn.miniapp.module.publicevent.mapper.PublicEventMapper;
+import cn.jualn.miniapp.module.publicevent.mapper.PublicEventSubscriptionMapper;
+import cn.jualn.miniapp.module.publicevent.service.PublicEventSubscriptionService;
+import cn.jualn.miniapp.module.publicevent.service.impl.PublicEventSubscriptionServiceImpl;
 import java.sql.Connection;
 import java.time.LocalDateTime;
 import javax.sql.DataSource;
@@ -61,7 +61,7 @@ class SubscriptionTransactionBoundaryTest {
         UserContext.setUserId(7L);
         try (var context = context(connection)) {
             context.registerBean(ActivityEnrollmentServiceImpl.class, () -> new ActivityEnrollmentServiceImpl(
-                    relations, activities, mock(RedisService.class), mock(TargetValidator.class)));
+                    relations, activities, mock(cn.jualn.miniapp.module.activity.service.ActivityReminderCatchUp.class), mock(RedisService.class), mock(SubjectExistenceService.class)));
             context.refresh();
             assertTrue(context.getBean(ActivityEnrollmentService.class).subscribeWithState(10L).subscribed());
             verify(connection).commit();
@@ -72,21 +72,21 @@ class SubscriptionTransactionBoundaryTest {
     @Test
     void publicEventReadbackFailureRollsBackTheManagedWrite() throws Exception {
         var connection = mock(Connection.class);
-        var events = mock(ExamInfoMapper.class);
-        var relations = mock(ExamSubscriptionMapper.class);
-        when(events.selectForUpdate(10L)).thenReturn(ExamInfo.builder().id(10L).publishStatus(1).lifecycleStatus(0).build());
+        var events = mock(PublicEventMapper.class);
+        var relations = mock(PublicEventSubscriptionMapper.class);
+        when(events.selectForUpdate(10L)).thenReturn(PublicEvent.builder().id(10L).publishStatus(1).lifecycleStatus(0).build());
         when(relations.selectOne(any())).thenReturn(null).thenThrow(new IllegalStateException("readback failed"));
-        when(relations.insert(any(ExamSubscription.class))).thenAnswer(call -> {
+        when(relations.insert(any(PublicEventSubscription.class))).thenAnswer(call -> {
             assertTrue(TransactionSynchronizationManager.isActualTransactionActive());
             return 1;
         });
         UserContext.setUserId(7L);
         try (var context = context(connection)) {
-            context.registerBean(ExamSubscriptionServiceImpl.class, () -> new ExamSubscriptionServiceImpl(
-                    events, relations, mock(RedisService.class), mock(TargetValidator.class)));
+            context.registerBean(PublicEventSubscriptionServiceImpl.class, () -> new PublicEventSubscriptionServiceImpl(
+                    events, relations, mock(RedisService.class)));
             context.refresh();
             assertThrows(IllegalStateException.class,
-                    () -> context.getBean(ExamSubscriptionService.class).subscribeWithState(10L));
+                    () -> context.getBean(PublicEventSubscriptionService.class).subscribeWithState(10L));
             verify(connection).rollback();
             verify(connection, never()).commit();
         }

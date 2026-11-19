@@ -2,7 +2,7 @@ package cn.jualn.miniapp.module.timeline.controller;
 
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.result.Result;
-import cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO;
+import cn.jualn.miniapp.module.timeline.bo.TimelineFactBO;
 import cn.jualn.miniapp.module.timeline.converter.TimelineConverter;
 import cn.jualn.miniapp.module.timeline.dto.TimelineUpdateRequest;
 import cn.jualn.miniapp.module.timeline.service.TimelineService;
@@ -57,7 +57,7 @@ public class TimelineController {
 //    public Result<List<TimelineVO>> listTimelinesByTarget(
 //            @PathVariable TargetType targetType,
 //            @PathVariable Long targetId) {
-//        List<TimelineItemDTO> result = timelineService.listTimelinesByTarget(targetType, targetId);
+//        List<TimelineFactBO> result = timelineService.listTimelinesByTarget(targetType, targetId);
 //
 //        return Result.ok(timelineConverter.toVOList(result));
 //    }

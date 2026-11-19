@@ -24,6 +24,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class AdminSystemServiceImplTest {
+    @org.junit.jupiter.api.BeforeEach void adminIdentity() {
+        cn.dev33.satoken.context.mock.SaTokenContextMockUtil.setMockContext();
+        cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.switchTo(9L);
+    }
+    @org.junit.jupiter.api.AfterEach void clearIdentity() {
+        cn.dev33.satoken.context.mock.SaTokenContextMockUtil.clearContext();
+    }
 
     @Test
     void returnsAvailabilityAndBoundedAsyncStateSnapshot() throws Exception {
@@ -59,7 +66,7 @@ class AdminSystemServiceImplTest {
         gauge(meters, AsyncMetricNames.STREAM_CONSUMERS, 1D);
         gauge(meters, AsyncMetricNames.STREAM_OLDEST_PENDING_AGE, 5D);
 
-        AdminSystemOverviewBO overview = new AdminSystemServiceImpl(
+        AdminSystemOverviewBO overview = new AdminSystemServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class),
                 dataSource, redisFactory, environment, availability, meters,
                 new AdminRuntimeMetricsReader(meters)).getOverview();
 
@@ -93,7 +100,7 @@ class AdminSystemServiceImplTest {
         gauge(meters, AsyncMetricNames.STREAM_AVAILABLE, 0D);
         gauge(meters, AsyncMetricNames.OUTBOX_PENDING, Double.NaN);
 
-        AdminSystemOverviewBO overview = new AdminSystemServiceImpl(
+        AdminSystemOverviewBO overview = new AdminSystemServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class),
                 dataSource, redisFactory, new MockEnvironment(), availability, meters,
                 new AdminRuntimeMetricsReader(meters)).getOverview();
 

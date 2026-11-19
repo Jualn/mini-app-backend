@@ -2,8 +2,8 @@ package cn.jualn.miniapp.module.eventcontent.service;
 
 import cn.jualn.miniapp.config.JacksonConfig;
 import cn.jualn.miniapp.module.admin.auth.support.AdminPermissionPolicy;
-import cn.jualn.miniapp.module.exam.dto.admin.AdminPublicEventSaveRequest;
-import cn.jualn.miniapp.common.enums.UserRole;
+import cn.jualn.miniapp.module.publicevent.dto.admin.AdminPublicEventSaveRequest;
+import cn.jualn.miniapp.module.user.enums.UserRole;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
@@ -29,9 +29,10 @@ class OperationsRequestContractTest {
     }
 
     @Test
-    void publicEventPermissionsBelongToOperationsRoles() {
+    void scalarOperationsRolesDoNotAuthorizePublicEventManagement() {
         var policy = new AdminPermissionPolicy();
-        assertTrue(policy.permissions(UserRole.OPR).contains(AdminPermissionPolicy.PUBLIC_EVENT_EDIT));
+        assertTrue(policy.permissions(UserRole.OPR).isEmpty());
+        assertTrue(policy.permissions(UserRole.ADMIN).isEmpty());
         assertTrue(policy.permissions(UserRole.USER).isEmpty());
     }
 }

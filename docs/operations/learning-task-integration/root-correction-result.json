@@ -1,0 +1,89 @@
+{
+  "verifiedAt" : "2026-10-17T12:39:08.213506400Z",
+  "userRolesAndStatusPreserved" : true,
+  "authority" : [ {
+    "source" : "ASSIGNMENT",
+    "accounts" : "16"
+  } ],
+  "assignments" : [ {
+    "user_id" : "1",
+    "role_code" : "ROOT",
+    "namespace" : "AUTHORIZATION",
+    "scope_type" : "GLOBAL",
+    "expires_at" : null,
+    "revoked_at" : "2026-10-17 12:38:38.199431"
+  }, {
+    "user_id" : "2",
+    "role_code" : "ROOT",
+    "namespace" : "AUTHORIZATION",
+    "scope_type" : "GLOBAL",
+    "expires_at" : null,
+    "revoked_at" : null
+  }, {
+    "user_id" : "2",
+    "role_code" : "LEARNING_MANAGER",
+    "namespace" : "LEARNING_TASK",
+    "scope_type" : "GLOBAL",
+    "expires_at" : null,
+    "revoked_at" : null
+  } ],
+  "operations" : [ {
+    "id" : "15d2d999-eb29-4142-8726-26b758ea4f56",
+    "kind" : "CORRECT_INITIAL_ROOT",
+    "snapshot_version" : "3",
+    "effects" : "2",
+    "occurred_at" : "2026-10-17 12:38:38.199431"
+  }, {
+    "id" : "160d02a2-6961-4e7e-bf34-ac23e34ec555",
+    "kind" : "INITIAL_ROLE_GRANT",
+    "snapshot_version" : "3",
+    "effects" : "1",
+    "occurred_at" : "2026-10-17 12:38:38.282810"
+  }, {
+    "id" : "f918773b-1057-4b93-b4dd-8251a7a136e2",
+    "kind" : "BOOTSTRAP",
+    "snapshot_version" : "2",
+    "effects" : "16",
+    "occurred_at" : "2026-10-17 11:10:35.878180"
+  } ],
+  "effectCount" : [ {
+    "effects" : "19"
+  } ],
+  "offlinePreflight" : [ {
+    "query" : 0,
+    "rows" : [ {
+      "target_database" : "jualncampus",
+      "evaluated_at" : "2026-10-17 12:39:08.222440"
+    } ]
+  }, {
+    "query" : 1,
+    "rows" : [ {
+      "kind" : "CORRECT_INITIAL_ROOT",
+      "committed_operations" : "1"
+    }, {
+      "kind" : "INITIAL_ROLE_GRANT",
+      "committed_operations" : "1"
+    }, {
+      "kind" : "BOOTSTRAP",
+      "committed_operations" : "1"
+    } ]
+  }, {
+    "query" : 2,
+    "rows" : [ ]
+  }, {
+    "query" : 3,
+    "rows" : [ ]
+  }, {
+    "query" : 4,
+    "rows" : [ ]
+  }, {
+    "query" : 5,
+    "rows" : [ ]
+  }, {
+    "query" : 6,
+    "rows" : [ ]
+  }, {
+    "query" : 7,
+    "rows" : [ ]
+  } ]
+}

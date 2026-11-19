@@ -1,0 +1,66 @@
+{
+  "version": "3.0",
+  "statement": [
+    {
+      "effect": "allow",
+      "action": [
+        "cos:GetObject",
+        "cos:HeadObject",
+        "cos:PutObject",
+        "cos:PostObject",
+        "cos:DeleteObject",
+        "cos:InitiateMultipartUpload",
+        "cos:ListParts",
+        "cos:UploadPart",
+        "cos:CompleteMultipartUpload",
+        "cos:AbortMultipartUpload",
+        "cos:GetBucketVersioning"
+      ],
+      "resource": [
+        "qcs::cos:ap-nanjing:uid/1356013274:jualn-campus-test-public-1356013274/*"
+      ]
+    },
+    {
+      "effect": "allow",
+      "action": [
+        "name/cos:GetObject",
+        "name/cos:HeadObject",
+        "name/cos:PutObject",
+        "name/cos:GetObjectACL",
+        "name/cos:DeleteObject",
+        "name/cos:InitiateMultipartUpload",
+        "name/cos:UploadPart",
+        "name/cos:CompleteMultipartUpload",
+        "name/cos:AbortMultipartUpload",
+        "name/cos:ListParts"
+      ],
+      "resource": [
+        "qcs::cos:ap-nanjing:uid/1356013274:jualn-campus-test-private-1356013274/points/tmp/*",
+        "qcs::cos:ap-nanjing:uid/1356013274:jualn-campus-test-private-1356013274/learning-task/upload/*"
+      ]
+    },
+    {
+      "effect": "allow",
+      "action": [
+        "cos:GetObject",
+        "cos:HeadObject",
+        "cos:PutObject",
+        "cos:GetObjectACL",
+        "cos:DeleteObject"
+      ],
+      "resource": [
+        "qcs::cos:ap-nanjing:uid/1356013274:jualn-campus-test-private-1356013274/points/retained/*",
+        "qcs::cos:ap-nanjing:uid/1356013274:jualn-campus-test-private-1356013274/learning-task/retained/*"
+      ]
+    },
+    {
+      "effect": "allow",
+      "action": [
+        "cos:GetBucketACL"
+      ],
+      "resource": [
+        "qcs::cos:ap-nanjing:uid/1356013274:jualn-campus-test-private-1356013274/*"
+      ]
+    }
+  ]
+}

@@ -9,6 +9,9 @@ import java.util.List;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class AdminReportCaseDetailVO extends AdminReportCaseItemVO {
+    private java.util.List<cn.jualn.miniapp.module.report.bo.ReportResolutionBO> resolutions;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private java.util.List<cn.jualn.miniapp.module.media.bo.GrowthMediaBO.File> growthMedia;
     private String content;
     private Author author;
     private List<Evidence> evidence;

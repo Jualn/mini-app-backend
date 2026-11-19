@@ -3,7 +3,7 @@ package cn.jualn.miniapp.module.activity.controller.admin;
 import cn.jualn.miniapp.common.security.AdminStpUtil;
 import cn.jualn.miniapp.common.web.StrongEtag;
 import cn.jualn.miniapp.module.activity.converter.AdminActivityConverter;
-import cn.jualn.miniapp.module.activity.service.ActivityService;
+import cn.jualn.miniapp.module.activity.service.ActivityLifecycleService;
 import cn.jualn.miniapp.module.admin.auth.support.AdminPermissionPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
@@ -20,7 +20,7 @@ import cn.jualn.miniapp.module.activity.vo.admin.AdminActivityDetailResourceVO;
 @RestController
 @RequiredArgsConstructor
 public class CanonicalAdminActivityLifecycleController {
-    private final ActivityService service;
+    private final ActivityLifecycleService service;
     private final AdminActivityConverter converter;
 
     @PostMapping("/v1/admin/activities/{activityId}:publish")
@@ -45,6 +45,24 @@ public class CanonicalAdminActivityLifecycleController {
     public ResponseEntity<AdminActivityDetailResourceVO> end(@PathVariable Long activityId,
             @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch) {
         return transition(activityId, ifMatch, "end");
+    }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/v1/admin/activities/{activityId}")
+    public ResponseEntity<Void> delete(@PathVariable Long activityId,
+            @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch) {
+        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
+        var value = service.recycle(activityId, AdminStpUtil.STP_LOGIC.getLoginIdAsLong(), ifMatch, false);
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore())
+                .eTag(StrongEtag.of("activity", activityId, value.getContractVersion())).build();
+    }
+
+    @PostMapping("/v1/admin/activities/{activityId}:restore")
+    public ResponseEntity<AdminActivityDetailResourceVO> restore(@PathVariable Long activityId,
+            @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch) {
+        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.ACTIVITY_EDIT);
+        var value = service.recycle(activityId, AdminStpUtil.STP_LOGIC.getLoginIdAsLong(), ifMatch, true);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .eTag(StrongEtag.of("activity", activityId, value.getContractVersion())).body(converter.toDetailVO(value));
     }
 
     private ResponseEntity<AdminActivityDetailResourceVO> transition(Long activityId, String ifMatch, String action) {

@@ -42,8 +42,8 @@
 ```text
 AdminQrLoginController（HTTP/DTO/VO，Web 与手机精确路由）
   → AdminQrLoginService / impl（唯一 v2 状态与用例 owner）
-    → AdminQrLoginStore（infrastructure/cache，严格 Redis/Lua）
-    → UserService.getUserProfile → AdminPermissionPolicy（已有）
+    → AdminQrLoginStore（module/admin/auth/store，严格 Redis/Lua）
+    → UserService.getUserProfile + CurrentAuthorization（互斥LEGACY/ASSIGNMENT）
     → WxClient.generateMiniProgramCode（provider 方法，纯 page/scene→PNG）
     → AdminTokenService（既有固定候选/恢复/验证能力）
       → AdminStpUtil.STP_LOGIC / Sa-TokenDao（已有 admin success path）
@@ -53,7 +53,7 @@ Control Flow：
 
 1. create：Controller → Service → credentials → WxClient ma token/微信码 → store 原子发布 session+scene index+PNG → Converter → 201。
 2. scan：Controller 普通 StpUtil authenticated subject → Service → store scene resolution/subject CAS → BO → VO。scan 不查管理准入、不产生 token。
-3. confirm：Controller 普通 subject → Service → store 验证绑定/状态 → UserService → PermissionPolicy → store CAS SCANNED→CONFIRMED 或 REJECTED → 手机 VO。
+3. confirm：Controller普通subject→Service→store验证绑定/状态→当前User及CurrentAuthorization准入→store CAS SCANNED→CONFIRMED或REJECTED→手机VO；重复confirm同样复核。
 4. query/code/cancel：Controller 私有 Header → Service → store ownership+状态检查 → BO/bytes → HTTP。GET 不领取、不签发；期限投影允许 lazy expiry。
 5. consume：Service ownership+CONFIRMED → 当前准入 → AdminTokenService 准备候选 → store 固定候选 → AdminTokenService 恢复**同 token**的既有登录 → store 原子 activation+CONSUMED → 当前准入/token 有效性检查 → 冻结 BO → 裸 token/profile VO。
 
@@ -70,7 +70,7 @@ Data Flow：普通 token→服务端 userId；sceneHash→sessionId；pollSecret
 | `module/admin/auth/enums/AdminQrLoginV2Status` | 七状态；旧扫码状态模型不作为兼容入口 |
 | `module/admin/auth/config/AdminQrLoginProperties` | `admin-auth.qr-login-v2`；TTL 与终态保留分别配置 |
 | `module/admin/auth/support/AdminAuthCrypto` | 复用 SecureRandom/Base64URL/SHA-256；固定长度安全比较，无 Utils/Manager 新类 |
-| `infrastructure/cache/AdminQrLoginStore` | 一个具体 store，无预建 Repository interface；内部 typed record 可以嵌套，业务 BO 由 auth owner 定义 |
+| `module/admin/auth/store/AdminQrLoginStore` | 一个具体 store，无预建 Repository interface；内部 typed record 可以嵌套，业务 BO 由 auth owner 定义 |
 | `module/admin/auth/service/AdminTokenService` | candidate、固定 token materialization、显式 token validation、激活检查及 logout 配合 |
 | `third/wx/client/WxClient`、`third/wx/dto/`（扩展已有） | ma 小程序码协议 DTO/二进制响应与脱敏错误；不依赖 auth model |
 | `common/constant/RedisKeyConstant`、`config/WebMvcConfig` | 新 key factories、精确安全/CORS/no-store；不改普通登录 |
@@ -163,9 +163,17 @@ A/B 同时 scan 的 Lua 承诺只有一个将 PENDING→SCANNED。若 A 赢，B 
 
 ### 6.2 Confirm 权限链
 
-WebMvcConfig 的普通小程序认证→Controller `StpUtil.getLoginIdAsLong()`→Service scene/subject前置检查→UserService.getUserProfile→AdminPermissionPolicy.canLogin→Lua CAS。OPR/ADMIN/NORMAL 判断只在已有 policy，QR Service 不另写角色规则。unionid、客户端身份、UserContext 中可能来自 Admin 的 fallback 不参与 mobile subject。
+WebMvcConfig 普通认证 → Controller 取得普通会话 subject → Service 核验 scene/subject → 当前 User 资格及 CurrentAuthorization → Lua CAS。仅当前 ASSIGNMENT 的有效业务职责、合法委派或真实 ROOT 可准入；旧 OPR/ADMIN/*、unionid、客户端角色及 UserContext 的 admin fallback 不参与准入。
 
-fresh profile 读取失败为500且状态不改；只有明确 USER_NOT_FOUND/不可用/不具准入才拒绝。确认后、消费前以及每次重放都重新查。跨 MySQL 与 Redis 没有共同事务：准入依据是提交前最新成功读取，随后真实管理请求也动态检查当前准入；不承诺角色更新与 Redis consume 零时间差原子化。
+fresh profile读取失败按既有异常映射，Authority缺失/损坏/不可读为503且状态不改；只有明确USER_NOT_FOUND/不可用/不具准入才拒绝。确认、消费准备、激活前后和重放均查当前来源。MySQL与Redis没有共同事务；随后每次管理请求仍动态检查，不承诺授权更新与Redis consume零时间差原子化。
+
+### 6.3 身份表示与授权来源
+
+consume 的 `X-Admin-Identity-Representation` 省略时默认 RBAC_V1；显式 LEGACY、空值及其他值在读取/消费挑战前拒绝。结果仅返回 authorizationModel=ASSIGNMENT，并省略 scalar roleCode/roleLabel/permissions。表示不修改 Authority；旧候选不升级或换 Token。每次 confirm（含已消费确认）、交付及重放重新核验当前准入和原候选 Token/activation，错误请求不消费 CONFIRMED。实际微信 Provider 仍需单独验收。
+
+管理业务使用 requireAdminAccess；旧 /me 不再返回旧角色表示，使用正式 capabilities 接口。diagnoseCurrent 只读取已通过 admin 映射、撤销、QR activation 和当前账号校验的本人事实；撤至无 Grant 时诊断可返回 false，不能从历史登录成功推断当前准入。
+
+管理会话只有在 Sa 映射、撤销状态、签名和 QR activation 均通过校验后，才能依据当前账号限制在原 401 Problem Details 中附加 `code=ADMIN_ACCOUNT_RESTRICTED`。封禁造成会话版本失配时仍按当前限制判定退出原因。过期、普通撤销或归属无法确认时返回通用 401。已认证但缺少管理业务权限返回 403。
 
 ## 7. Consume：固定结果 + 既有登录恢复 + 激活承诺
 
@@ -187,7 +195,7 @@ fresh profile 读取失败为500且状态不改；只有明确 USER_NOT_FOUND/�
 4. AdminTokenService `materializeQrCandidate` 调用同一 `AdminStpUtil.STP_LOGIC.createLoginSession`，用 `SaLoginParameter.setToken(savedToken)` 执行框架登录持久化路径，关闭 Cookie/Header 交付。剩余 TTL 从冻结 tokenExpiresAt 计算，不延长截止；使用同 token 更新 mapping/账号 session，不重新签发凭证。
 5. 无论login返回成功还是丢结果，按保存token显式查询既有Sa-Token mapping/session就绪状况。部分写可以通过同token恢复，失败返回500；对外仍CONFIRMED。恢复允许重复框架写/terminal历史计数，不承诺只调用一次Java login；承诺只有一个可用token和逻辑登录效果。
 6. 再查当前准入，finalize script一次校验deadline、status、candidateHash、该token的SaToken mapping/剩余TTL、revocation，写activation+CONSUMED+consumedAt。Sa-Token keys由框架公开key factory提供，不硬编码内部key格式；专用store用与SaTokenDao兼容的string值/serializer读取，不拿JSON template猜格式。脚本不能写SaSession序列化对象。
-7. 返回冻结结果前，AdminTokenService 显式验证savedToken的签名extra、mapping、activation、revocation、绝对tokenExpiresAt，以及当前准入。不得用请求上下文getTokenValue误拿小程序/Web Header中的token。只输出裸 token，HTTP 消费者按共享契约构造 Authorization。
+7. 返回冻结结果前，AdminTokenService 显式验证 savedToken 的签名 extra、mapping、activation、revocation、绝对 tokenExpiresAt 及当前准入。HTTP 消费者用结果中的裸 token 构造 Authorization。同源浏览器显式请求时，HTTP 边界额外签发到原期限截止的 Cookie。
 
 ### 7.3 Activation 是有效性条件，不是第二种 token
 
@@ -270,7 +278,7 @@ poll一次Redis script，O(1)，无MySQL权限查询/登录签发；code二进�
 
 request严格拒绝未知scene body属性；create/consume/cancel不接受任何body（包括`{}`）。不能全局开启Jackson unknown属性失败影响旧接口；用本DTO范围的具名验证/既有局部读入模式处理额外字段。所有no-store要覆盖401/400/429/500、auth拦截器提前拒绝和PNG错误；通过针对新route的Filter/response边界设置，不只给Controller成功加header。复用ContractProblemException/GlobalExceptionHandler，公开错误不直接映射旧ResultCode或微信response。
 
-CORS允许配置中的实际Web origin、X-Admin-Login-Secret、Authorization，新增expose Retry-After，保留Location/X-Trace-Id。现有token不是Cookie专属；v2不设置Cookie，也不以自动附带Cookie证明Web ownership。私有随机Header+非Cookie身份以及受控origin是本流程CSRF边界，现有allowCredentials(true)不是新增Cookie认证授权；测试无Header只有Cookie必拒绝。不新增全系统CSRF框架。
+CORS 允许配置中的实际 Web origin、X-Admin-Login-Secret、Authorization，并 expose Retry-After、Location、X-Trace-Id。扫码所有权仍由私有随机 Header 证明。Cookie 恢复只开放给带显式恢复请求头且浏览器 Sec-Fetch-Site 为 same-origin 的 POST；该入口从 Cookie 读取会话，复用 Sa-Token、QR activation、撤销和账号版本校验。业务操作使用独立管理 Bearer。
 
 ### 10.1 分操作限流（首版可配置默认值）
 

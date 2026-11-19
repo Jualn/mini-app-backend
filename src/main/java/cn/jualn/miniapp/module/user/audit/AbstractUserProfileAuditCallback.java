@@ -1,13 +1,13 @@
 package cn.jualn.miniapp.module.user.audit;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.module.audit.service.AuditResultCallback;
 import cn.jualn.miniapp.module.notify.payload.NotifyPayload;
 import cn.jualn.miniapp.module.notify.service.NotifyService;
 import cn.jualn.miniapp.module.user.mapper.UserProfileMapper;
-import cn.jualn.miniapp.module.wx.notice.data.AuditResultNoticeData;
+import cn.jualn.miniapp.module.notify.payload.data.AuditResultNoticeData;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
 
@@ -53,11 +53,11 @@ public abstract class AbstractUserProfileAuditCallback implements AuditResultCal
                 .title("资料修改未通过审核")
                 .content(content)
                 .sourceKey("audit-log:" + auditLogId + ":profile-reject")
-                .wxData(new AuditResultNoticeData(
+                .contentData(new AuditResultNoticeData(
                         truncate(auditObject, 20),
                         "未通过",
                         truncate(actualReason, 20),
-                        LocalDateTime.now()
+                        LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))
                 ))
                 .build());
     }

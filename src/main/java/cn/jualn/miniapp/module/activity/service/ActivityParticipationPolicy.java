@@ -2,7 +2,7 @@ package cn.jualn.miniapp.module.activity.service;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO;
+import cn.jualn.miniapp.module.timeline.bo.TimelineFactBO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -10,11 +10,17 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 public class ActivityParticipationPolicy {
-    private final ActivityFormAvailability formAvailability;
 
     public String evaluate(Integer publication, Integer lifecycle, Integer mode,
-            List<TimelineItemDTO> timeline,
+            List<TimelineFactBO> timeline,
             Integer capacity, Long submitted, LocalDateTime now) {
+        return evaluate(publication, lifecycle, mode, timeline, capacity, submitted, now, false);
+    }
+
+    public String evaluate(Integer publication, Integer lifecycle, Integer mode, List<TimelineFactBO> timeline,
+            Integer capacity, Long submitted, LocalDateTime now, boolean continuous) {
+        String stage = ActivityStagePolicy.state(lifecycle, timeline, now);
+        if ("ENDED".equals(stage) || "CANCELLED".equals(stage)) return "UNAVAILABLE";
         if (!Integer.valueOf(1).equals(publication) || !Integer.valueOf(0).equals(lifecycle)
                 ) {
             return "UNAVAILABLE";
@@ -22,6 +28,7 @@ public class ActivityParticipationPolicy {
         if (Integer.valueOf(1).equals(mode)) {
             return "NO_REGISTRATION";
         }
+        if (platform(mode) && !continuous && "ONGOING".equals(stage)) return "CLOSED";
         Window window = window(timeline);
         if (window.start() != null && now.isBefore(window.start())) {
             return "NOT_OPEN";
@@ -32,19 +39,29 @@ public class ActivityParticipationPolicy {
         if (Integer.valueOf(3).equals(mode)) {
             return "EXTERNAL";
         }
-        if (!platform(mode) || !formAvailability.isEnabled() || !window.platformValid()) {
+        if (!platform(mode) || !window.platformValid()) {
             return "UNAVAILABLE";
         }
         return capacity != null && submitted != null && submitted >= capacity ? "FULL" : "OPEN";
+    }
+
+    public boolean canCancel(Integer lifecycle, boolean deleted, boolean continuous,
+            List<TimelineFactBO> timeline, LocalDateTime now) {
+        if (deleted || !Integer.valueOf(0).equals(lifecycle)) return false;
+        String stage = ActivityStagePolicy.state(lifecycle, timeline, now);
+        if ("ENDED".equals(stage) || "CANCELLED".equals(stage)) return false;
+        if (!continuous && ActivityStagePolicy.main(timeline) != null) return "NOT_STARTED".equals(stage);
+        var end = window(timeline).end();
+        return end != null && now.isBefore(end);
     }
 
     public boolean platform(Integer mode) {
         return Integer.valueOf(2).equals(mode) || Integer.valueOf(4).equals(mode);
     }
 
-    public Window window(List<TimelineItemDTO> timeline) {
-        List<TimelineItemDTO> starts = exactPoints(timeline, "REGISTRATION_START");
-        List<TimelineItemDTO> ends = exactPoints(timeline, "REGISTRATION_END");
+    public Window window(List<TimelineFactBO> timeline) {
+        List<TimelineFactBO> starts = exactPoints(timeline, "REGISTRATION_START");
+        List<TimelineFactBO> ends = exactPoints(timeline, "REGISTRATION_END");
         long startCount = count(timeline, "REGISTRATION_START");
         long endCount = count(timeline, "REGISTRATION_END");
         boolean standardStartAmbiguous = startCount > 1;
@@ -62,18 +79,18 @@ public class ActivityParticipationPolicy {
         return new Window(start, end, valid);
     }
 
-    private List<TimelineItemDTO> exactPoints(List<TimelineItemDTO> timeline, String type) {
+    private List<TimelineFactBO> exactPoints(List<TimelineFactBO> timeline, String type) {
         return safe(timeline).stream().filter(item -> type.equals(item.getNodeType()))
                 .filter(item -> Integer.valueOf(2).equals(item.getStartPrecision()) && item.getStartTime() != null
                         && item.getEndTime() == null)
                 .toList();
     }
 
-    private long count(List<TimelineItemDTO> timeline, String type) {
+    private long count(List<TimelineFactBO> timeline, String type) {
         return safe(timeline).stream().filter(item -> type.equals(item.getNodeType())).count();
     }
 
-    private List<TimelineItemDTO> safe(List<TimelineItemDTO> timeline) {
+    private List<TimelineFactBO> safe(List<TimelineFactBO> timeline) {
         return timeline == null ? List.of() : timeline;
     }
 

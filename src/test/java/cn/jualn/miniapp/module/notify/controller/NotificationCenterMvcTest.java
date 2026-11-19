@@ -1,11 +1,18 @@
 package cn.jualn.miniapp.module.notify.controller;
+import cn.jualn.miniapp.module.notify.service.inbox.PersonalNotificationInbox;
+import cn.jualn.miniapp.module.notify.service.preference.NotificationPreferences;
+import cn.jualn.miniapp.module.notify.service.capability.NotificationCapabilityQueries;
+import cn.jualn.miniapp.module.notify.converter.NotificationPersonalConverter;
+import cn.jualn.miniapp.module.notify.bo.NotificationInboxBO;
+import cn.jualn.miniapp.module.notify.bo.NotificationPreferencesBO;
+
 
 import cn.jualn.miniapp.common.exception.GlobalExceptionHandler;
 import cn.jualn.miniapp.config.JacksonConfig;
 import cn.jualn.miniapp.module.notify.bo.NotificationCenterBO;
 import cn.jualn.miniapp.module.notify.converter.NotificationCenterConverter;
-import cn.jualn.miniapp.module.notify.service.CanonicalNotificationService;
-import cn.jualn.miniapp.module.notify.service.NotificationCenterService;
+
+import cn.jualn.miniapp.module.notify.service.inbox.NotificationCenterService;
 import cn.jualn.miniapp.module.notify.vo.CanonicalNotificationPageVO;
 import org.junit.jupiter.api.Test;
 import org.mapstruct.factory.Mappers;
@@ -26,9 +33,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 class NotificationCenterMvcTest {
-    private final CanonicalNotificationService legacy = mock(CanonicalNotificationService.class);
+    private final PersonalNotificationInbox legacy = mock(PersonalNotificationInbox.class);
     private final NotificationCenterService center = mock(NotificationCenterService.class);
-    private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new CanonicalNotificationController(legacy, center,
+    private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new CanonicalNotificationController(legacy,mock(NotificationPreferences.class),mock(NotificationCapabilityQueries.class),new NotificationPersonalConverter(), center,
             Mappers.getMapper(NotificationCenterConverter.class)))
             .setControllerAdvice(new GlobalExceptionHandler())
             .setMessageConverters(new MappingJackson2HttpMessageConverter(
@@ -71,8 +78,8 @@ class NotificationCenterMvcTest {
     }
 
     @Test void defaultLegacyShapeRemainsUnchanged() throws Exception {
-        when(legacy.list(any())).thenReturn(new CanonicalNotificationPageVO(List.of(
-                new CanonicalNotificationPageVO.Item("7", "COMMENTED_ME", null, "t", "c", null, false, "2026-09-30T12:00:00+08:00")), null));
+        when(legacy.list(any())).thenReturn(new NotificationInboxBO.Page(List.of(
+                new NotificationInboxBO.Item(7L,1,null,"t","c",null,false,java.time.LocalDateTime.of(2026,9,30,12,0))), null));
         mvc.perform(get("/v1/users/me/notifications")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].notificationId").value("7"))
                 .andExpect(jsonPath("$.items[0].isRead").value(false))

@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.jualn.miniapp.infrastructure.async.job.AsyncJobMapper">
+  <!-- Existing async_job DATETIME values use the worker's Asia/Shanghai wall clock.
+       Fixed offsets keep lease fences independent of the JDBC/session timezone. -->
+  <sql id="businessNow">CONVERT_TZ(UTC_TIMESTAMP(3),'+00:00','+08:00')</sql>
   <resultMap id="job" type="cn.jualn.miniapp.infrastructure.async.job.AsyncJob">
     <id property="id" column="id"/>
     <result property="jobType" column="job_type"/><result property="schemaVersion" column="schema_version"/>
@@ -23,30 +26,30 @@
     ORDER BY next_run_at,id LIMIT #{limit} FOR UPDATE SKIP LOCKED
   </select>
   <update id="claim">
-    UPDATE async_job SET status='RUNNING',attempt=attempt+1,lease_owner=#{owner},lease_until=#{leaseUntil},started_at=COALESCE(started_at,NOW(3))
+    UPDATE async_job SET status='RUNNING',attempt=attempt+1,lease_owner=#{owner},lease_until=#{leaseUntil},started_at=COALESCE(started_at,<include refid="businessNow"/>)
     WHERE id=#{id} AND status='PENDING'
   </update>
   <update id="renewLease">
     UPDATE async_job
-    SET lease_until=DATE_ADD(NOW(3), INTERVAL #{leaseSeconds} SECOND)
-    WHERE id=#{id} AND status='RUNNING' AND lease_owner=#{owner} AND lease_until &gt; NOW(3)
+    SET lease_until=DATE_ADD(<include refid="businessNow"/>, INTERVAL #{leaseSeconds} SECOND)
+    WHERE id=#{id} AND status='RUNNING' AND lease_owner=#{owner} AND lease_until &gt; <include refid="businessNow"/>
   </update>
   <select id="lockOwnedAttempt" resultType="int">
     SELECT COUNT(*) FROM async_job
-    WHERE id=#{id} AND status='RUNNING' AND lease_owner=#{owner} AND lease_until &gt; NOW(3)
+    WHERE id=#{id} AND status='RUNNING' AND lease_owner=#{owner} AND lease_until &gt; <include refid="businessNow"/>
     FOR UPDATE
   </select>
   <update id="markSucceeded">
     UPDATE async_job SET status='SUCCEEDED',lease_owner=NULL,lease_until=NULL,finished_at=#{now},last_error_category=NULL,last_error=NULL
-    WHERE id=#{id} AND status='RUNNING' AND lease_owner=#{owner} AND lease_until &gt; NOW(3)
+    WHERE id=#{id} AND status='RUNNING' AND lease_owner=#{owner} AND lease_until &gt; <include refid="businessNow"/>
   </update>
   <update id="markRetry">
     UPDATE async_job SET status='PENDING',next_run_at=#{nextRunAt},lease_owner=NULL,lease_until=NULL,last_error_category=#{category},last_error=#{error}
-    WHERE id=#{id} AND status='RUNNING' AND lease_owner=#{owner} AND lease_until &gt; NOW(3)
+    WHERE id=#{id} AND status='RUNNING' AND lease_owner=#{owner} AND lease_until &gt; <include refid="businessNow"/>
   </update>
   <update id="markDead">
     UPDATE async_job SET status='DEAD',lease_owner=NULL,lease_until=NULL,last_error_category=#{category},last_error=#{error},dead_at=#{now},finished_at=#{now}
-    WHERE id=#{id} AND status='RUNNING' AND lease_owner=#{owner} AND lease_until &gt; NOW(3)
+    WHERE id=#{id} AND status='RUNNING' AND lease_owner=#{owner} AND lease_until &gt; <include refid="businessNow"/>
   </update>
   <select id="selectExpiredForUpdate" resultMap="job">
     SELECT * FROM async_job WHERE status='RUNNING' AND lease_until &lt; #{now}
@@ -89,6 +92,12 @@
   </select>
   <delete id="deleteCompletedBefore">
     DELETE FROM async_job WHERE status=#{status} AND finished_at &lt; #{cutoff}
+    AND NOT (job_type='notification.wechat-deliver' AND schema_version=1)
+    AND NOT EXISTS (SELECT 1 FROM notification_delivery d
+      WHERE async_job.job_type='notification.wechat-deliver' AND async_job.subject_type='notification-delivery'
+        AND async_job.subject_id=CAST(d.id AS CHAR) AND d.status IN ('PENDING','PROCESSING','UNKNOWN'))
+    AND NOT EXISTS (SELECT 1 FROM notify_plan p WHERE async_job.job_type='notification.plan.fanout'
+      AND async_job.subject_id=CAST(p.id AS CHAR) AND p.status IN (0,3))
     ORDER BY finished_at,id LIMIT #{limit}
   </delete>
 </mapper>

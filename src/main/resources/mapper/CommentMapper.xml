@@ -2,10 +2,41 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.jualn.miniapp.module.comment.mapper.CommentMapper">
+    <select id="lockReplyTarget" resultType="cn.jualn.miniapp.module.comment.entity.Comment">
+        SELECT id,target_type,target_id,user_id,parent_id,reply_to_uid,reply_to_comment_id,status,audit_status,mentor_evidence,deleted_at
+        FROM comment WHERE id=#{id} AND deleted_at IS NULL FOR UPDATE
+    </select>
+    <sql id="articleColumns">id,target_type,target_id,user_id,parent_id,reply_to_uid,reply_to_comment_id,content,status,audit_status,like_count,reply_count,created_at,updated_at,deleted_at</sql>
+    <select id="visibleCounts" resultType="cn.jualn.miniapp.module.comment.bo.CommentCountBO">
+        SELECT c.target_id,COUNT(*) AS count FROM comment c WHERE c.target_type=#{type} AND c.status=1 AND c.deleted_at IS NULL
+        AND c.target_id IN <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        AND (c.parent_id IS NULL OR EXISTS(SELECT 1 FROM comment p WHERE p.id=c.parent_id AND p.target_type=c.target_type AND p.target_id=c.target_id AND p.parent_id IS NULL AND ((p.status=1 AND p.deleted_at IS NULL) OR (c.community_thread=TRUE AND p.status IN(3,4) AND EXISTS(SELECT 1 FROM post s WHERE s.id=c.target_id AND s.post_type IN('NORMAL','MENTOR_QA'))))))
+        GROUP BY c.target_id
+    </select>
+    <select id="lockArticleComment" resultType="cn.jualn.miniapp.module.comment.entity.Comment">
+        SELECT <include refid="articleColumns"/> FROM comment WHERE id=#{id} AND target_type=8 FOR UPDATE
+    </select>
+    <select id="articleCommentIncludingDeleted" resultType="cn.jualn.miniapp.module.comment.entity.Comment">
+        SELECT <include refid="articleColumns"/> FROM comment WHERE id=#{id}
+    </select>
+    <select id="articlePage" resultType="cn.jualn.miniapp.module.comment.entity.Comment">
+        SELECT <include refid="articleColumns"/> FROM comment
+        WHERE target_type=8 AND target_id=#{articleId} AND status=1 AND deleted_at IS NULL
+        <choose><when test="parentId != null">AND parent_id=#{parentId}</when><otherwise>AND parent_id IS NULL</otherwise></choose>
+        <if test="afterTime != null">AND (created_at &gt; #{afterTime} OR (created_at=#{afterTime} AND id &gt; #{afterId}))</if>
+        ORDER BY created_at,id LIMIT #{size}
+    </select>
+    <update id="deleteArticleComment">
+        UPDATE comment SET status=3,deleted_at=#{now},updated_at=#{now}
+        WHERE id=#{id} AND user_id=#{userId} AND target_type=8 AND deleted_at IS NULL
+    </update>
+    <select id="articleReplyCount" resultType="long">
+        SELECT COUNT(*) FROM comment WHERE target_type=8 AND parent_id=#{id} AND status=1 AND deleted_at IS NULL
+    </select>
     <select id="selectTopNByParentIds" resultType="cn.jualn.miniapp.module.comment.entity.Comment">
-        SELECT id, content, image_url, user_id, reply_to_uid,parent_id, created_at
+        SELECT id, content, image_url, user_id, reply_to_uid,reply_to_comment_id,mentor_evidence,parent_id, created_at
         FROM (
-            SELECT id, content, image_url, user_id, reply_to_uid,parent_id, created_at,
+            SELECT id, content, image_url, user_id, reply_to_uid,reply_to_comment_id,mentor_evidence,parent_id, created_at,
             ROW_NUMBER() OVER (PARTITION BY parent_id ORDER BY id DESC) AS rn
             FROM comment
             WHERE parent_id IN

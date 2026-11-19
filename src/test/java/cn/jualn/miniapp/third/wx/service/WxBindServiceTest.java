@@ -2,7 +2,7 @@ package cn.jualn.miniapp.third.wx.service;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.module.user.service.UserService;
+import cn.jualn.miniapp.module.user.service.UserWechatIdentityService;
 import cn.jualn.miniapp.module.wx.service.WxBindService;
 import cn.jualn.miniapp.third.wx.client.WxClient;
 import cn.jualn.miniapp.third.wx.dto.MpQrCodeCreateResponse;
@@ -36,7 +36,7 @@ class WxBindServiceTest {
     private RedisService redisService;
 
     @Mock
-    private UserService userService;
+    private UserWechatIdentityService userService;
 
     @Test
     void createBindQr_shouldCacheSceneAndBuildResponse() {

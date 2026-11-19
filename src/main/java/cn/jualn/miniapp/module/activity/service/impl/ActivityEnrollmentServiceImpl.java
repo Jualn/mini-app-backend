@@ -7,7 +7,8 @@ import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.exception.ContractProblemException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
+import cn.jualn.miniapp.module.activity.bo.ActivitySubscriptionBO;
+import cn.jualn.miniapp.module.subject.service.SubjectExistenceService;
 import cn.jualn.miniapp.module.activity.bo.ActivityEnrollBO;
 import cn.jualn.miniapp.module.activity.entity.Activity;
 import cn.jualn.miniapp.module.activity.entity.ActivityEnrollment;
@@ -43,8 +44,9 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
 
     private final ActivityEnrollmentMapper activityEnrollmentMapper;
     private final ActivityMapper activityMapper;
+    private final cn.jualn.miniapp.module.activity.service.ActivityReminderCatchUp reminderCatchUp;
     private final RedisService redisService;
-    private final TargetValidator targetValidator;
+    private final SubjectExistenceService targetValidator;
 
     /**
      * 报名活动。
@@ -55,7 +57,7 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
      * @throws BusinessException 当用户未登录、活动不存在或已报名时抛出
      */
     @Override
-    public cn.jualn.miniapp.module.activity.bo.ActivitySubscriptionBO getSubscriptionState(Long activityId) {
+    public ActivitySubscriptionBO getSubscriptionState(Long activityId) {
         Long userId = requireUserId();
         ActivityEnrollment relation = activityEnrollmentMapper.selectOne(new LambdaQueryWrapper<ActivityEnrollment>()
                 .eq(ActivityEnrollment::getActivityId, activityId).eq(ActivityEnrollment::getUserId, userId));
@@ -66,13 +68,13 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
             }
         }
         boolean subscribed = relation != null && Integer.valueOf(1).equals(relation.getStatus());
-        return new cn.jualn.miniapp.module.activity.bo.ActivitySubscriptionBO(subscribed,
+        return new ActivitySubscriptionBO(subscribed,
                 subscribed ? relation.getCreatedAt() : null);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public cn.jualn.miniapp.module.activity.bo.ActivitySubscriptionBO subscribeWithState(Long activityId) {
+    public ActivitySubscriptionBO subscribeWithState(Long activityId) {
         enrollActivity(activityId);
         return getSubscriptionState(activityId);
     }
@@ -101,6 +103,7 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
                     .set(ActivityEnrollment::getStatus, 1).eq(ActivityEnrollment::getId, existing.getId())) != 1)
                 throw new BusinessException(ResultCode.INVALID_OPERATION, "订阅恢复失败");
         }
+        reminderCatchUp.joined(event, userId, false);
         invalidateSubscriptionAfterCommit(activityId, userId);
     }
 
@@ -138,7 +141,7 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
 
         String cached = redisService.getString(cacheKey);
         if (redisService.isNullPlaceholder(cached)) {
-            log.warn("[活动订阅] 用户 {} 活动 {} 订阅状态缓存命中：未订阅", userId, activityId);
+            log.debug("[活动订阅] 用户 {} 活动 {} 订阅状态缓存命中：未订阅", userId, activityId);
             return false;
         }
 
@@ -173,8 +176,7 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
      * @param activityId 活动ID
      * @return 报名记录，不存在返回null
      */
-    @Override
-    public ActivityEnrollment getEnrollment(Long activityId) {
+    private ActivityEnrollment getEnrollment(Long activityId) {
         Long userId = UserContext.getUserId();
         if (userId == null) {
             return null;
@@ -266,9 +268,13 @@ public class ActivityEnrollmentServiceImpl implements ActivityEnrollmentService 
     private void invalidateSubscriptionAfterCommit(Long id, Long userId) {
         org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
                 new org.springframework.transaction.support.TransactionSynchronization() {
-                    @Override public void afterCommit() {
-                        try { redisService.delete(RedisKeyConstant.activityEnrollment(id, userId)); }
-                        catch (RuntimeException e) { log.error("订阅缓存失效失败，id={}", id, e); }
+                    @Override
+                    public void afterCommit() {
+                        try {
+                            redisService.delete(RedisKeyConstant.activityEnrollment(id, userId));
+                        } catch (RuntimeException e) {
+                            log.error("订阅缓存失效失败，id={}", id, e);
+                        }
                     }
                 });
     }

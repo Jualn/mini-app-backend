@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.learningtask.mapper.LearningTaskLedgerMapper">
+    <!-- No INSERT IGNORE: malformed data and foreign key failures must never become successes. -->
+    <insert id="claim">
+        INSERT INTO learning_task_request(actor_scope,operation,target_id,request_key,fingerprint,created_at,contract_revision)
+        VALUES(#{actorScope},#{operation},#{targetId},#{requestKey},#{fingerprint},#{createdAt},'PERSON_V66')
+        ON DUPLICATE KEY UPDATE request_key=request_key
+    </insert>
+    <select id="lockRequest" resultType="cn.jualn.miniapp.module.learningtask.mapper.LearningTaskLedgerMapper$Request">
+        SELECT * FROM learning_task_request
+        WHERE actor_scope=#{actorScope} AND operation=#{operation} AND target_id=#{targetId} AND request_key=#{requestKey}
+        FOR UPDATE
+    </select>
+    <select id="findRequest" resultType="cn.jualn.miniapp.module.learningtask.mapper.LearningTaskLedgerMapper$Request">
+        SELECT * FROM learning_task_request
+        WHERE actor_scope=#{actorScope} AND operation=#{operation} AND target_id=#{targetId} AND request_key=#{requestKey}
+    </select>
+    <update id="finish">
+        UPDATE learning_task_request SET result=#{result}
+        WHERE actor_scope=#{actorScope} AND operation=#{operation} AND target_id=#{targetId} AND request_key=#{requestKey}
+    </update>
+    <select id="previewReceipt" resultType="string">
+        SELECT result FROM learning_task_request WHERE actor_scope=#{actorScope}
+        AND operation='previewLearningTaskAudience' AND target_id=#{task}
+        AND JSON_UNQUOTE(JSON_EXTRACT(result,'$.preview.previewId'))=CAST(#{preview} AS CHAR) LIMIT 1
+    </select>
+    <select id="assignments" resultType="cn.jualn.miniapp.module.learningtask.entity.LearningAssignment">
+        SELECT * FROM learning_task_assignment WHERE task_id=#{taskId} ORDER BY id FOR UPDATE
+    </select>
+    <select id="history" resultType="cn.jualn.miniapp.module.learningtask.entity.LearningSubmission">
+        SELECT * FROM learning_task_submission WHERE assignment_id=#{assignmentId} ORDER BY attempt
+    </select>
+    <insert id="audit">
+        INSERT INTO learning_task_audit(task_id,assignment_id,actor_id,operation,reason,before_state,after_state,exceptional,created_at)
+        VALUES(#{taskId},#{assignmentId},#{actor},#{operation},#{reason},#{before},#{after},#{exceptional},#{now})
+    </insert>
+</mapper>

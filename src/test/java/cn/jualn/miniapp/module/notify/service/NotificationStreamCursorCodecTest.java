@@ -1,4 +1,5 @@
 package cn.jualn.miniapp.module.notify.service;
+import cn.jualn.miniapp.module.notify.service.inbox.NotificationStreamCursorCodec;
 
 import cn.jualn.miniapp.common.exception.ContractProblemException;
 import cn.jualn.miniapp.module.notify.bo.NotificationCenterBO;

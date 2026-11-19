@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.notify.vo;
 
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.common.enums.TargetType;
 import lombok.Builder;
 import lombok.Data;

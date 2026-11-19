@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.audit.async;
 
-import cn.jualn.miniapp.common.enums.AuditScene;
+import cn.jualn.miniapp.module.audit.enums.AuditScene;
 import cn.jualn.miniapp.module.audit.service.AuditResultCallback;
 import cn.jualn.miniapp.infrastructure.async.message.EventConsumptionService;
 import cn.jualn.miniapp.infrastructure.async.message.MessageEnvelope;
@@ -24,9 +24,11 @@ class AuditCompletedEventHandlerTest {
         AuditCompletedEventHandler handler = new AuditCompletedEventHandler(
                 Map.of(AuditScene.COMMENT, callback), consumption);
 
+        var rounds=mock(cn.jualn.miniapp.module.audit.service.ContentSafetyReviewService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(handler,"reviews",rounds);
         handler.handle(new AuditCompletedEventPayload(11L, AuditScene.COMMENT, 22L, true, null), envelope());
-
-        verify(callback).onPass(22L, 11L);
+        verify(rounds).reconcile(11L);
+        org.mockito.Mockito.verifyNoInteractions(callback);
     }
 
     @Test
@@ -36,7 +38,7 @@ class AuditCompletedEventHandlerTest {
         AuditCompletedEventHandler handler = new AuditCompletedEventHandler(Map.of(), consumption);
 
         assertThrows(IllegalArgumentException.class, () -> handler.handle(
-                new AuditCompletedEventPayload(11L, AuditScene.COMMENT, 22L, false, "risk"), envelope()));
+                new AuditCompletedEventPayload(11L, AuditScene.ARTICLE, 22L, false, "risk"), envelope()));
     }
 
     private MessageEnvelope envelope() {

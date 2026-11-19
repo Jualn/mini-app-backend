@@ -14,4 +14,6 @@ public class AdminReportCaseDecisionRequest {
     @NotBlank(message = "结案备注不能为空")
     @Size(min = 4, max = 500, message = "结案备注长度必须在4到500个字符之间")
     private String remark;
+    @jakarta.validation.constraints.Pattern(regexp="NONE|TAKE_DOWN")
+    private String contentAction;
 }

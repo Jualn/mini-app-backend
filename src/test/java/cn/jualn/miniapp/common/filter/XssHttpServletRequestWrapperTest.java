@@ -5,11 +5,28 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
 class XssHttpServletRequestWrapperTest {
+    @Test
+    void preservesMergePatchJsonBody() throws IOException {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setMethod("PATCH");
+        request.setContentType("application/merge-patch+json;charset=UTF-8");
+        byte[] body = """
+                {"reason":"测试","verificationReference":"测试","majorClass":"人工"}
+                """.getBytes(StandardCharsets.UTF_8);
+        request.setContent(body);
+
+        XssHttpServletRequestWrapper wrapper = new XssHttpServletRequestWrapper(request);
+
+        assertArrayEquals(body, wrapper.getInputStream().readAllBytes());
+    }
+
     @Test
     void preservesProtocolHeaderValues() throws IOException {
         MockHttpServletRequest request = new MockHttpServletRequest();

@@ -1,120 +1,67 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-
-    <!-- ========== 公共属性 ========== -->
-    <property name="APP_NAME" value="${APP_NAME:-mini-app}"/>
+    <!-- Levels belong to Boot logging.level properties; XML only owns output/retention. -->
+    <springProperty name="ROOT_LEVEL" source="logging.level.root" defaultValue="INFO"/>
+    <conversionRule conversionWord="safeEx" class="cn.jualn.miniapp.common.observability.SafeStackTracePrinter"/>
+    <conversionRule conversionWord="clr" class="cn.jualn.miniapp.common.observability.ConsoleColorConverter"/>
     <property name="LOG_DIR" value="${LOG_DIR:-/app/mini-app/logs}"/>
-    <property name="MAX_HISTORY" value="14"/>
-    <property name="MAX_FILE_SIZE" value="50MB"/>
-    <property name="TOTAL_SIZE" value="1GB"/>
+    <property name="MAX_FILE_SIZE" value="${LOG_MAX_FILE_SIZE:-50MB}"/>
+    <property name="TOTAL_SIZE" value="${LOG_TOTAL_SIZE:-1GB}"/>
+    <property name="MAX_HISTORY" value="${LOG_MAX_HISTORY:-14}"/>
+    <!-- Boot-based palette auto-detects terminal support; no caller/line-number collection. -->
+    <property name="TEXT_PATTERN"
+              value="%clr(%d{yyyy-MM-dd HH:mm:ss.SSSXXX,Asia/Shanghai}){faint} %clr(%-5level) %clr([%t]){faint} %clr(%-48logger{48}){blue} %clr(:){faint} %replace(%.-2048msg){'[\r\n\t]','_'} %kvp%clr(%replace( traceId=%X{traceId:-} operationId=%X{operationId:-} messageId=%X{messageId:-} jobId=%X{jobId:-} attempt=%X{attempt:-}){' (traceId|operationId|messageId|jobId|attempt)=(?= |$)',''}){faint}%n%safeEx"/>
 
-    <!-- Correlation fields are explicit key/value pairs so plain-text logs remain machine searchable. -->
-    <property name="FILE_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} traceId=%X{traceId:-} operationId=%X{operationId:-} messageId=%X{messageId:-} jobId=%X{jobId:-} attempt=%X{attempt:-} - %msg%n"/>
-    <property name="CONSOLE_PATTERN"
-              value="%d{HH:mm:ss.SSS} [%t] %highlight(%-5level) %cyan(%logger{36}:%line) traceId=%yellow(%X{traceId:-}) operationId=%X{operationId:-} messageId=%X{messageId:-} jobId=%X{jobId:-} attempt=%X{attempt:-} - %msg%n"/>
-
-    <!-- ========== dev 环境 ========== -->
-    <springProfile name="dev">
-
-        <!-- 控制台，dev 环境用 -->
-        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <!-- Development/default has safe readable output; DEBUG is an explicit, scoped diagnostic choice. -->
+    <springProfile name="!prod">
+        <appender name="OUTPUT" class="ch.qos.logback.core.ConsoleAppender">
             <encoder>
-                <pattern>${CONSOLE_PATTERN}</pattern>
+                <pattern>${TEXT_PATTERN}</pattern>
                 <charset>UTF-8</charset>
             </encoder>
         </appender>
-
-        <!-- 业务代码 DEBUG，能看到所有日志 -->
-        <logger name="cn.jualn.miniapp" level="DEBUG" additivity="false">
-            <appender-ref ref="CONSOLE"/>
-        </logger>
-
-        <!-- MyBatis SQL 打印，开发时看 SQL -->
-        <logger name="cn.jualn.miniapp.module" level="DEBUG" additivity="false">
-            <appender-ref ref="CONSOLE"/>
-        </logger>
-
-        <!-- 异步处理相关 DEBUG -->
-        <logger name="cn.jualn.miniapp.infrastructure.async" level="DEBUG" additivity="false">
-            <appender-ref ref="CONSOLE"/>
-        </logger>
-
-        <!-- 第三方库只打 WARN，不刷屏 -->
-        <logger name="com.baomidou" level="WARN"/>
-        <logger name="cn.dev33.satoken" level="WARN"/>
-        <logger name="org.springframework" level="WARN"/>
-        <logger name="io.lettuce" level="WARN"/>
-        <logger name="com.zaxxer.hikari" level="WARN"/>
-
-        <root level="INFO">
-            <appender-ref ref="CONSOLE"/>
-        </root>
-
     </springProfile>
-
-
-    <!-- ========== prod 环境 ========== -->
-    <springProfile name="prod">
-
-        <!-- 全量日志文件，按天滚动 -->
-        <appender name="APP_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-            <file>${LOG_DIR}/${APP_NAME}.log</file>
-            <encoder>
-                <pattern>${FILE_PATTERN}</pattern>
+    <!-- Docker owns storage/rotation in the default production mode. No duplicate application file. -->
+    <springProfile name="prod &amp; !log-file">
+        <appender name="OUTPUT" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
+                <format>logstash</format>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+    </springProfile>
+    <!-- Explicit non-container fallback: prod,log-file. Do not enable alongside container collection. -->
+    <springProfile name="prod &amp; log-file">
+        <appender name="OUTPUT" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>${LOG_DIR}/mini-app.log</file>
+            <encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
+                <format>logstash</format>
                 <charset>UTF-8</charset>
             </encoder>
             <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-                <fileNamePattern>${LOG_DIR}/${APP_NAME}.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+                <fileNamePattern>${LOG_DIR}/mini-app.%d{yyyy-MM-dd,Asia/Shanghai}.%i.log.gz</fileNamePattern>
                 <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
                 <maxHistory>${MAX_HISTORY}</maxHistory>
                 <totalSizeCap>${TOTAL_SIZE}</totalSizeCap>
+                <cleanHistoryOnStart>true</cleanHistoryOnStart>
             </rollingPolicy>
         </appender>
-
-        <!-- 异步包装，减少 I/O 对业务线程的影响 -->
-        <!-- APP_FILE 异步化 -->
-        <appender name="ASYNC_APP_FILE" class="ch.qos.logback.classic.AsyncAppender">
-            <queueSize>512</queueSize>
-            <!-- 队列剩余容量低于20%时不丢弃低级别日志，默认会丢 TRACE/DEBUG/INFO -->
-            <discardingThreshold>0</discardingThreshold>
-            <!-- 停机时最多等5秒让队列排空 -->
-            <maxFlushTime>5000</maxFlushTime>
-            <appender-ref ref="APP_FILE"/>
-        </appender>
-
-        <!-- 业务代码 INFO -->
-        <logger name="cn.jualn.miniapp" level="INFO" additivity="false">
-            <appender-ref ref="ASYNC_APP_FILE"/>
-        </logger>
-
-        <!-- 异步处理通过固定关联字段在同一受限文件中检索，避免重复长期存储。 -->
-        <logger name="cn.jualn.miniapp.infrastructure.async" level="INFO" additivity="false">
-            <appender-ref ref="ASYNC_APP_FILE"/>
-        </logger>
-
-        <logger name="cn.jualn.miniapp.module.notify.task" level="INFO" additivity="false">
-            <appender-ref ref="ASYNC_APP_FILE"/>
-        </logger>
-
-        <!-- 第三方库 WARN -->
-        <logger name="com.baomidou" level="WARN" additivity="false">
-            <appender-ref ref="ASYNC_APP_FILE"/>
-        </logger>
-        <logger name="cn.dev33.satoken" level="WARN" additivity="false">
-            <appender-ref ref="ASYNC_APP_FILE"/>
-        </logger>
-        <logger name="org.springframework" level="WARN" additivity="false">
-            <appender-ref ref="ASYNC_APP_FILE"/>
-        </logger>
-        <logger name="io.lettuce" level="WARN" additivity="false">
-            <appender-ref ref="ASYNC_APP_FILE"/>
-        </logger>
-
-        <root level="WARN">
-            <appender-ref ref="ASYNC_APP_FILE"/>
-        </root>
-
     </springProfile>
-
+    <springProfile name="prod">
+        <appender name="ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+            <queueSize>512</queueSize>
+            <discardingThreshold>0</discardingThreshold>
+            <neverBlock>true</neverBlock>
+            <maxFlushTime>5000</maxFlushTime>
+            <appender-ref ref="OUTPUT"/>
+        </appender>
+        <root level="${ROOT_LEVEL}">
+            <appender-ref ref="ASYNC"/>
+        </root>
+    </springProfile>
+    <springProfile name="!prod">
+        <root level="${ROOT_LEVEL}">
+            <appender-ref ref="OUTPUT"/>
+        </root>
+    </springProfile>
 </configuration>

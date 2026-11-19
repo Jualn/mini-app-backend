@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.person.mapper.ManagedPersonMapper">
+
+    <select id="people" resultType="string" flushCache="true" useCache="false">
+        SELECT id FROM person_profile ORDER BY id
+    </select>
+    <sql id="profileColumns">
+        id,real_name,status,revision,binding_revision,created_at,updated_at,last_change_id
+    </sql>
+
+    <select id="profile" resultType="cn.jualn.miniapp.module.person.entity.ManagedPersonRows$Profile" useCache="false"
+            flushCache="true">
+        SELECT
+        <include refid="profileColumns"/>
+        FROM person_profile WHERE id=#{id}
+    </select>
+
+    <insert id="insertProfile">
+        INSERT INTO person_profile(id,real_name,status,revision,binding_revision,created_at,updated_at,last_change_id)
+        VALUES(#{id},#{realName},#{status},#{revision},#{bindingRevision},#{createdAt},#{updatedAt},#{lastChangeId})
+    </insert>
+
+    <update id="updateProfile">
+        UPDATE person_profile SET
+        real_name=#{realName},status=#{status},revision=#{revision},updated_at=#{updatedAt},last_change_id=#{lastChangeId}
+        WHERE id=#{id} AND revision=#{revision}-1
+    </update>
+
+    <select id="registration" resultType="cn.jualn.miniapp.module.person.entity.ManagedPersonRows$Registration"
+            useCache="false" flushCache="true">
+        SELECT person_id,major_class,last_action,source_kind,source_reference,confirmed_by,confirmed_at,revision FROM
+        person_major_class_registration WHERE person_id=#{person}
+    </select>
+
+    <insert id="saveRegistration">
+        INSERT INTO
+        person_major_class_registration(person_id,major_class,last_action,source_kind,source_reference,confirmed_by,confirmed_at,revision)
+        VALUES(#{personId},#{majorClass},#{lastAction},#{sourceKind},#{sourceReference},#{confirmedBy},#{confirmedAt},#{revision})
+        ON DUPLICATE KEY UPDATE
+        major_class=VALUES(major_class),last_action=VALUES(last_action),source_kind=VALUES(source_kind),source_reference=VALUES(source_reference),confirmed_by=VALUES(confirmed_by),confirmed_at=VALUES(confirmed_at),revision=VALUES(revision)
+    </insert>
+    <sql id="identifierColumns">
+        id,person_id,identifier_type,namespace,value_masked,private_value,verification,status,revision,source_reference
+    </sql>
+
+    <select id="identifiers" resultType="cn.jualn.miniapp.module.person.entity.ManagedPersonRows$Identifier"
+            useCache="false" flushCache="true">
+        SELECT
+        <include refid="identifierColumns"/>
+        FROM person_identifier WHERE person_id=#{person} ORDER BY id LIMIT 101
+    </select>
+
+    <select id="identifier" resultType="cn.jualn.miniapp.module.person.entity.ManagedPersonRows$Identifier"
+            useCache="false" flushCache="true">
+        SELECT
+        <include refid="identifierColumns"/>
+        FROM person_identifier WHERE person_id=#{person} AND id=#{id}
+    </select>
+
+    <insert id="insertIdentifier">
+        INSERT INTO
+        person_identifier(id,person_id,identifier_type,namespace,value_masked,private_value,verification,status,revision,source_reference)
+        VALUES(#{id},#{personId},#{identifierType},#{namespace},#{valueMasked},#{privateValue},#{verification},#{status},#{revision},#{sourceReference})
+    </insert>
+
+    <update id="updateIdentifier">
+        UPDATE person_identifier SET
+        value_masked=#{valueMasked},private_value=#{privateValue},verification=#{verification},status=#{status},revision=#{revision},source_reference=#{sourceReference}
+        WHERE id=#{id} AND person_id=#{personId} AND revision=#{revision}-1
+    </update>
+
+    <select id="occupation" resultType="string" useCache="false" flushCache="true">
+        SELECT person_id FROM person_identifier_occupation WHERE identifier_type=#{type} AND namespace=#{namespace} AND
+        value_digest=#{digest}
+    </select>
+
+    <insert id="occupy">
+        INSERT INTO person_identifier_occupation(identifier_type,namespace,value_digest,person_id)
+        VALUES(#{type},#{namespace},#{digest},#{person})
+    </insert>
+
+    <insert id="saveIdentifierVersion">
+        INSERT INTO person_identifier_value_history(identifier_id,revision,private_value)
+        VALUES(#{id},#{revision},#{privateValue})
+    </insert>
+
+    <select id="identifierValue" resultType="cn.jualn.miniapp.module.person.entity.ManagedPersonRows$ProtectedValue"
+            useCache="false" flushCache="true">
+        SELECT private_value FROM person_identifier_value_history WHERE identifier_id=#{id} AND revision=#{revision}
+    </select>
+
+    <sql id="bindingColumns">
+        id,user_id,person_id,status,revision,started_at,verification_method,source_reference,started_by,ended_at,ended_by,end_reason
+    </sql>
+
+    <select id="binding" resultType="cn.jualn.miniapp.module.person.entity.ManagedPersonRows$Binding" useCache="false"
+            flushCache="true">
+        SELECT
+        <include refid="bindingColumns"/>
+        FROM person_account_binding WHERE id=#{id}
+    </select>
+
+    <!-- An ADMIN_MANUAL marker alone is not proof. The immutable start event and atomic receipt
+         must identify the same administrator, source, account, Person and binding. -->
+    <select id="confirmedAdminBinding" resultType="long" useCache="false" flushCache="true">
+        SELECT COUNT(*) FROM person_account_binding b
+        JOIN person_foundation_event e ON e.id=b.id AND e.aggregate_type='BINDING' AND e.aggregate_id=b.id AND
+        e.aggregate_version=1
+        JOIN person_command_receipt r ON r.id=e.receipt_id
+        WHERE b.id=#{id} AND b.status='ACTIVE' AND b.ended_at IS NULL AND b.verification_method='ADMIN_MANUAL'
+        AND b.started_by&lt;&gt;b.user_id AND b.started_by=e.operator_user_id AND b.started_by=r.actor
+        AND e.operation='createUserPersonBinding' AND e.source='LOCAL_MANUAL' AND e.person_id=b.person_id
+        AND e.verification_reference=b.source_reference AND CHAR_LENGTH(TRIM(b.source_reference))&gt;0
+        AND e.recorded_at=b.started_at AND r.created_at=e.recorded_at AND r.event_id=e.id AND r.status=201
+        AND r.operation IN ('createUserPersonBinding','reassociateUserPersonBinding') AND r.target=b.person_id
+        AND r.result_json=e.after_json AND r.fingerprint REGEXP '^[0-9a-f]{64}$'
+        AND JSON_UNQUOTE(JSON_EXTRACT(COALESCE(JSON_EXTRACT(e.after_json,'$.binding'),e.after_json),'$.bindingId'))=b.id
+        AND
+        JSON_UNQUOTE(JSON_EXTRACT(COALESCE(JSON_EXTRACT(e.after_json,'$.binding'),e.after_json),'$.personId'))=b.person_id
+        AND
+        JSON_UNQUOTE(JSON_EXTRACT(COALESCE(JSON_EXTRACT(e.after_json,'$.binding'),e.after_json),'$.userId'))=CAST(b.user_id
+        AS CHAR)
+        AND
+        JSON_UNQUOTE(JSON_EXTRACT(COALESCE(JSON_EXTRACT(e.after_json,'$.binding'),e.after_json),'$.verificationMethod'))='ADMIN_MANUAL'
+        AND
+        JSON_UNQUOTE(JSON_EXTRACT(COALESCE(JSON_EXTRACT(e.after_json,'$.binding'),e.after_json),'$.sourceReference'))=b.source_reference
+        AND
+        JSON_UNQUOTE(JSON_EXTRACT(COALESCE(JSON_EXTRACT(e.after_json,'$.binding'),e.after_json),'$.startedByUserId'))=CAST(b.started_by
+        AS CHAR)
+    </select>
+
+    <select id="personBinding" resultType="cn.jualn.miniapp.module.person.entity.ManagedPersonRows$Binding"
+            useCache="false" flushCache="true">
+        SELECT
+        <include refid="bindingColumns"/>
+        FROM person_account_binding WHERE person_id=#{person} AND status='ACTIVE'
+    </select>
+
+    <select id="accountBinding" resultType="cn.jualn.miniapp.module.person.entity.ManagedPersonRows$Binding"
+            useCache="false" flushCache="true">
+        SELECT
+        <include refid="bindingColumns"/>
+        FROM person_account_binding WHERE user_id=#{user} AND status='ACTIVE'
+    </select>
+
+    <select id="bindingHistory" resultType="cn.jualn.miniapp.module.person.entity.ManagedPersonRows$Binding"
+            useCache="false" flushCache="true">
+        SELECT
+        <include refid="bindingColumns"/>
+        FROM person_account_binding WHERE person_id=#{person} ORDER BY started_at,id LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="bindingHistoryCount" resultType="long">
+        SELECT COUNT(*) FROM person_account_binding WHERE person_id=#{person}
+    </select>
+
+    <select id="accountSlot" resultType="long" useCache="false" flushCache="true">
+        SELECT COALESCE((SELECT revision FROM person_account_binding_slot WHERE user_id=#{user}),0)
+    </select>
+
+    <insert id="advanceAccountSlot">
+        INSERT INTO person_account_binding_slot(user_id,revision) VALUES(#{user},1) ON DUPLICATE KEY UPDATE
+        revision=revision+1
+    </insert>
+
+    <update id="advancePersonSlot">
+        UPDATE person_profile SET binding_revision=binding_revision+1 WHERE id=#{person}
+    </update>
+
+    <insert id="insertBinding">
+        INSERT INTO
+        person_account_binding(id,user_id,person_id,status,revision,started_at,verification_method,source_reference,started_by)
+        VALUES(#{id},#{userId},#{personId},'ACTIVE',1,#{startedAt},#{verificationMethod},#{sourceReference},#{startedBy})
+    </insert>
+
+    <update id="endBinding">
+        UPDATE person_account_binding SET
+        status='ENDED',revision=#{revision},ended_at=#{endedAt},ended_by=#{endedBy},end_reason=#{endReason}
+        WHERE id=#{id} AND status='ACTIVE' AND revision=#{revision}-1
+    </update>
+
+    <select id="everBound" resultType="boolean" useCache="false" flushCache="true">
+        SELECT EXISTS(SELECT 1 FROM person_account_binding WHERE person_id=#{person} AND user_id=#{user})
+    </select>
+
+    <insert id="insertEvent">
+        INSERT INTO
+        person_foundation_event(id,aggregate_type,aggregate_id,aggregate_version,operation,before_json,after_json,operator_user_id,recorded_at,reason,verification_reference,source,receipt_id,trace_id,person_id,before_version,after_version)
+        VALUES(#{event.id},#{event.aggregateType},#{event.aggregateId},#{event.aggregateVersion},#{event.operation},#{event.beforeJson},#{event.afterJson},#{event.operatorUserId},#{event.recordedAt},#{event.reason},#{event.verificationReference},'LOCAL_MANUAL',#{event.receiptId},#{event.traceId},#{person},#{before},#{after})
+    </insert>
+
+    <update id="completeEvent">
+        UPDATE person_foundation_event SET after_json=#{result} WHERE id=#{id} AND receipt_id=#{receipt} AND person_id
+        IS NOT NULL AND after_json=JSON_OBJECT()
+    </update>
+
+    <select id="history" resultType="cn.jualn.miniapp.module.person.bo.ManagedPersonBO$Audit" useCache="false"
+            flushCache="true">
+        SELECT id AS change_id,person_id,operation,CAST(operator_user_id AS CHAR) AS
+        operator_user_id,recorded_at,reason,verification_reference,aggregate_type AS aggregate_kind,aggregate_id AS
+        resource_id,before_version,after_version
+        FROM person_foundation_event WHERE person_id=#{person} AND aggregate_type IN
+        ('PROFILE','MAJOR_CLASS','IDENTIFIER','BINDING') ORDER BY recorded_at,id LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="historyCount" resultType="long">
+        SELECT COUNT(*) FROM person_foundation_event WHERE person_id=#{person} AND aggregate_type IN
+        ('PROFILE','MAJOR_CLASS','IDENTIFIER','BINDING')
+    </select>
+</mapper>

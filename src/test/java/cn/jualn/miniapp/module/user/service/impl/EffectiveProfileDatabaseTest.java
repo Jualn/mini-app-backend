@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.user.service.impl;
 
 import cn.jualn.miniapp.common.constant.UserContext;
-import cn.jualn.miniapp.common.enums.AuditScene;
+import cn.jualn.miniapp.module.audit.enums.AuditScene;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.exception.ContractProblemException;
@@ -9,7 +9,7 @@ import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.module.admin.operation.service.AdminOperationLogService;
 import cn.jualn.miniapp.module.audit.service.ProfileSafetyCheckService;
 import cn.jualn.miniapp.module.media.bo.ProfileMediaSnapshotBO;
-import cn.jualn.miniapp.module.media.service.MediaService;
+import cn.jualn.miniapp.module.media.TestMediaService;
 import cn.jualn.miniapp.module.user.bo.UserProfileUpdateBO;
 import cn.jualn.miniapp.module.user.converter.UserConverter;
 import cn.jualn.miniapp.module.user.mapper.UserAgreementMapper;
@@ -45,7 +45,7 @@ class EffectiveProfileDatabaseTest {
     private JdbcTemplate jdbc;
     private UserService service;
     private ProfileSafetyCheckService safety;
-    private MediaService media;
+    private TestMediaService media;
     private final long id = 910_000_001L;
 
     @BeforeEach void setup() {
@@ -53,7 +53,7 @@ class EffectiveProfileDatabaseTest {
         jdbc = new JdbcTemplate(context.getBean(DataSource.class));
         service = context.getBean(UserService.class);
         safety = context.getBean(ProfileSafetyCheckService.class);
-        media = context.getBean(MediaService.class);
+        media = context.getBean(TestMediaService.class);
         jdbc.update("DELETE FROM user_profile WHERE id BETWEEN ? AND ?", id, id + 2);
         for (int role = 1; role <= 3; role++) {
             jdbc.update("INSERT INTO user_profile(id,openid,nickname,bio,role,status) VALUES (?,?, '原昵称','原简介',?,1)",
@@ -68,6 +68,18 @@ class EffectiveProfileDatabaseTest {
     }
     private String field(String column) { return jdbc.queryForObject("SELECT " + column + " FROM user_profile WHERE id=?", String.class, id); }
     private void unchanged() { assertEquals("原昵称", field("nickname")); assertEquals("原简介", field("bio")); assertEquals("0", field("profile_revision")); }
+
+    @Test void snapshotDependencyKeepsProfileFailureRepresentationAndOldEffectiveFields() {
+        when(media.prepareProfileSnapshot("user/"+id+"/new.png")).thenThrow(new ContractProblemException(
+            org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,"/problems/service-unavailable","snapshot unavailable"));
+        var error=assertThrows(ContractProblemException.class,()->service.updateCurrentProfile(UserProfileUpdateBO.builder().avatarObjectKey("user/"+id+"/new.png").build()));
+        assertEquals("/problems/profile-safety-check-unavailable",error.getType());unchanged();
+    }
+    @Test void incompleteOrInvalidSnapshotIsAnInvalidProfileReference() {
+        when(media.prepareProfileSnapshot("user/"+id+"/new.png")).thenThrow(ContractProblemException.conflict("attachment-not-ready","not ready"));
+        var error=assertThrows(ContractProblemException.class,()->service.updateCurrentProfile(UserProfileUpdateBO.builder().avatarObjectKey("user/"+id+"/new.png").build()));
+        assertEquals(400,error.getStatus().value());unchanged();
+    }
 
     @Test void readsShareFiveFactsAndReliableOperatorMapping() {
         assertEquals(service.getEffectiveProfile(null), service.getEffectiveProfile(id));
@@ -171,7 +183,7 @@ class EffectiveProfileDatabaseTest {
         assertEquals(result.getBackgroundUrl(), service.getEffectiveProfile(id).getBackgroundUrl());
         assertNull(service.getEffectiveProfile(null).getBackgroundUrl());
         assertEquals("profile-effective/test/background", field("background_snapshot_key"));
-        verify(media).bindPendingUploads(TargetType.USER, id, List.of("user/test/background", "profile-effective/test/background"));
+        verify(media).bindPendingUploads(TargetType.USER, id, List.of("profile-effective/test/background"));
     }
     @Test void mixedBackgroundAndAvatarPassCommitTogether() {
         snapshot(); backgroundSnapshot();
@@ -219,7 +231,7 @@ class EffectiveProfileDatabaseTest {
                 .when(safety).checkMedia(id, AuditScene.USER_AVATAR, "https://media.example/frozen");
         assertEquals("https://media.example/frozen", service.updateEffectiveProfile(UserProfileUpdateBO.builder().avatarObjectKey("user/test/avatar").build()).getAvatarUrl());
         assertEquals("profile-effective/test/copy", field("avatar_snapshot_key"));
-        verify(media).bindPendingUploads(TargetType.USER, id, List.of("user/test/avatar", "profile-effective/test/copy"));
+        verify(media).bindPendingUploads(TargetType.USER, id, List.of("profile-effective/test/copy"));
     }
     @Test void lateBackgroundAuditDoesNotClearTheCurrentEffectiveBackground() {
         backgroundSnapshot();
@@ -322,13 +334,19 @@ class EffectiveProfileDatabaseTest {
             var factory = new MapperFactoryBean<>(UserProfileMapper.class); factory.setSqlSessionFactory(sessions); return factory;
         }
         @Bean ProfileSafetyCheckService safety() { return mock(ProfileSafetyCheckService.class); }
-        @Bean MediaService media() { return mock(MediaService.class); }
+        @Bean TestMediaService media() { return mock(TestMediaService.class); }
         @Bean RedisService cache() { return mock(RedisService.class); }
         @Bean UserService users(UserProfileMapper mapper, DataSourceTransactionManager transactions,
-                               ProfileSafetyCheckService safety, MediaService media, RedisService cache) {
-            var service = new UserServiceImpl(mapper, mock(UserAgreementMapper.class), cache,
-                    Mappers.getMapper(UserConverter.class), mock(ApplicationEventPublisher.class), media,
-                    mock(AdminOperationLogService.class), safety, transactions);
+                               ProfileSafetyCheckService safety, TestMediaService media, RedisService cache) {
+            var service = new UserServiceImpl(mapper,
+                new cn.jualn.miniapp.module.user.service.UserAccountService(mapper,cache,org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.RbacGovernanceService.class),org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class),org.mockito.Mockito.mock(cn.jualn.miniapp.module.admin.operation.service.AdminAuditJournal.class)),
+                new cn.jualn.miniapp.module.user.service.UserWechatIdentityService(mapper,Mappers.getMapper(UserConverter.class),mock(ApplicationEventPublisher.class),org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.AuthorizationAuthorityService.class)),
+                cache,
+                Mappers.getMapper(UserConverter.class),
+                media,
+                safety,
+                transactions,
+                org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class));
             return service;
         }
     }

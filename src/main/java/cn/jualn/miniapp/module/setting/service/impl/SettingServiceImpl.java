@@ -10,7 +10,7 @@ import cn.jualn.miniapp.module.setting.converter.SettingConverter;
 import cn.jualn.miniapp.module.setting.entity.UserSetting;
 import cn.jualn.miniapp.module.setting.mapper.UserSettingMapper;
 import cn.jualn.miniapp.module.setting.service.SettingService;
-import cn.jualn.miniapp.module.notify.service.NotificationPreferenceBridgeService;
+import cn.jualn.miniapp.module.notify.service.preference.NotificationPreferenceBridgeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;

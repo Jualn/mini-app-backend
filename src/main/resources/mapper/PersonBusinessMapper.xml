@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.person.mapper.PersonBusinessMapper">
+ <sql id="columns">id,grantee_user_id,duty_code,assignment_id,authority_id,root_assignment_id,selection,member_bindings,granted_by,granted_at,expires_at,change_id,revoked_at,revoked_by,revocation_reason</sql>
+ <select id="activeOrganizations" resultType="string" flushCache="true" useCache="false">SELECT id FROM person_organization WHERE status='ACTIVE' ORDER BY id</select>
+ <select id="allOrganizations" resultType="string" flushCache="true" useCache="false">SELECT id FROM person_organization ORDER BY id</select>
+ <select id="roster" resultType="cn.jualn.miniapp.module.person.service.access.PersonBusinessScopes$Roster" flushCache="true" useCache="false">SELECT verification,version,membership_digest,source_reference FROM person_roster_completeness WHERE organization_id=#{organization}</select>
+ <select id="currentMembers" resultType="cn.jualn.miniapp.module.person.service.access.PersonBusinessScopes$MemberRef" flushCache="true" useCache="false">SELECT person_id,id membership_id FROM person_membership WHERE organization_id=#{organization} AND ended_event_id IS NULL AND valid_from&lt;=#{at} AND (valid_until IS NULL OR valid_until&gt;#{at}) ORDER BY id</select>
+ <select id="scope" resultType="cn.jualn.miniapp.module.person.service.access.PersonBusinessScopes$Scope" flushCache="true" useCache="false">SELECT <include refid="columns"/> FROM person_business_scope WHERE id=#{id}</select>
+ <select id="assignmentScope" resultType="cn.jualn.miniapp.module.person.service.access.PersonBusinessScopes$Scope" flushCache="true" useCache="false">SELECT <include refid="columns"/> FROM person_business_scope WHERE assignment_id=#{id}</select>
+ <select id="forUser" resultType="cn.jualn.miniapp.module.person.service.access.PersonBusinessScopes$Scope" flushCache="true" useCache="false">SELECT <include refid="columns"/> FROM person_business_scope WHERE grantee_user_id=#{user} ORDER BY id</select>
+ <select id="forAuthority" resultType="cn.jualn.miniapp.module.person.service.access.PersonBusinessScopes$Scope" flushCache="true" useCache="false">SELECT <include refid="columns"/> FROM person_business_scope WHERE authority_id=#{authority} ORDER BY id</select>
+ <insert id="insertScope">INSERT INTO person_business_scope(id,grantee_user_id,duty_code,assignment_id,authority_id,root_assignment_id,selection,member_bindings,granted_by,granted_at,expires_at,change_id) VALUES(#{id},#{granteeUserId},#{dutyCode},#{assignmentId},#{authorityId},#{rootAssignmentId},#{selection},#{memberBindings},#{grantedBy},#{grantedAt},#{expiresAt},#{changeId})</insert>
+ <update id="revokeScope">UPDATE person_business_scope SET revoked_at=#{now},revoked_by=#{actor},revocation_reason=#{reason} WHERE id=#{id} AND revoked_at IS NULL</update>
+ <select id="completeness" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$RosterCompleteness" flushCache="true" useCache="false">
+ SELECT organization_id,status,confirmed_membership_version,source_reference,confirmed_by,confirmed_at,last_change_id,revision FROM person_roster_completeness WHERE organization_id=#{organization}
+ </select>
+ <insert id="saveCompleteness">INSERT INTO person_roster_completeness(organization_id,verification,version,membership_digest,source_reference,status,confirmed_membership_version,confirmed_by,confirmed_at,last_change_id,revision)
+ VALUES(#{organizationId},'UNKNOWN',#{lastChangeId},NULL,#{sourceReference},#{status},#{confirmedMembershipVersion},#{confirmedBy},#{confirmedAt},#{lastChangeId},#{revision})
+ ON DUPLICATE KEY UPDATE verification='UNKNOWN',membership_digest=NULL,version=#{lastChangeId},source_reference=#{sourceReference},status=#{status},confirmed_membership_version=#{confirmedMembershipVersion},confirmed_by=#{confirmedBy},confirmed_at=#{confirmedAt},last_change_id=#{lastChangeId},revision=#{revision}</insert>
+ <!-- Immutable lifecycle evidence prevents a restored set/status from reusing an old version.
+      Future starts/expiries contribute a new token when their boundary is crossed. -->
+ <select id="rosterDependencies" resultType="string" flushCache="true" useCache="false">
+ SELECT token FROM (
+ SELECT CONCAT('M:',id,':',person_id,':',valid_from,':',COALESCE(CAST(valid_until AS CHAR),''),':',COALESCE(ended_event_id,''),':',valid_from&lt;=#{at},':',valid_until IS NOT NULL AND valid_until&lt;=#{at}) token
+ FROM person_membership WHERE organization_id=#{organization}
+ UNION ALL
+ SELECT CONCAT('O:',id) token FROM person_foundation_event WHERE aggregate_type='ORGANIZATION' AND aggregate_id=#{organization}
+ AND JSON_UNQUOTE(JSON_EXTRACT(after_json,'$.status'))='INACTIVE'
+ ) evidence ORDER BY token
+ </select>
+ <select id="rosterHistory" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$Event" flushCache="true" useCache="false">
+ SELECT id,aggregate_id,operation,after_json,operator_user_id,recorded_at,reason,verification_reference FROM person_foundation_event
+ WHERE aggregate_type='ROSTER_COMPLETE' AND aggregate_id=#{organization} ORDER BY recorded_at DESC,id DESC LIMIT #{limit} OFFSET #{offset}</select>
+ <select id="rosterHistoryCount" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM person_foundation_event WHERE aggregate_type='ROSTER_COMPLETE' AND aggregate_id=#{organization}</select>
+</mapper>

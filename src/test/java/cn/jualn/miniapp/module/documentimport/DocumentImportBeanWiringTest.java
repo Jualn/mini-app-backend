@@ -36,6 +36,7 @@ class DocumentImportBeanWiringTest {
             context.registerBean(DocumentImportProperties.class, DocumentImportProperties::new);
             context.registerBean("aiTaskExecutor", AsyncTaskExecutor.class,
                     () -> new TaskExecutorAdapter(Runnable::run));
+            context.registerBean(DocumentImportAuthorizer.class,()->mock(DocumentImportAuthorizer.class));
             context.registerBean(DocumentImportService.class);
 
             context.refresh();

@@ -3,7 +3,7 @@ package cn.jualn.miniapp.module.timeline.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-import cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO;
+import cn.jualn.miniapp.module.timeline.bo.TimelineFactBO;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -64,22 +64,22 @@ class CardTimelinePolicyTest {
         assertNull(CardTimelinePolicy.select(List.of(range), NOW.plusNanos(1)));
     }
 
-    private TimelineItemDTO exact(String key, String type, String title, LocalDateTime start,
+    private TimelineFactBO exact(String key, String type, String title, LocalDateTime start,
             LocalDateTime end, int order) {
-        return TimelineItemDTO.builder().nodeKey(key).nodeType(type).label(title)
+        return TimelineFactBO.builder().nodeKey(key).nodeType(type).label(title)
                 .startPrecision(2).endPrecision(end == null ? 0 : 2)
                 .startTime(start).endTime(end).sortOrder(order).build();
     }
 
-    private TimelineItemDTO date(String key, String type, String title, LocalDateTime start,
+    private TimelineFactBO date(String key, String type, String title, LocalDateTime start,
             LocalDateTime end, int order) {
-        return TimelineItemDTO.builder().nodeKey(key).nodeType(type).label(title)
+        return TimelineFactBO.builder().nodeKey(key).nodeType(type).label(title)
                 .startPrecision(1).endPrecision(end == null ? 0 : 1)
                 .startTime(start).endTime(end).sortOrder(order).build();
     }
 
-    private TimelineItemDTO text(String key, String type, String description, int order) {
-        return TimelineItemDTO.builder().nodeKey(key).nodeType(type).label("irrelevant")
+    private TimelineFactBO text(String key, String type, String description, int order) {
+        return TimelineFactBO.builder().nodeKey(key).nodeType(type).label("irrelevant")
                 .startPrecision(0).endPrecision(0).timeDescription(description)
                 .sortOrder(order).build();
     }

@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.activity.bo;
 
-import cn.jualn.miniapp.common.enums.ActivityCategory;
-import cn.jualn.miniapp.common.enums.ActivityStatus;
+import cn.jualn.miniapp.module.activity.enums.ActivityCategory;
+import cn.jualn.miniapp.module.activity.enums.ActivityStatus;
 import lombok.Builder;
 import lombok.Data;
 
@@ -10,6 +10,10 @@ import java.time.LocalDateTime;
 @Data
 @Builder
 public class AdminActivityListBO {
+    private java.time.LocalDateTime deletedAt;
+    private String stageState;
+    private java.time.LocalDateTime evaluatedAt;
+
 
     private Integer publishStatus;
     private Integer lifecycleStatus;
@@ -21,7 +25,6 @@ public class AdminActivityListBO {
     private Integer auditStatus;
     private String organizer;
     private String location;
-    private Integer audienceScope;
     private Boolean pinned;
     private Long subscriberCount;
     private Integer capacity;

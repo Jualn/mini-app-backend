@@ -1,5 +1,6 @@
 package cn.jualn.miniapp.module.user.controller;
 
+import cn.jualn.miniapp.module.user.service.UserAgreementService;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.module.user.bo.EffectiveProfileBO;
@@ -13,7 +14,7 @@ import cn.jualn.miniapp.common.result.Result;
 import cn.jualn.miniapp.module.user.converter.UserConverter;
 import cn.jualn.miniapp.module.user.dto.request.UserAgreementRequest;
 import cn.jualn.miniapp.module.user.dto.request.UserProfileUpdateRequest;
-import cn.jualn.miniapp.module.user.entity.UserAgreement;
+import cn.jualn.miniapp.module.user.bo.UserAgreementBO;
 import cn.jualn.miniapp.module.user.service.UserService;
 import cn.jualn.miniapp.module.user.vo.UserAgreementStatusVO;
 import cn.jualn.miniapp.module.user.vo.UserPublicProfileVO;
@@ -41,6 +42,7 @@ import org.springframework.web.bind.annotation.*;
 public class UserController {
 
     private final UserService userService;
+    private final UserAgreementService userAgreements;
     private final UserConverter userConverter;
 
     @GetMapping("/me/profile")
@@ -119,7 +121,7 @@ public class UserController {
      */
     @PostMapping("/me/agreement")
     public Result<String> agreeAgreement(@Valid @RequestBody UserAgreementRequest req) {
-        userService.agreeCurrentAgreement(req.getVersion());
+        userAgreements.agreeCurrentAgreement(req.getVersion());
         return Result.ok(null);
     }
 
@@ -130,7 +132,7 @@ public class UserController {
      */
     @GetMapping("/me/agreement")
     public Result<UserAgreementStatusVO> getCurrentAgreementStatus() {
-        UserAgreement agreement = userService.getCurrentAgreement();
+        UserAgreementBO agreement = userAgreements.getCurrentAgreement();
         if (agreement == null) {
             return Result.ok(UserAgreementStatusVO.builder().agreed(false).build());
         }

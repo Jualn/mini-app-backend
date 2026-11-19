@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.notify.dto.request;
 
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import lombok.Data;
 
 @Data

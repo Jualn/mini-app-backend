@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.notify.listener;
 
-import cn.jualn.miniapp.module.notify.service.NotificationPreferenceBridgeService;
+import cn.jualn.miniapp.module.notify.service.preference.NotificationPreferenceBridgeService;
 import cn.jualn.miniapp.module.user.event.UserCreatedEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.learningtask.mapper.LearningAssignmentMapper">
+    <select id="lock" resultType="cn.jualn.miniapp.module.learningtask.entity.LearningAssignment">
+        SELECT * FROM learning_task_assignment WHERE id=#{id} FOR UPDATE
+    </select>
+    <!-- Called only after task -> assignment -> submission lock acquisition. -->
+    <update id="saveLocked">
+        UPDATE learning_task_assignment SET
+        revision=#{revision},
+        assigned_by=#{assignedBy},
+        latest_submission_id=#{latestSubmissionId},
+        revoked_by=#{revokedBy},
+        allocation_status=#{allocationStatus},
+        progress=#{progress},
+        revocation_reason=#{revocationReason},
+        on_time_first_submission=#{onTimeFirstSubmission},
+        assigned_at=#{assignedAt},
+        confirmed_at=#{confirmedAt},
+        confirmed_by_user_id=#{confirmedByUserId},
+        confirmed_binding_id=#{confirmedBindingId},
+        first_submitted_at=#{firstSubmittedAt},
+        supplement_deadline=#{supplementDeadline},
+        completed_at=#{completedAt},
+        revoked_at=#{revokedAt}
+        WHERE id=#{id}
+    </update>
+</mapper>
+

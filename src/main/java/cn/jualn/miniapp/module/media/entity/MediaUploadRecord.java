@@ -31,4 +31,7 @@ public class MediaUploadRecord {
     private String lastError;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private String declaredKind;
+    private String declaredContentType;
+    private Long declaredSizeBytes;
 }

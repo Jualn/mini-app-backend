@@ -13,4 +13,6 @@ public class DeepSeekDocumentImportAiGateway implements DocumentImportAiGateway 
     public String generate(String prompt) {
         return client.generate(prompt);
     }
+    @Override
+    public String modelName() { return client.modelName(); }
 }

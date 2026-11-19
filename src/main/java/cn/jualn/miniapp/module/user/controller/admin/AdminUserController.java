@@ -1,11 +1,14 @@
 package cn.jualn.miniapp.module.user.controller.admin;
 
+import cn.jualn.miniapp.module.user.service.UserAccountService;
+import cn.jualn.miniapp.common.web.AdminNamesVO;
+import cn.jualn.miniapp.common.web.AdminQuery;
+
 import cn.jualn.miniapp.common.result.Result;
 import cn.jualn.miniapp.common.security.AdminStpUtil;
 import cn.jualn.miniapp.module.admin.auth.support.AdminPermissionPolicy;
 import cn.jualn.miniapp.module.user.converter.AdminUserConverter;
 import cn.jualn.miniapp.module.user.dto.admin.AdminUserPageQuery;
-import cn.jualn.miniapp.module.user.dto.admin.AdminUserRoleUpdateRequest;
 import cn.jualn.miniapp.module.user.dto.admin.AdminUserRestrictionRequest;
 import cn.jualn.miniapp.module.user.service.UserService;
 import cn.jualn.miniapp.module.user.vo.admin.AdminUserDetailVO;
@@ -29,7 +32,17 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminUserController {
 
     private final UserService userService;
+    private final UserAccountService userAccounts;
     private final AdminUserConverter adminUserConverter;
+
+    @GetMapping("/names")
+    public org.springframework.http.ResponseEntity<AdminNamesVO.Users> names(jakarta.servlet.http.HttpServletRequest request) {
+        var ids = AdminQuery.values(request, "userId", 100);
+        var at = java.time.Instant.now();
+        var names = AdminQuery.read(() -> userService.adminUserNames(ids));
+        return org.springframework.http.ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore())
+                .body(new AdminNamesVO.Users(at, names.stream().map(AdminNamesVO::user).toList()));
+    }
 
     @GetMapping
     public Result<AdminUserPageVO> pageUsers(@Valid AdminUserPageQuery query) {
@@ -50,7 +63,7 @@ public class AdminUserController {
             @PathVariable @Positive(message = "用户ID必须大于0") Long id,
             @Valid @RequestBody AdminUserRestrictionRequest request) {
         AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.USER_MANAGE);
-        userService.muteUser(adminUserConverter.toRestrictionBO(
+        userAccounts.muteUser(adminUserConverter.toRestrictionBO(
                 AdminStpUtil.STP_LOGIC.getLoginIdAsLong(), id, request));
         return Result.ok(null);
     }
@@ -60,7 +73,7 @@ public class AdminUserController {
             @PathVariable @Positive(message = "用户ID必须大于0") Long id,
             @Valid @RequestBody AdminUserRestrictionRequest request) {
         AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.USER_MANAGE);
-        userService.banUser(adminUserConverter.toRestrictionBO(
+        userAccounts.banUser(adminUserConverter.toRestrictionBO(
                 AdminStpUtil.STP_LOGIC.getLoginIdAsLong(), id, request));
         return Result.ok(null);
     }
@@ -70,18 +83,9 @@ public class AdminUserController {
             @PathVariable @Positive(message = "用户ID必须大于0") Long id,
             @Valid @RequestBody AdminUserRestrictionRequest request) {
         AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.USER_MANAGE);
-        userService.restoreUser(adminUserConverter.toRestrictionBO(
+        userAccounts.restoreUser(adminUserConverter.toRestrictionBO(
                 AdminStpUtil.STP_LOGIC.getLoginIdAsLong(), id, request));
         return Result.ok(null);
     }
 
-    @PutMapping("/{id}/role")
-    public Result<Void> updateUserRole(
-            @PathVariable @Positive(message = "用户ID必须大于0") Long id,
-            @Valid @RequestBody AdminUserRoleUpdateRequest request) {
-        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.USER_ROLE);
-        userService.changeUserRole(adminUserConverter.toRoleChangeBO(
-                AdminStpUtil.STP_LOGIC.getLoginIdAsLong(), id, request));
-        return Result.ok(null);
-    }
 }

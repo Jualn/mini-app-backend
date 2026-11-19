@@ -6,7 +6,7 @@ import lombok.Getter;
 /**
  * 业务错误码枚举
  * 规则：HTTP协议码 | 1xxx-系统/基础设施 | 2xxx-用户 | 3xxx-内容 | 4xxx-活动 | 5xxx-考试
- *      | 6xxx-通知/订阅 | 7xxx-微信业务 | 8xxx-附件 | 9xxx-举报 | 11xxx-审核 | 12xxx-搜索 | 13xxx-时间线
+ * | 6xxx-通知/订阅 | 7xxx-微信业务 | 8xxx-附件 | 9xxx-举报 | 11xxx-审核 | 12xxx-搜索 | 13xxx-时间线
  */
 @Getter
 @AllArgsConstructor
@@ -27,8 +27,8 @@ public enum ResultCode {
     // 系统模块  100x
     WX_API_ERROR(1000, "微信接口调用失败"),
     WX_BIND_SCENE_EXPIRED(1001, "微信绑定场景已失效"),
-    TARGET_NOT_FOUND(1002,"目标资源不存在"),
-    INVALID_TARGET_TYPE(1003,"无效的目标类型"),
+    TARGET_NOT_FOUND(1002, "目标资源不存在"),
+    INVALID_TARGET_TYPE(1003, "无效的目标类型"),
     TOO_MANY_REQUESTS(1004, "请求过于频繁，请稍后再试"),
     INVALID_OPERATION(1005, "操作不合法"),
     DATA_CONFLICT(1006, "数据状态冲突"),
@@ -105,8 +105,7 @@ public enum ResultCode {
     // 时间线相关 13-
     TIMELINE_PARAM_INVALID(13000, "时间线参数不合法"),
     TIMELINE_OPERATION_FAILED(13001, "时间线操作失败"),
-    TIMELINE_TARGET_UNSUPPORTED(13002, "不支持的时间线目标类型")
-    ;
+    TIMELINE_TARGET_UNSUPPORTED(13002, "不支持的时间线目标类型");
 
 
     private final int code;

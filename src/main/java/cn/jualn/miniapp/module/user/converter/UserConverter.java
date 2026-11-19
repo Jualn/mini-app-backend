@@ -1,13 +1,13 @@
 package cn.jualn.miniapp.module.user.converter;
 
-import cn.jualn.miniapp.common.enums.UserRole;
-import cn.jualn.miniapp.common.enums.UserStatus;
+import cn.jualn.miniapp.module.user.enums.UserRole;
+import cn.jualn.miniapp.module.user.enums.UserStatus;
 import cn.jualn.miniapp.module.user.bo.UserProfileBO;
 import cn.jualn.miniapp.module.user.bo.UserProfileUpdateBO;
 import cn.jualn.miniapp.module.user.bo.UserPublicProfileBO;
 import cn.jualn.miniapp.module.user.dto.inner.UserInfoDTO;
 import cn.jualn.miniapp.module.user.dto.request.UserProfileUpdateRequest;
-import cn.jualn.miniapp.module.user.entity.UserAgreement;
+import cn.jualn.miniapp.module.user.bo.UserAgreementBO;
 import cn.jualn.miniapp.module.user.entity.UserProfile;
 import cn.jualn.miniapp.module.user.vo.UserAgreementStatusVO;
 import cn.jualn.miniapp.module.user.vo.UserPublicProfileVO;
@@ -55,7 +55,7 @@ public interface UserConverter {
     UserProfileBO toProfileBO(UserProfile userProfile);
 
     @Mapping(target = "agreed", expression = "java(true)")
-    UserAgreementStatusVO toAgreementStatusRespVO(UserAgreement userAgreement);
+    UserAgreementStatusVO toAgreementStatusRespVO(UserAgreementBO userAgreement);
 
     default UserRole resolveRole(Integer roleCode) {
         return UserRole.fromCode(roleCode);

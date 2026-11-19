@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.article.mapper.ArticleMapper">
+
+    <select id="lock" resultType="cn.jualn.miniapp.module.article.entity.Article">
+        SELECT
+        id,title,summary,body,plain_text,category_id,publisher_id,publisher_org_id,publisher_name_snapshot,cover_attachment_id,comments_enabled,publish_status,revision,created_by,updated_by,created_at,updated_at,published_at,last_published_at,attachment_ids,source,deleted_at,deleted_by,view_count,like_count,comment_count,share_count
+        FROM article WHERE id=#{id} FOR UPDATE
+    </select>
+
+    <update id="replace">
+        UPDATE article SET title=#{title}, summary=#{summary}, body=#{body}, plain_text=#{plainText},
+        category_id=#{categoryId},
+        publisher_id=#{publisherId},publisher_org_id=#{publisherOrgId},publisher_name_snapshot=#{publisherNameSnapshot},
+        cover_attachment_id=#{coverAttachmentId},
+        comments_enabled=#{commentsEnabled},publish_status=#{publishStatus},revision=#{revision},updated_by=#{updatedBy},
+        updated_at=#{updatedAt},published_at=#{publishedAt},last_published_at=#{lastPublishedAt},attachment_ids=#{attachmentIds},source=#{source},deleted_at=#{deletedAt},deleted_by=#{deletedBy}
+        WHERE id=#{id} AND revision=#{revision}-1
+    </update>
+    <sql id="publicArticle">
+        publish_status='PUBLISHED' AND deleted_at IS NULL
+    </sql>
+    <sql id="publicOptionFilter">
+        WHERE
+        <include refid="publicArticle"/>
+        <if test="id != null">
+            AND id = #{id}
+        </if>
+        <if test="q != null">
+            AND LOCATE(#{q}, title) &gt; 0
+        </if>
+    </sql>
+
+    <select id="publicOptions" resultType="cn.jualn.miniapp.module.article.entity.Article">
+        SELECT id,title,summary,cover_attachment_id,category_id,publisher_id,publisher_org_id,published_at,
+        <include refid="organizationRepresentation"/>
+        AS organization_representation
+        FROM article
+        <include refid="publicOptionFilter"/>
+        ORDER BY published_at DESC, id DESC LIMIT #{size} OFFSET #{offset}
+        <if test="lock">
+            FOR UPDATE
+        </if>
+    </select>
+
+    <select id="countPublicOptions" resultType="long">
+        SELECT COUNT(*) FROM article
+        <include refid="publicOptionFilter"/>
+    </select>
+
+    <select id="publicByIds" resultType="cn.jualn.miniapp.module.article.entity.Article">
+        SELECT
+        id,title,summary,category_id,publisher_id,publisher_org_id,publisher_name_snapshot,cover_attachment_id,comments_enabled,publish_status,revision,created_by,updated_by,created_at,updated_at,published_at,last_published_at,
+        <include refid="organizationRepresentation"/>
+        AS organization_representation FROM article WHERE
+        <include refid="publicArticle"/>
+        AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <select id="publicPage" resultType="cn.jualn.miniapp.module.article.entity.Article">
+        SELECT
+        id,title,summary,category_id,publisher_id,publisher_org_id,publisher_name_snapshot,cover_attachment_id,comments_enabled,publish_status,revision,created_by,updated_by,created_at,updated_at,published_at,last_published_at,
+        <include refid="organizationRepresentation"/>
+        AS organization_representation FROM article WHERE
+        <include refid="publicArticle"/>
+        <if test="q != null">
+            AND (LOCATE(#{q},title)>0 OR LOCATE(#{q},plain_text)>0)
+        </if>
+        <if test="sceneRoots != null">
+            <choose>
+                <when test="sceneRoots.size() > 0">
+                    AND (category_id IN <foreach collection="sceneRoots" item="root" open="(" separator="," close=")">
+                    #{root}
+                </foreach> OR category_id IN (SELECT id FROM article_category WHERE parent_id IN <foreach
+                        collection="sceneRoots" item="root" open="(" separator="," close=")">
+                    #{root}
+                </foreach>))
+                </when>
+                <otherwise>
+                    AND 1=0
+                </otherwise>
+            </choose>
+        </if>
+        <if test="categoryId != null">
+            AND (category_id=#{categoryId}<if test="includeChildren">
+            OR category_id IN (SELECT id FROM article_category WHERE parent_id=#{categoryId})
+        </if>)
+        </if>
+        <if test="beforeTime != null">
+            AND (published_at &lt; #{beforeTime} OR (published_at=#{beforeTime} AND id &lt; #{beforeId}))
+        </if>
+        ORDER BY published_at DESC,id DESC LIMIT #{size}
+    </select>
+    <sql id="organizationRepresentation">
+        (publisher_org_id IS NOT NULL AND (published_at IS NULL OR publisher_name_snapshot IS NOT NULL)
+        AND (EXISTS(SELECT 1 FROM article_organization_audit aa WHERE aa.article_id=article.id)
+        OR (EXISTS(SELECT 1 FROM article_publisher_organization_mapping mm WHERE mm.publisher_id=article.publisher_id
+        AND mm.organization_id=article.publisher_org_id)
+        AND (published_at IS NULL OR EXISTS(SELECT 1 FROM article_publisher_migration_evidence ee WHERE
+        ee.article_id=article.id AND ee.organization_id=article.publisher_org_id AND CAST(ee.original_signature AS
+        BINARY)=CAST(article.publisher_name_snapshot AS BINARY))))))
+    </sql>
+    <sql id="adminFilter">
+        <where>
+            <choose>
+                <when test="deleted">
+                    AND deleted_at IS NOT NULL
+                </when>
+                <otherwise>
+                    AND deleted_at IS NULL
+                </otherwise>
+            </choose>
+            <if test="status != null">
+                AND publish_status=#{status}
+            </if>
+            <if test="categoryId != null">
+                AND (category_id=#{categoryId}<if test="includeChildren">
+                OR category_id IN (SELECT id FROM article_category WHERE parent_id=#{categoryId})
+            </if>)
+            </if>
+            <if test="publisherId != null">
+                AND publisher_id=#{publisherId}
+            </if>
+            <if test="publisherOrgId != null">
+                AND publisher_org_id=#{publisherOrgId} AND
+                <include refid="organizationRepresentation"/>
+            </if>
+            AND (
+            <if test="authorizedOrgs != null and authorizedOrgs.size() > 0">
+                (
+                <include refid="organizationRepresentation"/>
+                AND publisher_org_id IN <foreach collection="authorizedOrgs" item="org" open="(" separator=","
+                                                 close=")">
+                #{org}
+            </foreach>) OR
+            </if>
+            (publisher_id IS NOT NULL AND NOT<include refid="organizationRepresentation"/>)
+            )
+            <if test="q != null">
+                AND (LOCATE(#{q},title)>0 OR LOCATE(#{q},plain_text)>0)
+            </if>
+        </where>
+    </sql>
+
+    <select id="adminPage" resultType="cn.jualn.miniapp.module.article.entity.Article">
+        SELECT
+        id,title,summary,category_id,publisher_id,publisher_org_id,publisher_name_snapshot,cover_attachment_id,comments_enabled,publish_status,revision,created_by,updated_by,created_at,updated_at,published_at,last_published_at,deleted_at,deleted_by
+        FROM article
+        <include refid="adminFilter"/>
+        ORDER BY
+        <choose>
+            <when test="sort == '-createdAt'">
+                created_at
+            </when>
+            <when test="sort == '-publishedAt'">
+                published_at
+            </when>
+            <otherwise>
+                updated_at
+            </otherwise>
+        </choose>
+        DESC,id DESC
+        LIMIT #{size} OFFSET #{offset}
+    </select>
+
+    <select id="adminCount" resultType="long">
+        SELECT COUNT(*) FROM article
+        <include refid="adminFilter"/>
+    </select>
+
+    <update id="writeStatistics">
+        UPDATE article SET
+        view_count=#{statistics.viewCount},like_count=#{statistics.likeCount},comment_count=#{statistics.commentCount},share_count=#{statistics.shareCount}
+        WHERE id=#{id}
+    </update>
+</mapper>

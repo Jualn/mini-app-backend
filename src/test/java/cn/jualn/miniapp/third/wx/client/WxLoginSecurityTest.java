@@ -8,7 +8,6 @@ import cn.jualn.miniapp.common.exception.GlobalExceptionHandler;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.module.auth.controller.AuthController;
 import cn.jualn.miniapp.module.auth.service.impl.AuthServiceImpl;
-import cn.jualn.miniapp.module.user.service.UserService;
 import cn.jualn.miniapp.third.wx.config.WxProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
@@ -90,8 +89,9 @@ class WxLoginSecurityTest {
     @Test void loginProviderFailureLogsCodeWithoutCredentialOrPayload() throws Exception {
         String code = "${jndi:ldap://example.invalid/probe}";
         reply = "{\"errcode\":40029,\"errmsg\":\"synthetic-secret echoed provider detail\"}";
-        UserService users = mock(UserService.class);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AuthController(new AuthServiceImpl(client, users)))
+        var identities = mock(cn.jualn.miniapp.module.user.service.UserWechatIdentityService.class);
+        var accounts = mock(cn.jualn.miniapp.module.user.service.UserAccountService.class);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AuthController(new AuthServiceImpl(client, identities, accounts), mock(cn.jualn.miniapp.module.auth.service.LoginAttemptLimiter.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         for (String route : new String[]{"/v1/auth", "/v1/auth/login"}) {
             mvc.perform(post(route).contentType(MediaType.APPLICATION_JSON)
@@ -100,7 +100,7 @@ class WxLoginSecurityTest {
                     .andExpect(jsonPath("$.type").value("/problems/external-service-error"));
         }
         assertEquals(2, logs.list.size());
-        verifyNoInteractions(users);
+        verifyNoInteractions(identities, accounts);
         for (ILoggingEvent event : logs.list) {
             String rendered = event.getFormattedMessage()
                     + (event.getThrowableProxy() == null ? "" : ThrowableProxyUtil.asString(event.getThrowableProxy()));

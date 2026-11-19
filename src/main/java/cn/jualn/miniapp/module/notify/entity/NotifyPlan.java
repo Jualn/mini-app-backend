@@ -30,6 +30,7 @@ public class NotifyPlan {
     private String ruleKey;
     private Long generation;
     private String recipientScope;
+    private Long recipientUpperUserId;
 
     /** 对应 notification.type */
     private Integer notifyType;

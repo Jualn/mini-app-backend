@@ -36,6 +36,7 @@ public class JacksonConfig {
     private static final String DATE_FORMAT       = "yyyy-MM-dd";
 
     @Bean
+    @org.springframework.context.annotation.Primary
     public ObjectMapper objectMapper(Jackson2ObjectMapperBuilder builder) {
         JavaTimeModule javaTimeModule = new JavaTimeModule();
 

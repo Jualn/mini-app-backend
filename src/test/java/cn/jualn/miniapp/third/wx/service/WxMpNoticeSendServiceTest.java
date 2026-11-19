@@ -2,13 +2,13 @@ package cn.jualn.miniapp.third.wx.service;
 
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.exception.ExternalServiceException;
-import cn.jualn.miniapp.module.user.service.UserService;
+import cn.jualn.miniapp.module.user.service.UserWechatIdentityService;
 import cn.jualn.miniapp.module.wx.service.WxMpNoticeSendService;
 import cn.jualn.miniapp.third.wx.client.WxClient;
 import cn.jualn.miniapp.third.wx.config.WxProperties;
 import cn.jualn.miniapp.third.wx.dto.MpSubscribeMessageRequest;
 import cn.jualn.miniapp.third.wx.dto.MpSubscribeMessageResponse;
-import cn.jualn.miniapp.third.wx.notice.*;
+import cn.jualn.miniapp.module.wx.notice.*;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -20,7 +20,7 @@ import static org.mockito.Mockito.*;
 
 class WxMpNoticeSendServiceTest {
     private final WxClient client = mock(WxClient.class);
-    private final UserService users = mock(UserService.class);
+    private final UserWechatIdentityService users = mock(UserWechatIdentityService.class);
 
     @Test void notificationDeliveryRequiresRecoverableEntryAndPreservesOriginatingId() {
         when(users.getOfficialAccountOpenid(7L)).thenReturn("synthetic-openid");
@@ -32,8 +32,8 @@ class WxMpNoticeSendServiceTest {
         template.setPagePath("pages/community/detail?id={targetId}&notificationId=wrong");
         var field = new WxMpNoticeTemplateProperties.Field(); field.setSource("title"); field.setRequired(true);
         template.setFields(Map.of("thing1", field)); properties.setNoticeTemplates(Map.of("reply", template));
-        var wx = new WxProperties(null, new WxProperties.Ma("synthetic-app", "synthetic-secret", "synthetic-token", "synthetic-aes"));
-        var service = new WxMpNoticeSendService(client, wx, users, new WxMpNoticeTemplateRegistry(properties), new WxMpNoticeFieldRenderer());
+        var wx = new WxProperties(new WxProperties.Mp("synthetic-mp", "synthetic-secret", null, null, null), new WxProperties.Ma("synthetic-app", "synthetic-secret", "synthetic-token", "synthetic-aes"));
+        var service = new WxMpNoticeSendService(client, wx, users, new WxNotificationTemplateRegistry(properties), new WxNotificationTemplateRenderer());
         assertTrue(service.isNotificationDeliveryAvailable(WxMpNoticeType.REPLY));
         assertFalse(service(true).isNotificationDeliveryAvailable(WxMpNoticeType.REPLY));
         service.send(7L, WxMpNoticeType.REPLY, Map.of("title", "t", "targetId", "42", "notificationId", "7"));
@@ -98,6 +98,31 @@ class WxMpNoticeSendServiceTest {
         template.setFields(Map.of("thing1", field));
         properties.setNoticeTemplates(Map.of("reply", template));
         return new WxMpNoticeSendService(client, mock(WxProperties.class), users,
-                new WxMpNoticeTemplateRegistry(properties), new WxMpNoticeFieldRenderer());
+                new WxNotificationTemplateRegistry(properties), new WxNotificationTemplateRenderer());
     }
+    @Test void frozenDeliveryRetainsTemplateAndContentAcrossConfigVersionChange() {
+        var old=freezeService("old-id",true,"fixture-mp");
+        var snapshot=old.prepareDelivery("ACTIVITY_START_REMINDER",WxMpNoticeType.ACTIVITY_START,
+                Map.of("notificationId","7","title","frozen-title"));
+        verifyNoInteractions(users,client);
+        var changed=freezeService("new-id",true,"fixture-mp");
+        assertTrue(changed.isFrozenDeliveryAvailable(snapshot));
+        when(users.getOfficialAccountOpenid(7L)).thenReturn("fixture-user");
+        var response=new MpSubscribeMessageResponse();response.setErrcode(0);when(client.sendMpSubscribeMessage(any())).thenReturn(response);
+        changed.sendFrozen(7L,snapshot,"7",()->{});
+        var capture=ArgumentCaptor.forClass(MpSubscribeMessageRequest.class);verify(client).sendMpSubscribeMessage(capture.capture());
+        assertEquals("old-id",capture.getValue().getTemplateId());assertEquals("frozen-title",capture.getValue().getData().get("thing1").getValue());
+        assertFalse(freezeService("new-id",false,"fixture-mp").isFrozenDeliveryAvailable(snapshot));
+        assertFalse(freezeService("new-id",true,"different-account").isFrozenDeliveryAvailable(snapshot));
+        assertThrows(BusinessException.class,()->changed.sendFrozen(7L,snapshot,"8",()->{}));
+    }
+    private WxMpNoticeSendService freezeService(String templateId,boolean enabled,String appId) {
+        var p=new WxMpNoticeTemplateProperties();var t=new WxMpNoticeTemplateProperties.Template();
+        t.setType("activity_start");t.setEnabled(enabled);t.setTemplateId(templateId);t.setVersion("new-id".equals(templateId)?2:1);t.setPagePath("/pages/message/message");
+        var field=new WxMpNoticeTemplateProperties.Field();field.setSource("title");field.setRequired(true);t.setFields(Map.of("thing1",field));
+        p.setNoticeTemplates(Map.of("activity-start",t));
+        var wx=new WxProperties(new WxProperties.Mp(appId,"fixture-secret",null,null,null),new WxProperties.Ma("fixture-ma","fixture-secret",null,null));
+        return new WxMpNoticeSendService(client,wx,users,new WxNotificationTemplateRegistry(p),new WxNotificationTemplateRenderer());
+    }
+
 }

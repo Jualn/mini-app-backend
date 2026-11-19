@@ -6,6 +6,10 @@ import java.time.LocalDateTime;
 
 @Data
 public class AdminActivityListRow {
+    private java.time.LocalDateTime deletedAt;
+    private String stageState;
+    private java.time.LocalDateTime evaluatedAt;
+
 
     private Integer publishStatus;
     private Integer lifecycleStatus;
@@ -17,7 +21,6 @@ public class AdminActivityListRow {
     private Integer auditStatus;
     private String organizer;
     private String location;
-    private Integer audienceScope;
     private Boolean pinned;
     private Long subscriberCount;
     private Integer capacity;

@@ -5,7 +5,7 @@ import cn.jualn.miniapp.common.constant.UserContext;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
+import cn.jualn.miniapp.module.subject.service.SubjectExistenceService;
 import cn.jualn.miniapp.module.activity.bo.ActivityEnrollBO;
 import cn.jualn.miniapp.module.activity.entity.ActivityEnrollment;
 import cn.jualn.miniapp.module.activity.mapper.ActivityEnrollmentMapper;
@@ -37,7 +37,7 @@ class ActivityEnrollmentServiceImplTest {
     @Mock
     private RedisService redisService;
     @Mock
-    private TargetValidator targetValidator;
+    private SubjectExistenceService targetValidator;
 
     @org.junit.jupiter.api.BeforeEach
     void setup() {
@@ -54,7 +54,7 @@ class ActivityEnrollmentServiceImplTest {
     @Test
     void enrollActivity_shouldInsertWhenNotEnrolled() {
         UserContext.setUserId(7L);
-        ActivityEnrollmentServiceImpl service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator);
+        ActivityEnrollmentServiceImpl service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityReminderCatchUp.class), redisService, targetValidator);
         when(activityMapper.selectForUpdate(10L)).thenReturn(cn.jualn.miniapp.module.activity.entity.Activity.builder().id(10L).publishStatus(1).lifecycleStatus(0).build());
         when(activityEnrollmentMapper.insert(any(ActivityEnrollment.class))).thenReturn(1);
 
@@ -67,7 +67,7 @@ class ActivityEnrollmentServiceImplTest {
     @Test
     void enrollActivity_shouldUseDatabaseAndBeIdempotent() {
         UserContext.setUserId(7L);
-        ActivityEnrollmentServiceImpl service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator);
+        ActivityEnrollmentServiceImpl service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityReminderCatchUp.class), redisService, targetValidator);
         String key = RedisKeyConstant.activityEnrollment(10L, 7L);
         when(activityMapper.selectForUpdate(10L)).thenReturn(cn.jualn.miniapp.module.activity.entity.Activity.builder().id(10L).publishStatus(1).lifecycleStatus(0).build());
         when(activityEnrollmentMapper.selectOne(any())).thenReturn(ActivityEnrollment.builder().id(1L).status(1).build());
@@ -81,7 +81,7 @@ class ActivityEnrollmentServiceImplTest {
     @Test
     void existingSubscriptionSurvivesSubjectWithdrawalAndKeepsOriginalTimestamp() {
         UserContext.setUserId(7L);
-        var service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator);
+        var service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityReminderCatchUp.class), redisService, targetValidator);
         var subscribedAt = java.time.LocalDateTime.of(2026, 9, 1, 9, 0);
         var relation = ActivityEnrollment.builder().id(1L).activityId(10L).userId(7L)
                 .status(1).createdAt(subscribedAt).build();
@@ -100,7 +100,7 @@ class ActivityEnrollmentServiceImplTest {
     @Test
     void isEnrolled_shouldReturnFalseWhenNullPlaceholderHit() {
         UserContext.setUserId(5L);
-        ActivityEnrollmentServiceImpl service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator);
+        ActivityEnrollmentServiceImpl service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityReminderCatchUp.class), redisService, targetValidator);
         String key = RedisKeyConstant.activityEnrollment(12L, 5L);
         when(redisService.getString(key)).thenReturn(RedisService.NULL_VALUE);
         when(redisService.isNullPlaceholder(RedisService.NULL_VALUE)).thenReturn(true);
@@ -114,7 +114,7 @@ class ActivityEnrollmentServiceImplTest {
     @Test
     void isEnrolled_shouldReturnTrueWhenCacheHit() {
         UserContext.setUserId(5L);
-        ActivityEnrollmentServiceImpl service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator);
+        ActivityEnrollmentServiceImpl service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityReminderCatchUp.class), redisService, targetValidator);
         String key = RedisKeyConstant.activityEnrollment(12L, 5L);
         when(redisService.getString(key)).thenReturn("1");
 
@@ -127,7 +127,7 @@ class ActivityEnrollmentServiceImplTest {
     @Test
     void updateNotifyEnable_shouldThrowWhenEnrollmentMissing() {
         UserContext.setUserId(3L);
-        ActivityEnrollmentServiceImpl service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator);
+        ActivityEnrollmentServiceImpl service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityReminderCatchUp.class), redisService, targetValidator);
 
         ActivityEnrollBO command = ActivityEnrollBO.builder()
                 .activityId(8L)
@@ -142,7 +142,7 @@ class ActivityEnrollmentServiceImplTest {
     @Test
     void cancelledRelationshipRemainsReadableWithoutLoadingUnavailableSubject() {
         UserContext.setUserId(7L);
-        var service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator);
+        var service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityReminderCatchUp.class), redisService, targetValidator);
         when(activityEnrollmentMapper.selectOne(any())).thenReturn(ActivityEnrollment.builder().id(1L).status(2).build());
         var state = service.getSubscriptionState(10L);
         org.junit.jupiter.api.Assertions.assertFalse(state.subscribed());
@@ -153,7 +153,7 @@ class ActivityEnrollmentServiceImplTest {
     @Test
     void absentRelationshipDoesNotExposeAnUnavailableSubject() {
         UserContext.setUserId(7L);
-        var service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, redisService, targetValidator);
+        var service = new ActivityEnrollmentServiceImpl(activityEnrollmentMapper, activityMapper, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityReminderCatchUp.class), redisService, targetValidator);
         org.junit.jupiter.api.Assertions.assertThrows(cn.jualn.miniapp.common.exception.BusinessException.class,
                 () -> service.getSubscriptionState(10L));
         verify(activityMapper).selectByIdNotDeleted(10L);

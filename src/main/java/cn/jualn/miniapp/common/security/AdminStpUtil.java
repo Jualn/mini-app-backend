@@ -7,6 +7,7 @@ import cn.dev33.satoken.stp.StpLogic;
  * 管理端专用 Sa-Token 逻辑。
  *
  * <p>管理端与小程序使用不同 loginType，避免小程序 Token 被直接用于管理端接口。</p>
+ * <p>Sa 候选权限仅用于入口筛选；Service 必须按当前来源及可信资源 namespace 裁决。</p>
  */
 public final class AdminStpUtil {
 

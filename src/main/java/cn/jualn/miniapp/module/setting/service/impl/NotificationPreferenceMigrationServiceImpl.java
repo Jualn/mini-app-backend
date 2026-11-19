@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.setting.service.impl;
 
-import cn.jualn.miniapp.module.notify.service.NotificationPreferenceBridgeService;
+import cn.jualn.miniapp.module.notify.service.preference.NotificationPreferenceBridgeService;
 import cn.jualn.miniapp.module.setting.entity.UserSetting;
 import cn.jualn.miniapp.module.setting.mapper.UserSettingMapper;
 import cn.jualn.miniapp.module.setting.service.NotificationPreferenceMigrationService;

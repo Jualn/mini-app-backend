@@ -20,4 +20,8 @@ public class ActivityBusinessNotificationJobHandler
         notifyService.notifyActivitySubscribers(payload.activityId(), payload.eventKey(),
                 payload.title(), payload.content());
     }
+    @Override public void handle(ActivityBusinessNotificationJobPayload payload,
+            cn.jualn.miniapp.infrastructure.async.job.JobExecutionContext context) {
+        notifyService.notifyActivitySubscribers(payload.activityId(),payload.eventKey(),payload.title(),payload.content(),context);
+    }
 }

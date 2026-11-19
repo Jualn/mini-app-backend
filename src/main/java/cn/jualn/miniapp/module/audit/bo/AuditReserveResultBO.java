@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.audit.bo;
 
-import cn.jualn.miniapp.common.enums.MediaType;
+import cn.jualn.miniapp.module.media.enums.MediaType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -16,6 +16,8 @@ import java.util.List;
 public class AuditReserveResultBO {
 
     private Long textAuditLogId;
+    @Builder.Default
+    private List<Long> textAuditLogIds = Collections.emptyList();
 
     @Builder.Default
     private List<MediaItem> mediaItems = Collections.emptyList();

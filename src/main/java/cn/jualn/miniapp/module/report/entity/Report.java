@@ -20,6 +20,7 @@ import java.time.LocalDateTime;
 @TableName("report")
 public class Report {
 
+    private String outcome;
     @TableId(type = IdType.AUTO)
     private Long id;
 

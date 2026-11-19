@@ -90,7 +90,7 @@ public class RedisService {
      */
     public void set(String key, Object value, Duration timeout) {
         if (timeout == null || timeout.isZero() || timeout.isNegative()) {
-            log.warn("[Redis] set 调用未指定有效 TTL，将永久写入，key={}，请确认是否符合预期", key);
+            log.warn("[Redis] set 调用未指定有效 TTL，将永久写入，请确认是否符合预期");
             set(key, value);
             return;
         }
@@ -119,7 +119,7 @@ public class RedisService {
         }
         // 存的是对象却调了 getString，属于使用错误，记录 warn 方便排查
         if (value != null) {
-            log.warn("[Redis] getString 类型不匹配，key={}, actualType={}", key, value.getClass().getName());
+            log.warn("[Redis] getString 类型不匹配，actualType={}", value.getClass().getName());
         }
         return null;
     }
@@ -139,7 +139,7 @@ public class RedisService {
             // convertValue: LinkedHashMap → 目标类型，不会再走 Redis IO
             return objectMapper.convertValue(value, typeRef);
         } catch (IllegalArgumentException e) {
-            log.warn("[Redis] get 转换失败，key={}, type={}", key, typeRef.getType(), e);
+            log.warn("[Redis] get 转换失败，type={}", typeRef.getType(), e);
             return null;
         }
     }
@@ -163,8 +163,8 @@ public class RedisService {
         if (clazz.isInstance(value)) {
             return clazz.cast(value);
         }
-        log.warn("[Redis] get 类型不匹配，key={}, expected={}, actual={}",
-                key, clazz.getName(), value.getClass().getName());
+        log.warn("[Redis] get 类型不匹配，expected={}, actual={}",
+                clazz.getName(), value.getClass().getName());
         return null;
     }
 
@@ -218,8 +218,8 @@ public class RedisService {
                 } else {
                     result.put(keys.get(i), null); // 未命中或类型不匹配，标记 null
                     if (val != null) {
-                        log.warn("[Redis] multiGet 类型不匹配，key={}, expected={}, actual={}",
-                                keys.get(i), clazz.getName(), val.getClass().getName());
+                        log.warn("[Redis] multiGet 类型不匹配，expected={}, actual={}",
+                                clazz.getName(), val.getClass().getName());
                     }
                 }
             }
@@ -312,7 +312,7 @@ public class RedisService {
                             }
                         }
                     } catch (Exception e) {
-                        log.warn("[Redis] mset pipeline 单条序列化失败，key={}", key, e);
+                        log.warn("[Redis] mset pipeline 单条序列化失败", e);
                     }
                 });
                 return null; // pipeline 模式下 callback 必须返回 null
@@ -429,7 +429,7 @@ public class RedisService {
      */
     public Long incrementByAndRefresh(String key, long delta, Duration ttl) {
         if (!StringUtils.hasText(key) || ttl == null || ttl.isZero() || ttl.isNegative()) {
-            log.warn("[Redis] incrementByAndRefresh 参数非法，key={}, delta={}", key, delta);
+            log.warn("[Redis] incrementByAndRefresh 参数非法，delta={}", delta);
             return null;
         }
 
@@ -588,7 +588,7 @@ public class RedisService {
      */
     public boolean setIfAbsent(String key, Object value, Duration timeout) {
         if (!StringUtils.hasText(key) || timeout == null || timeout.isZero() || timeout.isNegative()) {
-            log.warn("[Redis] setIfAbsent 参数非法，key={}", key);
+            log.warn("[Redis] setIfAbsent 参数非法");
             return false;
         }
         try {
@@ -806,7 +806,7 @@ public class RedisService {
                 if (member instanceof String s) {
                     result.add(s);
                 } else if (member != null) {
-                    log.warn("[Redis] sMembers 成员类型非 String，key={}, actualType={}", key, member.getClass().getName());
+                    log.warn("[Redis] sMembers 成员类型非 String，actualType={}", member.getClass().getName());
                 }
             }
             return result;
@@ -947,7 +947,7 @@ public class RedisService {
             }
         }
         if (value != null) {
-            log.warn("[Redis] toLong 类型不匹配，key={}, actualType={}", key, value.getClass().getName());
+            log.warn("[Redis] toLong 类型不匹配，actualType={}", value.getClass().getName());
         }
         return null;
     }

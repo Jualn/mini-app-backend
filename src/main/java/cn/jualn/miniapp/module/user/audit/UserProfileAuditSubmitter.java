@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.user.audit;
 
-import cn.jualn.miniapp.common.enums.AuditScene;
-import cn.jualn.miniapp.common.enums.MediaType;
+import cn.jualn.miniapp.module.audit.enums.AuditScene;
+import cn.jualn.miniapp.module.media.enums.MediaType;
 import cn.jualn.miniapp.module.audit.bo.AuditReserveBO;
 import cn.jualn.miniapp.module.audit.bo.AuditReserveResultBO;
 import cn.jualn.miniapp.module.audit.service.AuditReservationService;

@@ -11,6 +11,8 @@ import java.time.LocalDateTime;
  * 举报记录 Mapper。
  */
 public interface ReportMapper extends BaseMapper<Report> {
+    @org.apache.ibatis.annotations.Select("SELECT * FROM report WHERE id=#{id} FOR UPDATE")
+    Report lockReport(long id);
     List<AdminReportCaseRow> selectAdminCasePage(
             @Param("keyword") String keyword,
             @Param("status") String status,
@@ -18,12 +20,20 @@ public interface ReportMapper extends BaseMapper<Report> {
             @Param("reason") String reason,
             @Param("cursorId") Long cursorId,
             @Param("limit") int limit);
+    List<AdminReportCaseRow> selectGrowthCasePage(
+            @Param("keyword") String keyword,
+            @Param("status") String status,
+            @Param("targetType") String targetType,
+            @Param("reason") String reason,
+            @Param("cursorId") Long cursorId,
+            @Param("limit") int limit,@Param("growthType") String growthType,@Param("growthOrganizationId") String growthOrganizationId,@Param("growthOrganizations") List<String> growthOrganizations);
 
     AdminReportCaseRow selectAdminCase(
             @Param("targetType") String targetType,
             @Param("targetId") Long targetId);
 
     AdminReportCaseSummaryRow selectAdminCaseSummary();
+    AdminReportCaseSummaryRow selectDashboardCaseSummary(@Param("dayStart") java.time.LocalDateTime dayStart, @Param("dayEnd") java.time.LocalDateTime dayEnd);
 
     List<AdminReportEvidenceRow> selectAdminCaseEvidence(
             @Param("targetType") String targetType,

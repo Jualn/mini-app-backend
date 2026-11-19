@@ -20,6 +20,8 @@ import lombok.Data;
  */
 @Data
 public class AdminActivitySaveRequest {
+    private Boolean allowRegistrationAfterStart;
+
     @NotBlank
     @Size(max = 200)
     private String title;

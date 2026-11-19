@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.user.audit;
 
-import cn.jualn.miniapp.common.annotation.AuditTarget;
-import cn.jualn.miniapp.common.enums.AuditScene;
+import cn.jualn.miniapp.module.audit.annotation.AuditTarget;
+import cn.jualn.miniapp.module.audit.enums.AuditScene;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.module.notify.service.NotifyService;
 import cn.jualn.miniapp.module.user.mapper.UserProfileMapper;

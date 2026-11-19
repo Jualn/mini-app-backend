@@ -13,7 +13,9 @@ import java.io.IOException;
 import java.util.Locale;
 import java.util.stream.Collectors;
 
-/** Shared PDF/DOCX/DOC body-text extraction. It deliberately does not perform OCR. */
+/**
+ * Shared PDF/DOCX/DOC body-text extraction. It deliberately does not perform OCR.
+ */
 public final class DocParser {
     public enum Format {
         PDF("PDF_TEXT_LAYER"), DOCX("DOCX_BODY_PARAGRAPHS"), DOC("DOC_BODY_TEXT");

@@ -1,133 +1,170 @@
 package cn.jualn.miniapp.module.wx.service;
 
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.exception.ExternalServiceException;
 import cn.jualn.miniapp.common.result.ResultCode;
-import cn.jualn.miniapp.module.user.service.UserService;
+import cn.jualn.miniapp.module.user.service.UserWechatIdentityService;
+import cn.jualn.miniapp.module.wx.notice.*;
 import cn.jualn.miniapp.third.wx.client.WxClient;
 import cn.jualn.miniapp.third.wx.config.WxProperties;
 import cn.jualn.miniapp.third.wx.dto.MpSubscribeMessageRequest;
 import cn.jualn.miniapp.third.wx.dto.MpSubscribeMessageResponse;
-import cn.jualn.miniapp.third.wx.notice.*;
+import cn.jualn.miniapp.third.wx.notice.WxNoticeSendResult;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.web.reactive.function.client.WebClientException;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
- * 服务号订阅通知发送服务。
- * <p>
- * 负责：
- * 1. 根据通知类型找到模板
- * 2. 根据字段映射渲染微信 data
- * 3. 调用 WxClient 发送
- * <p>
- * 不负责：
- * 1. 判断业务是否应该发送
- * 2. 创建站内信
- * 3. 处理复杂重试策略
+ * Official Account application adapter. Provider owns the permission decision for each send.
  */
-@Slf4j
 @Service
 @RequiredArgsConstructor
-public class WxMpNoticeSendService {
-
+public class WxMpNoticeSendService implements WxNoticeDeliveryAdapter {
+    public static final String CHANNEL = "WECHAT_OFFICIAL_ACCOUNT";
     private final WxClient wxClient;
     private final WxProperties wxProperties;
-    private final UserService userService;
-    private final WxMpNoticeTemplateRegistry templateRegistry;
-    private final WxMpNoticeFieldRenderer fieldRenderer;
+    private final UserWechatIdentityService userService;
+    private final WxNotificationTemplateRegistry templateRegistry;
+    private final WxNotificationTemplateRenderer fieldRenderer;
+
+    @Override
+    public String channel() {
+        return CHANNEL;
+    }
+
+    public boolean isTemplateAvailable(WxMpNoticeType type) {
+        var template = type == null ? null : templateRegistry.resolve(type.getKey(), CHANNEL);
+        return template != null && template.enabled();
+    }
+
+    public boolean isNotificationDeliveryAvailable(WxMpNoticeType type) {
+        return type != null && configured(templateRegistry.resolve(type.getKey(), CHANNEL));
+    }
+
+    @Override
+    public boolean isDeliveryAvailable(NotifyType type) {
+        return type != null && configured(templateRegistry.resolve(type.name(), CHANNEL));
+    }
+
+    private boolean configured(WxEffectiveTemplate template) {
+        return template != null && template.enabled() && accountsConfigured()
+                && (template.jumpTarget() != null || StringUtils.hasText(template.pagePath()));
+    }
+
+    @Override
+    public WxDeliveryTemplateSnapshot prepare(NotifyType type, Map<String, Object> frozen) {
+        if (type == null) throw unavailable();
+        return prepareDelivery(type.name(), null, frozen);
+    }
 
     /**
-     * 发送服务号订阅通知。
-     *
-     * @param userId  接收用户 ID
-     * @param type    通知类型
-     * @param payload 业务字段数据
+     * Source compatibility; legacy aliases are resolved centrally by the catalog.
      */
-    public MpSubscribeMessageResponse send(
-            Long userId,
-            WxMpNoticeType type,
-            Map<String, Object> payload
-    ) {
-        return send(userId, type, payload, () -> {
+    public WxDeliveryTemplateSnapshot prepareDelivery(String type, WxMpNoticeType legacyType, Map<String, Object> frozen) {
+        var template = templateRegistry.resolve(type == null && legacyType != null ? legacyType.getKey() : type, CHANNEL);
+        if (!configured(template)) throw unavailable();
+        return fieldRenderer.renderTemplate(templateRegistry.environment(), template, frozen)
+                .withAccounts(wxProperties.getMp().getAppId(), wxProperties.getMa().getAppId());
+    }
+
+    public boolean isBindingDisabled(NotifyType type) {
+        var template = type == null ? null : templateRegistry.resolve(type.name(), CHANNEL);
+        return template != null && !template.enabled();
+    }
+
+    public boolean isFrozenDeliveryAvailable(WxDeliveryTemplateSnapshot snapshot) {
+        return snapshot != null && snapshot.schemaVersion() == 1
+                && StringUtils.hasText(snapshot.accountAppId()) && StringUtils.hasText(snapshot.jumpAppId())
+                && StringUtils.hasText(snapshot.templateId()) && snapshot.bindingVersion() > 0 && snapshot.definitionVersion() > 0
+                && CHANNEL.equals(snapshot.channel()) && "mp-primary".equals(snapshot.accountRef())
+                && "OFFICIAL_ACCOUNT_SUBSCRIBE_BIZSEND".equals(snapshot.product())
+                && wxProperties.getMp() != null && Objects.equals(snapshot.accountAppId(), wxProperties.getMp().getAppId())
+                && wxProperties.getMa() != null && Objects.equals(snapshot.jumpAppId(), wxProperties.getMa().getAppId())
+                && templateRegistry.environment().equals(snapshot.environment()) && templateRegistry.isSnapshotEnabled(snapshot);
+    }
+
+    @Override
+    public boolean isFrozenAvailable(WxDeliveryTemplateSnapshot snapshot, NotifyType type) {
+        return !isBindingDisabled(type) && isFrozenDeliveryAvailable(snapshot);
+    }
+
+    public MpSubscribeMessageResponse sendFrozen(Long userId, WxDeliveryTemplateSnapshot snapshot,
+                                                 String notificationId, Runnable beforeProviderCall) {
+        if (!isFrozenDeliveryAvailable(snapshot)) throw unavailable();
+        String path = fieldRenderer.originatingPath(snapshot.pagePath(), Map.of("notificationId", notificationId));
+        if (!path.equals(snapshot.pagePath()) || snapshot.data().isEmpty())
+            throw new BusinessException(ResultCode.WX_NOTICE_PAYLOAD_INVALID, "投递快照无效");
+        return sendRequest(userId, snapshot.templateId(), snapshot.data(), path, snapshot.jumpAppId(), beforeProviderCall);
+    }
+
+    @Override
+    public WxNoticeSendResult deliver(Long userId, WxDeliveryTemplateSnapshot snapshot,
+                                      String notificationId, Runnable beforeProviderCall) {
+        try {
+            return WxNoticeSendResult.official(sendFrozen(userId, snapshot, notificationId, beforeProviderCall));
+        } catch (ExternalServiceException failure) {
+            return WxNoticeSendResult.officialFailure(failure);
+        } catch (WebClientException uncertain) {
+            return WxNoticeSendResult.unknown();
+        }
+    }
+
+    /**
+     * Existing direct callers without a Notification ID remain supported only for legacy templates.
+     */
+    public MpSubscribeMessageResponse send(Long userId, WxMpNoticeType type, Map<String, Object> frozen) {
+        return send(userId, type, frozen, () -> {
         });
     }
 
-    public MpSubscribeMessageResponse send(
-            Long userId,
-            WxMpNoticeType type,
-            Map<String, Object> payload,
-            Runnable beforeProviderCall
-    ) {
-        WxMpNoticeTemplateProperties.Template template = templateRegistry.getRequired(type);
-        if (!Boolean.TRUE.equals(template.getEnabled())) {
-            throw new BusinessException(ResultCode.WX_NOTICE_TEMPLATE_UNAVAILABLE, "服务号通知模板未启用：" + type.getKey());
+    public MpSubscribeMessageResponse send(Long userId, WxMpNoticeType type, Map<String, Object> frozen, Runnable beforeProviderCall) {
+        var template = type == null ? null : templateRegistry.resolve(type.getKey(), CHANNEL);
+        if (template == null || !template.enabled()) throw unavailable();
+        if (!template.bindingRef().startsWith("legacy:")) {
+            if (frozen.get("notificationId") == null)
+                throw new BusinessException(ResultCode.WX_NOTICE_PAYLOAD_INVALID, "绑定发送需要原通知 ID");
+            return sendFrozen(userId, prepareDelivery(type.getKey(), type, frozen), frozen.get("notificationId").toString(), beforeProviderCall);
         }
-
-        String mpOpenid = userService.getOfficialAccountOpenid(userId);
-        if (!StringUtils.hasText(mpOpenid)) {
-            throw new BusinessException(ResultCode.WX_OPENID_NOT_BOUND, "用户未绑定服务号 openid");
+        String path = fieldRenderer.resolvePath(template.pagePath(), frozen);
+        if (frozen.get("notificationId") != null) {
+            if (!StringUtils.hasText(path)) throw unavailable();
+            path = org.springframework.web.util.UriComponentsBuilder.fromUriString(path)
+                    .replaceQueryParam("notificationId", frozen.get("notificationId").toString()).build().encode().toUriString();
         }
+        String jumpAppId = wxProperties.getMa() == null ? null : wxProperties.getMa().getAppId();
+        if (StringUtils.hasText(path) && !StringUtils.hasText(jumpAppId)) throw unavailable();
+        return sendRequest(userId, template.templateId(), fieldRenderer.renderData(template, frozen), path, jumpAppId, beforeProviderCall);
+    }
 
-        Map<String, MpSubscribeMessageRequest.DataItem> data =
-                fieldRenderer.render(template, payload);
-
-        String pagePath = fieldRenderer.resolvePath(template.getPagePath(), payload);
-        if (payload != null && payload.get("notificationId") != null && !StringUtils.hasText(pagePath)) {
-            throw new BusinessException(ResultCode.WX_NOTICE_TEMPLATE_UNAVAILABLE, "通知模板缺少可恢复原通知的站内入口");
-        }
-        if (payload != null && payload.get("notificationId") != null && StringUtils.hasText(pagePath)) {
-            // Always preserve the originating Notification; a configured template cannot substitute another ID.
-            pagePath = org.springframework.web.util.UriComponentsBuilder.fromUriString(pagePath)
-                    .replaceQueryParam("notificationId", payload.get("notificationId").toString())
-                    .build().encode().toUriString();
-        }
-
-        MpSubscribeMessageRequest.MiniProgram jump = null;
-        if (StringUtils.hasText(pagePath)) {
-            if (wxProperties.getMa() == null || !StringUtils.hasText(wxProperties.getMa().getAppId())) {
-                throw new BusinessException(ResultCode.WX_NOTICE_TEMPLATE_UNAVAILABLE,
-                        "服务号通知跳转缺少小程序账号配置");
-            }
-            jump = MpSubscribeMessageRequest.MiniProgram.builder()
-                    .appId(wxProperties.getMa().getAppId()).pagePath(pagePath).build();
-        }
-        MpSubscribeMessageRequest request = MpSubscribeMessageRequest.builder()
-                .toUser(mpOpenid)
-                .templateId(template.getTemplateId())
-                .miniprogram(jump)
-                .data(data)
-                .build();
-
-        log.debug("发送服务号订阅通知，userId={}, type={}", userId, type.getKey());
-
+    private MpSubscribeMessageResponse sendRequest(Long userId, String templateId, Map<String, String> values,
+                                                   String path, String jumpAppId, Runnable beforeProviderCall) {
+        String openid = userService.getOfficialAccountOpenid(userId);
+        if (!StringUtils.hasText(openid)) throw new BusinessException(ResultCode.WX_OPENID_NOT_BOUND, "服务号身份缺失");
+        Map<String, MpSubscribeMessageRequest.DataItem> data = new LinkedHashMap<>();
+        values.forEach((key, value) -> data.put(key, MpSubscribeMessageRequest.DataItem.builder().value(value).build()));
+        var jump = !StringUtils.hasText(path) ? null : MpSubscribeMessageRequest.MiniProgram.builder().appId(jumpAppId).pagePath(path).build();
+        var request = MpSubscribeMessageRequest.builder().toUser(openid).templateId(templateId).data(data).miniprogram(jump).build();
         beforeProviderCall.run();
-        MpSubscribeMessageResponse response = wxClient.sendMpSubscribeMessage(request);
-        if (response == null || response.getErrcode() == null) {
-            throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat",
-                    "服务号订阅通知响应缺少明确结果");
-        }
-        if (response.getErrcode() != 0) {
-            throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat",
-                    String.valueOf(response.getErrcode()), "服务号订阅通知被微信拒绝");
-        }
+        var response = wxClient.sendMpSubscribeMessage(request);
+        if (response == null || response.getErrcode() == null)
+            throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat", "微信发送结果未知");
+        if (response.getErrcode() != 0)
+            throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat", response.getErrcode().toString(), "微信发送被拒绝");
         return response;
     }
 
-    /**
-     * 既有服务号链路的模板就绪情况，不代表逐用户订阅许可。
-     */
-    public boolean isTemplateAvailable(WxMpNoticeType type) {
-        return templateRegistry.isSendEnabled(type);
+    private boolean accountsConfigured() {
+        return wxProperties.getMp() != null && StringUtils.hasText(wxProperties.getMp().getAppId())
+                && wxProperties.getMa() != null && StringUtils.hasText(wxProperties.getMa().getAppId());
     }
 
-    /** Template plus recoverable originating Notification entry; still not subscription permission. */
-    public boolean isNotificationDeliveryAvailable(WxMpNoticeType type) {
-        return isTemplateAvailable(type)
-                && StringUtils.hasText(templateRegistry.getRequired(type).getPagePath())
-                && wxProperties.getMa() != null && StringUtils.hasText(wxProperties.getMa().getAppId());
+    private BusinessException unavailable() {
+        return new BusinessException(ResultCode.WX_NOTICE_TEMPLATE_UNAVAILABLE, "微信模板或账号不可用");
     }
 }

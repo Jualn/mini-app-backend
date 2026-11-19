@@ -1,9 +1,9 @@
 package cn.jualn.miniapp.module.activity.vo;
 
-import cn.jualn.miniapp.common.enums.ActivityCategory;
-import cn.jualn.miniapp.common.enums.ActivityStatus;
+import cn.jualn.miniapp.module.activity.enums.ActivityCategory;
+import cn.jualn.miniapp.module.activity.enums.ActivityStatus;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
-import cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO;
+import cn.jualn.miniapp.module.timeline.bo.TimelineFactBO;
 import cn.jualn.miniapp.module.user.bo.UserSimpleBO;
 import lombok.Builder;
 import lombok.Data;
@@ -54,7 +54,6 @@ public class ActivityDetailVO {
     private ActivityStatus status;
     private ActivityCategory category;
     private String organizer;
-    private Integer audienceScope;
     private String contactInfo;
     private String joinMethod;
     private String qrcodeUrl;
@@ -70,7 +69,7 @@ public class ActivityDetailVO {
     // 关联其他业务相关内容
     private UserSimpleBO author;
     private List<MediaAttachmentBO> attachmentItems;
-    private List<TimelineItemDTO> timelineItems;
+    private List<TimelineFactBO> timelineItems;
 
     // 当前用户相关状态
     private Boolean liked;

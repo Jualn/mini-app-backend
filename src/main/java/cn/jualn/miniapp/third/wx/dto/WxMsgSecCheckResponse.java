@@ -13,6 +13,12 @@ import java.util.List;
 @EqualsAndHashCode(callSuper = true)
 public class WxMsgSecCheckResponse extends WxApiResult {
 
+    // Computed from raw JSON before Jackson scalar coercion. Never supplied by the provider.
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private boolean verifiedPassStructure;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private boolean verifiedEmptyKeywordPassStructure;
+
     @JsonAlias("trace_id")
     private String traceId;
 

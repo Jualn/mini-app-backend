@@ -1,5 +1,7 @@
 package cn.jualn.miniapp.module.user.mapper;
 
+import cn.jualn.miniapp.common.web.NameRow;
+
 import cn.jualn.miniapp.module.user.bo.UserPublicProfileBO;
 import cn.jualn.miniapp.module.user.bo.UserSimpleBO;
 import cn.jualn.miniapp.module.user.entity.UserProfile;
@@ -13,8 +15,28 @@ import java.util.Collection;
 
 
 public interface UserProfileMapper extends BaseMapper<UserProfile> {
+    @Select("SELECT id,role,status,ban_reason,ban_expire_at,last_login_at FROM user_profile WHERE id=#{id} AND deleted_at IS NULL FOR UPDATE")
+    UserAuthRow lockContentAccount(long id);
+    @Select("SELECT session_version FROM user_profile WHERE id=#{userId} AND deleted_at IS NULL")
+    Long selectSessionVersion(@Param("userId") long userId);
+
+    @Update("UPDATE user_profile SET session_version=session_version+1 WHERE id=#{userId} AND deleted_at IS NULL")
+    int invalidateSessions(@Param("userId") long userId);
+
+    List<NameRow> selectAdminNames(@Param("ids") java.util.Collection<Long> ids);
+    @Select({"<script>","SELECT id FROM user_profile WHERE status=1 AND deleted_at IS NULL AND openid IS NOT NULL AND openid != '' AND id IN",
+            "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach>",
+            "ORDER BY id FOR SHARE","</script>"})
+    List<Long> selectLearningTaskEligibleForShare(@Param("ids") List<Long> ids);
+
+    @Select("SELECT id FROM user_profile WHERE status=1 AND deleted_at IS NULL AND openid IS NOT NULL AND openid != '' ORDER BY id")
+    List<Long> selectLearningTaskEligibleDirectory();
 
     UserProfile selectProfileForUpdate(@Param("userId") Long userId);
+
+    UserAuthRow selectCurrentLoginForShare(@Param("userId") long userId);
+
+    java.time.LocalDateTime selectCurrentUtcTime();
 
     int updateCheckedProfile(@Param("userId") Long userId, @Param("revision") long revision,
                              @Param("profile") UserProfile profile);
@@ -65,7 +87,4 @@ public interface UserProfileMapper extends BaseMapper<UserProfile> {
 
     AdminUserDetailRow selectAdminUserDetail(@Param("userId") Long userId);
 
-    @Select("SELECT id FROM user_profile " +
-            "WHERE role = 3 AND deleted_at IS NULL ORDER BY id FOR UPDATE")
-    List<Long> selectAdminIdsForUpdate();
 }

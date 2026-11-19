@@ -24,9 +24,12 @@ public class CommentCreateRequest {
 
     /** Parent comment id, null for top-level. */
     private Long parentId;
+    private Long replyToCommentId;
 
     /** Reply-to user id, for displaying "reply @user". */
     private Long replyToUid;
+    @Size(max=128)
+    private String questionVersion;
 
     /** Comment content. */
     @NotBlank(message = "评论内容不能为空")
@@ -40,4 +43,10 @@ public class CommentCreateRequest {
     /** Optional COS object key. The server derives imageUrl from this field. */
     @Size(max = 512, message = "图片objectKey长度不能超过512")
     private String imageObjectKey;
+    @com.fasterxml.jackson.annotation.JsonAnySetter
+    public void rejectServerEvidence(String name, Object value) {
+        if (java.util.Set.of("kind", "mentorAnswer", "mentorEvidence", "qualificationId", "personId", "bindingId").contains(name)) {
+            throw cn.jualn.miniapp.module.post.PostProblems.invalid(name, "INVALID_VALUE", "Mentor attribution is supplied by the server");
+        }
+    }
 }

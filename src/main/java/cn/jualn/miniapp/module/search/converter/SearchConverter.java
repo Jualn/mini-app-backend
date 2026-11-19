@@ -14,10 +14,6 @@ import java.util.List;
 
 @Mapper(componentModel = "spring" ,uses = {EnumConverter.class})
 public interface SearchConverter {
-    java.util.List<cn.jualn.miniapp.module.search.vo.SearchActivityVO> toActivityVOList(
-            java.util.List<cn.jualn.miniapp.module.activity.bo.ActivityListBO> values);
-
-
     SearchPageBO toPageBO(SearchPageQuery query);
 
     List<SearchResultVO> toVOList(List<SearchResultBO> list);

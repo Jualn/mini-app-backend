@@ -33,7 +33,7 @@ class AdminRuntimeMetricsReader {
     AdminSystemOverviewBO.RuntimeMetricsBO snapshot() {
         long startedAtMillis = ManagementFactory.getRuntimeMXBean().getStartTime();
         OffsetDateTime startedAt = OffsetDateTime.ofInstant(
-                Instant.ofEpochMilli(startedAtMillis), ZoneId.systemDefault());
+                Instant.ofEpochMilli(startedAtMillis), ZoneId.of("Asia/Shanghai"));
         long uptimeSeconds = Math.max(0L, (System.currentTimeMillis() - startedAtMillis) / 1000L);
         return AdminSystemOverviewBO.RuntimeMetricsBO.builder()
                 .scope("CURRENT_PROCESS")

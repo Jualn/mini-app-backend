@@ -2,7 +2,7 @@ package cn.jualn.miniapp.module.media.service;
 
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
-import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
+import cn.jualn.miniapp.module.subject.service.SubjectExistenceService;
 import cn.jualn.miniapp.module.media.bo.AttachmentLinkBO;
 import cn.jualn.miniapp.module.media.converter.MediaConverter;
 import cn.jualn.miniapp.module.media.mapper.MediaAttachmentMapper;
@@ -18,6 +18,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mapstruct.factory.Mappers;
 import org.mybatis.spring.mapper.MapperFactoryBean;
 import org.springframework.context.annotation.*;
@@ -33,12 +35,12 @@ import java.util.concurrent.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-/** Dedicated disposable V1..V30 MySQL database only. COS is a double, DB and transaction proxy are real. */
+/** Dedicated V74 schema: historical formal fixtures and V30 repair compatibility. New registration is tested by FileFoundationDatabaseTest. */
 @EnabledIfSystemProperty(named = "event.test.jdbcUrl", matches = "jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/media_attachment_lifecycle_test")
 class MediaAttachmentLifecycleDatabaseTest {
     private AnnotationConfigApplicationContext context;
     private JdbcTemplate jdbc;
-    private MediaService media;
+    private MediaService media; cn.jualn.miniapp.module.media.service.MediaQueries queries; cn.jualn.miniapp.module.media.service.MediaAccess access;
     private MediaUploadRecordService uploads;
     private MediaUploadRecordMapper records;
     private TransactionTemplate transaction;
@@ -49,21 +51,30 @@ class MediaAttachmentLifecycleDatabaseTest {
     @BeforeEach void setup() {
         context = new AnnotationConfigApplicationContext(Config.class);
         jdbc = new JdbcTemplate(context.getBean(DataSource.class));
-        media = context.getBean(MediaService.class); uploads = context.getBean(MediaUploadRecordService.class);
+        media = context.getBean(MediaService.class); queries=context.getBean(cn.jualn.miniapp.module.media.service.MediaQueries.class); access=context.getBean(cn.jualn.miniapp.module.media.service.MediaAccess.class); uploads = context.getBean(MediaUploadRecordService.class);
         records = context.getBean(MediaUploadRecordMapper.class); cos = context.getBean(CosClient.class);
         transaction = new TransactionTemplate(context.getBean(DataSourceTransactionManager.class));
         // This schema is exclusively owned by the test invocation, never a shared or business database.
         jdbc.update("DELETE FROM event_attachment_link"); jdbc.update("DELETE FROM media_upload_record");
         jdbc.update("DELETE FROM media_attachment");
+        cn.jualn.miniapp.security.AdminContextFixture.open(9);
         pending(key, TargetType.ACTIVITY);
     }
-    @AfterEach void close() { if (context != null) context.close(); }
+    @AfterEach void close() {cn.jualn.miniapp.security.AdminContextFixture.close(); if (context != null) context.close(); }
     private void pending(String value, TargetType type) {
         uploads.recordPending(9L, type, List.of(value), LocalDateTime.now().plusHours(1));
+        jdbc.update("UPDATE media_upload_record SET declared_kind='VERIFIED' WHERE object_key=?",value);
     }
     private int status() { return jdbc.queryForObject("SELECT status FROM media_upload_record WHERE object_key=?", Integer.class, key); }
     private void expire() { jdbc.update("UPDATE media_upload_record SET cleanup_after=DATE_SUB(NOW(), INTERVAL 1 HOUR) WHERE object_key=?", key); }
-    private long register() { return media.registerAttachment("PDF", "文件", url, 9L).getId(); }
+    private long register() { return transaction.execute(state -> {
+        var upload=uploads.lockAttachmentUpload(9L,key);
+        var entity=cn.jualn.miniapp.module.media.entity.MediaAttachment.builder().kind("PDF").type(3).registered(true).registeredBy(9L)
+            .objectKey(key).url(url).originalName("historical").sortOrder(0).retention("FORMAL").deleted(false).build();
+        context.getBean(MediaAttachmentMapper.class).insert(entity);
+        if(upload.getBoundAttachmentId()==null) jdbc.update("UPDATE media_upload_record SET status=1,bound_attachment_id=? WHERE id=?",entity.getId(),upload.getId());
+        return entity.getId();
+    }); }
     private long id() { return jdbc.queryForObject("SELECT id FROM media_upload_record WHERE object_key=?", Long.class, key); }
 
     @Test void registrationOwnsFileBeforeAnyBusinessSaveAndSupportsDuplicates() {
@@ -84,7 +95,7 @@ class MediaAttachmentLifecycleDatabaseTest {
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM event_attachment_link", Integer.class)); assertEquals(1, status());
         media.replaceAttachmentLinks(TargetType.ACTIVITY, 101L, List.of(new AttachmentLinkBO(attachment, 0)));
         media.replaceAttachmentLinks(TargetType.EXAM, 102L, List.of(new AttachmentLinkBO(attachment, 0)));
-        assertEquals(attachment, media.listAttachments(TargetType.EXAM, 102L).get(0).getId());
+        assertEquals(attachment, queries.listAttachments(TargetType.EXAM, 102L).get(0).getId());
         media.replaceAttachmentLinks(TargetType.ACTIVITY, 101L, List.of());
         media.replaceAttachmentLinks(TargetType.EXAM, 102L, List.of());
         expire(); assertEquals(0, uploads.cleanupExpiredBatch()); assertEquals(1, status());
@@ -139,6 +150,52 @@ class MediaAttachmentLifecycleDatabaseTest {
         verify(cos, never()).deleteObject(anyString());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"utf8mb4_unicode_ci", "utf8mb4_0900_ai_ci"})
+    void mixedObjectKeyCollationsPreserveProtectionAndExactAccess(String attachmentCollation) {
+        String uploadCollation = attachmentCollation.equals("utf8mb4_unicode_ci")
+                ? "utf8mb4_0900_ai_ci" : "utf8mb4_unicode_ci";
+        String originalAttachmentCollation = objectKeyCollation("media_attachment");
+        String originalUploadCollation = objectKeyCollation("media_upload_record");
+        try {
+            objectKeyCollation("media_attachment", attachmentCollation, "NULL");
+            objectKeyCollation("media_upload_record", uploadCollation, "NOT NULL");
+            // A different URL forces protection to depend on the cross-table object key comparison.
+            jdbc.update("INSERT INTO media_attachment(type,kind,registered,registered_by,object_key,url,original_name) "
+                    + "VALUES(3,'PDF',1,9,?,?,'mixed-collation')", key, "https://legacy.example/other.pdf");
+            long attachment = jdbc.queryForObject("SELECT MAX(id) FROM media_attachment", Long.class);
+            expire();
+            assertEquals(0, records.claimCleanup(id(), LocalDateTime.now(), List.of(url)));
+            jdbc.update("UPDATE media_upload_record SET status=1,bound_target_id=101 WHERE id=?", id());
+            assertEquals(0, records.requestDeletion(key, TargetType.ACTIVITY.getCode(), 101L,
+                    LocalDateTime.now(), List.of(url)));
+
+            jdbc.update("UPDATE media_upload_record SET bound_target_id=NULL,bound_attachment_id=? WHERE id=?", attachment, id());
+            assertEquals(TargetType.ACTIVITY.getCode(), records.selectRegisteredPurpose(attachment, 9L));
+            var attachments = context.getBean(MediaAttachmentMapper.class);
+            assertEquals(1, attachments.selectBatchAccess(List.of(attachment), 9L).size());
+            jdbc.update("UPDATE media_attachment SET object_key=? WHERE id=?", key.toUpperCase(java.util.Locale.ROOT), attachment);
+            assertNull(records.selectRegisteredPurpose(attachment, 9L));
+            assertTrue(attachments.selectBatchAccess(List.of(attachment), 9L).isEmpty());
+            jdbc.update("UPDATE media_upload_record SET status=0,bound_attachment_id=NULL WHERE id=?", id());
+            assertEquals(1, records.claimCleanup(id(), LocalDateTime.now(), List.of(url)));
+        } finally {
+            objectKeyCollation("media_attachment", originalAttachmentCollation, "NULL");
+            objectKeyCollation("media_upload_record", originalUploadCollation, "NOT NULL");
+        }
+    }
+
+    private String objectKeyCollation(String table) {
+        return jdbc.queryForObject("SELECT COLLATION_NAME FROM information_schema.COLUMNS "
+                + "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME='object_key'", String.class, table);
+    }
+
+    private void objectKeyCollation(String table, String collation, String nullability) {
+        // Identifiers and collation names come only from this fixture or its schema metadata.
+        jdbc.execute("ALTER TABLE " + table + " MODIFY object_key VARCHAR(512) CHARACTER SET utf8mb4 COLLATE "
+                + collation + " " + nullability + " COMMENT 'COS object key'");
+    }
+
     @Test void deletionIntentIsDurableAndRollsBackWithBusinessState() {
         transaction.executeWithoutResult(state -> uploads.bindPending(9L, TargetType.ACTIVITY, 101L, List.of(key)));
         assertThrows(IllegalStateException.class, () -> transaction.executeWithoutResult(state -> {
@@ -152,11 +209,10 @@ class MediaAttachmentLifecycleDatabaseTest {
         verify(cos).deleteObject(key);
     }
 
-    @Test void externalUrlDoesNotBindAndForeignOrWrongCategoryUploadIsRejected() {
-        media.registerAttachment("LINK", "外链", "https://outside.example/file", 9L); assertEquals(0, status());
-        assertThrows(BusinessException.class, () -> media.registerAttachment("PDF", "文件", url, 10L));
-        pending("post/9/file.pdf", TargetType.POST);
-        assertThrows(BusinessException.class, () -> media.registerAttachment("PDF", "文件", "https://cdn.example/post/9/file.pdf", 9L));
+    @Test void unkeyedRegistrationCannotBypassTheNewProtocol() {
+        assertThrows(cn.jualn.miniapp.common.exception.ContractProblemException.class,
+            ()->media.registerAttachment("LINK","external","https://outside.example/file",9L));
+        assertEquals(0,status());assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM media_attachment",Integer.class));
     }
 
     @Test void failedCleanupKeepsDeletionHistoryAndRetriesWithoutAllowingRegistration() {
@@ -243,7 +299,21 @@ class MediaAttachmentLifecycleDatabaseTest {
         @Bean CosService cosService(CosClient cos) { return new CosService(cos, new CosProperties("unused", "unused", "campus-123", "ap-test", "https://cdn.example", 600, "cdn.example"), new ObjectMapper()); }
         @Bean MediaUploadRecordService uploads(MediaUploadRecordMapper records, CosService cos) { return new MediaUploadRecordService(records, cos); }
         @Bean MediaService media(MediaAttachmentMapper attachments, CosService cos, MediaUploadRecordService uploads, MediaConverter converter) {
-            return new MediaServiceImpl(converter, attachments, mock(TargetValidator.class), cos, uploads);
+            return new MediaServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class), converter, attachments, mock(SubjectExistenceService.class), cos, uploads, org.mockito.Mockito.mock(cn.jualn.miniapp.module.media.service.ArticleMediaService.class));
         }
+  @Bean cn.jualn.miniapp.module.media.service.MediaQueries mediaQueries(MediaConverter c,MediaAttachmentMapper a,
+      org.springframework.beans.factory.ObjectProvider<cn.jualn.miniapp.module.media.service.ArticleMediaService> article) {
+    return new cn.jualn.miniapp.module.media.service.MediaQueriesService(c,a,
+      org.mockito.Mockito.mock(cn.jualn.miniapp.module.subject.service.SubjectExistenceService.class),
+      article.getIfAvailable(()->org.mockito.Mockito.mock(cn.jualn.miniapp.module.media.service.ArticleMediaService.class)));
+  }
+  @Bean cn.jualn.miniapp.module.media.service.MediaAccess mediaAccess(MediaAttachmentMapper a,
+      cn.jualn.miniapp.module.media.service.MediaQueries q,MediaUploadRecordService uploads,
+      org.springframework.beans.factory.ObjectProvider<cn.jualn.miniapp.module.authorization.service.CurrentAuthorization> auth,
+      org.springframework.beans.factory.ObjectProvider<cn.jualn.miniapp.module.media.service.ArticleMediaService> article) {
+    return new cn.jualn.miniapp.module.media.service.MediaAccessService(auth.getIfAvailable(()->org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class)),a,q,uploads,
+      article.getIfAvailable(()->org.mockito.Mockito.mock(cn.jualn.miniapp.module.media.service.ArticleMediaService.class)));
+  }
+
     }
 }

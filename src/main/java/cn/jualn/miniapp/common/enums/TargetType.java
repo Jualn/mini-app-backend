@@ -17,7 +17,9 @@ public enum TargetType {
     EXAM(3, "考试信息","exam"),
     COMMENT(4,"评论","comment"),
     NOTIFICATION(5,"通知","notification"),
-    USER(6,"用户","user"),;
+    USER(6,"用户","user"),
+    OFFICIAL_CONTENT(7,"官方宣传内容","official-content"),
+    ARTICLE(8,"官方富文本资讯","article");
 
     private final int code;
     private final String desc;

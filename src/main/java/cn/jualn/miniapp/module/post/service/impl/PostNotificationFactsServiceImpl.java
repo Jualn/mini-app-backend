@@ -14,6 +14,7 @@ public class PostNotificationFactsServiceImpl implements PostNotificationFactsSe
     @Override public Fact published(long id) {
         Post row = mapper.selectOne(new LambdaQueryWrapper<Post>()
                 .select(Post::getId, Post::getUserId, Post::getTitle, Post::getContent)
+                .apply("NOT EXISTS (SELECT 1 FROM post_growth_record g WHERE g.post_id=post.id)")
                 .eq(Post::getId, id).eq(Post::getStatus, 2));
         if (row == null) return null;
         String preview = row.getContent();

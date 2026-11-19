@@ -1,12 +1,13 @@
 package cn.jualn.miniapp.module.eventcontent.service.impl;
 
 import cn.jualn.miniapp.common.enums.*;
+import cn.jualn.miniapp.module.media.enums.MediaType;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.module.eventcontent.bo.*;
 import cn.jualn.miniapp.module.eventcontent.entity.*;
 import cn.jualn.miniapp.module.eventcontent.mapper.*;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
-import cn.jualn.miniapp.module.media.service.MediaService;
+import cn.jualn.miniapp.module.media.TestMediaService;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -20,12 +21,12 @@ import static org.mockito.ArgumentMatchers.any;
 class EventContentServiceImplTest {
     EventSectionMapper sections;
     EventActionMapper actions;
-    MediaService media;
+    TestMediaService media;
     EventContentServiceImpl service;
     @BeforeEach void setup() {
         for (Class<?> type : List.of(EventSection.class, EventAction.class))
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), type);
-        sections = mock(EventSectionMapper.class); actions = mock(EventActionMapper.class); media = mock(MediaService.class);
+        sections = mock(EventSectionMapper.class); actions = mock(EventActionMapper.class); media = mock(TestMediaService.class);
         service = new EventContentServiceImpl(sections, actions, media);
     }
     @Test void emptySectionsRemainEmptyWithoutLegacyFallback() {

@@ -6,12 +6,30 @@ sa-token:
   is-share: false           # 每次登录生成新 token
   token-style: uuid
   is-print: false
-  cookie-auto-fill-prefix: true # 自动填充 token 前缀, 没开启就添加前缀的话cookie就认证不成功
+  is-read-cookie: false
+  is-read-body: false
+  is-read-header: true
+  is-write-header: false
+  is-log: false
+
+app:
+  media:
+    public-base-url: ${MEDIA_PUBLIC_BASE_URL:}
+  article:
+    # Optional deep format probe for Article and Points MP4; blank keeps header checks and video upload enabled.
+    ffprobe-path: ${ARTICLE_FFPROBE_PATH:}
+  points:
+    # Environment-owned private storage. Never fall back to the public media bucket.
+    private-bucket: ${COS_PRIVATE_BUCKET:}
+    private-image-check-enabled: ${COS_IMAGE_CHECK_ENABLED:false}
+  learning-task:
+    # Enable only after this LearningTask private chain and supported consumers have been verified.
+    private-bucket: ${COS_PRIVATE_BUCKET:}
+    private-image-audit-enabled: ${COS_PRIVATE_IMAGE_AUDIT_ENABLED:false}
 
 admin-auth:
   token-ttl: 8h
   qr-login-v2:
-    enabled: true
     # Reuses wx.ma credentials; the confirmation page and AppID have been confirmed.
     env-version: ${ADMIN_QR_LOGIN_ENV_VERSION:release}
     check-path: ${ADMIN_QR_LOGIN_CHECK_PATH:true}
@@ -25,6 +43,8 @@ admin-auth:
 document-import:
   stream-timeout: 5m
   ai-read-idle-timeout: 60s
+  diagnostics-enabled: ${DOCUMENT_IMPORT_DIAGNOSTICS_ENABLED:false}
+  diagnostics-directory: ${DOCUMENT_IMPORT_DIAGNOSTICS_DIRECTORY:target/document-import-samples}
 
 async-processing:
   outbox:
@@ -52,6 +72,41 @@ mybatis-plus:
   type-aliases-package: cn.jualn.miniapp.module.*.entity
   configuration:
     map-underscore-to-camel-case: true
+    # SQL parameters can contain credentials, private source facts and user content, even in dev.
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+logging:
+  # Boot owns levels and environment overrides. Avoid global DEBUG and per-request INFO.
+  group:
+    requestlog: cn.jualn.miniapp.common.filter.RequestLogFilter
+    providerlog: cn.jualn.miniapp.config.WebClientConfig
+  level:
+    root: INFO
+    cn.jualn.miniapp: INFO
+    org.springframework: WARN
+    # Startup, web-server lifecycle and graceful shutdown are low-frequency operational evidence.
+    org.springframework.boot: INFO
+    com.zaxxer.hikari: INFO
+    org.apache: WARN
+    com.baomidou: WARN
+    org.mybatis: WARN
+    cn.dev33.satoken: WARN
+    io.lettuce: WARN
+    io.netty: WARN
+    reactor.netty: WARN
+    com.qcloud: WARN
+    com.tencent.cloud: WARN
+    # COS uses Apache HttpClient; wire/headers can expose credentials and signed URLs.
+    org.apache.http.wire: "OFF"
+    org.apache.http.headers: "OFF"
+  structured:
+    json:
+      context:
+        # Add only reviewed MDC/fluent fields in the native Boot customizer.
+        include: false
+      customizer: cn.jualn.miniapp.common.observability.LoggingJsonCustomizer
+      stacktrace:
+        printer: cn.jualn.miniapp.common.observability.SafeStackTracePrinter
 
 server:
   port: 8080
@@ -70,6 +125,22 @@ server:
       - application/xml # 压缩 XML 数据
       - image/svg+xml # 压缩 SVG 图像
       - text/plain # 压缩纯文本内容
+
+cos:
+  private-bucket: ${COS_PRIVATE_BUCKET:}
+  video-audit:
+    enabled: ${COS_VIDEO_AUDIT_ENABLED:false}
+    biz-type: ${COS_VIDEO_AUDIT_BIZ_TYPE:}
+    policy-revision: ${COS_VIDEO_AUDIT_POLICY_REVISION:1}
+    snapshot-interval-seconds: 1
+    poll-interval-seconds: 30
+    deadline-minutes: 120
+
+people-qualification:
+  encryption-key: ${PEOPLE_QUALIFICATION_ENCRYPTION_KEY:}
+  match-key: ${PEOPLE_QUALIFICATION_MATCH_KEY:}
+  student-number-namespace: ${PEOPLE_QUALIFICATION_STUDENT_NUMBER_NAMESPACE:CAMPUS_STUDENT_NUMBER}
+  student-number-display-name: ${PEOPLE_QUALIFICATION_STUDENT_NUMBER_DISPLAY_NAME:学号}
 
 spring:
   application:
@@ -104,9 +175,10 @@ spring:
           max-wait: 1500ms # 从连接池获取可用连接的最大等待时间
   datasource:
     #    关闭 SSL 连接（避免控制台报警告） 连接数据库时初始化字符集 Java 端用 UTF-8 编码即可安全存储 Emoji 等字符。JDBC 驱动会自动做编码转换
-    url: jdbc:mysql://localhost:3306/jualncampus?sslMode=DISABLED&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    url: jdbc:mysql://localhost:3306/jualncampus?sslMode=DISABLED&allowPublicKeyRetrieval=true&connectionTimeZone=%2B08:00&forceConnectionTimeZoneToSession=true
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
+      connection-init-sql: "SET time_zone = '+08:00'"
       minimum-idle: 5       # 最小空闲连接
       maximum-pool-size: 10 # 最大连接数
       connection-timeout: 30000 # 获取连接超时 30s
@@ -115,10 +187,15 @@ spring:
       auto-commit: true
 
 wx:
+  notification:
+    environment: ${WX_NOTIFICATION_ENVIRONMENT:local}
+    definitions: { }
+    bindings: { }
   mp:
     notice-templates:
       audit-result:
         type: audit_result
+        version: 1
         name: 审核结果通知
         template-id: R7Eowu1hJGBxAAK3el4WK9iU6QYv9PuHp5vVQ9d_bi4
         enabled: true
@@ -154,6 +231,7 @@ wx:
 
       comment-reply:
         type: comment_reply
+        version: 1
         name: 评论回复通知
         template-id: zzmihiosaF4UVKQxeY_wakMcfQPpMnP_j1lLqMEzVug
         enabled: true
@@ -191,6 +269,7 @@ wx:
 
       activity-start:
         type: activity_start
+        version: 1
         name: 活动开始提醒
         template-id: aqm21k-qtN07pIGKqyXyHNeIMjyWQA07BDcu2i-f_bM
         enabled: true
@@ -221,6 +300,7 @@ wx:
 
       reply:
         type: reply
+        version: 1
         name: 新的回复提醒
         template-id: 02lmG8krB2briz6jtYUkKo1AtKjwkDrWo5vAj19s0ZQ
         enabled: true

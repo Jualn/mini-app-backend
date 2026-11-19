@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.points.mapper.PointAcceptanceSettingsMapper">
+ <sql id="columns">o.id organization_id,o.name organization_name,o.status organization_status,
+ e.id evidence_id,e.organization_id evidence_organization_id,e.verification,e.enabled,c.reason,c.actor recorded_by,e.recorded_at</sql>
+ <sql id="current">FROM person_organization o LEFT JOIN point_organization_acceptance q ON q.organization_id=o.id
+ LEFT JOIN point_acceptance_evidence e ON e.id=q.evidence_id LEFT JOIN point_acceptance_command c ON c.evidence_id=e.id</sql>
+ <select id="setting" resultType="cn.jualn.miniapp.module.points.bo.PointAcceptanceSettings$Row" useCache="false" flushCache="true">
+ SELECT <include refid="columns"/> <include refid="current"/> WHERE o.id=#{organization}
+ </select>
+ <select id="settings" resultType="cn.jualn.miniapp.module.points.bo.PointAcceptanceSettings$Row" useCache="false" flushCache="true">
+ SELECT <include refid="columns"/> <include refid="current"/> ORDER BY o.id LIMIT #{size} OFFSET #{offset}
+ </select>
+ <select id="count" resultType="long">SELECT COUNT(*) FROM person_organization</select>
+ <select id="history" resultType="cn.jualn.miniapp.module.points.bo.PointAcceptanceSettings$Row" useCache="false" flushCache="true">
+ SELECT <include refid="columns"/> FROM point_acceptance_evidence e JOIN person_organization o ON o.id=e.organization_id
+ LEFT JOIN point_acceptance_command c ON c.evidence_id=e.id WHERE e.organization_id=#{organization}
+ ORDER BY e.recorded_at DESC,e.id DESC LIMIT #{size} OFFSET #{offset}
+ </select>
+ <select id="historyCount" resultType="long">SELECT COUNT(*) FROM point_acceptance_evidence WHERE organization_id=#{organization}</select>
+ <select id="receipt" resultType="cn.jualn.miniapp.module.points.bo.PointAcceptanceSettings$Receipt" useCache="false" flushCache="true">
+ SELECT id,actor,organization_id,command_key,expected_version,enabled,reason,result_json,evidence_id,recorded_at
+ FROM point_acceptance_command WHERE actor=#{actor} AND organization_id=#{organization} AND command_key=#{key}
+ </select>
+ <insert id="insertEvidence">INSERT INTO point_acceptance_evidence(id,organization_id,verification,enabled,approval_reference,recorded_at)
+ VALUES(#{evidenceId},#{organizationId},'VERIFIED',#{enabled},#{id},#{recordedAt})</insert>
+ <insert id="insertReceipt">INSERT INTO point_acceptance_command(id,actor,organization_id,command_key,expected_version,enabled,reason,result_json,evidence_id,recorded_at)
+ VALUES(#{id},#{actor},#{organizationId},#{commandKey},#{expectedVersion},#{enabled},#{reason},#{resultJson},#{evidenceId},#{recordedAt})</insert>
+ <insert id="pointToEvidence">INSERT INTO point_organization_acceptance(organization_id,evidence_id) VALUES(#{organizationId},#{evidenceId})
+ ON DUPLICATE KEY UPDATE evidence_id=VALUES(evidence_id)</insert>
+</mapper>

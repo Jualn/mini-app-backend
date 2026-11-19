@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * Defines the bounded MDC fields used for execution correlation.
@@ -21,6 +22,7 @@ public final class ObservabilityContext {
 
     private static final Set<String> PROPAGATED_KEYS = Set.of(
             TRACE_ID, OPERATION_ID, MESSAGE_ID, JOB_ID, ATTEMPT);
+    private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9_-]{1,64}");
 
     private ObservabilityContext() {
     }
@@ -42,7 +44,7 @@ public final class ObservabilityContext {
         Map<String, String> snapshot = new LinkedHashMap<>();
         for (String key : PROPAGATED_KEYS) {
             String value = MDC.get(key);
-            if (value != null) {
+            if (valid(key, value)) {
                 snapshot.put(key, value);
             }
         }
@@ -53,7 +55,7 @@ public final class ObservabilityContext {
         clear();
         if (context != null && !context.isEmpty()) {
             context.forEach((key, value) -> {
-                if (PROPAGATED_KEYS.contains(key) && value != null) {
+                if (PROPAGATED_KEYS.contains(key) && valid(key, value)) {
                     MDC.put(key, value);
                 }
             });
@@ -63,6 +65,16 @@ public final class ObservabilityContext {
     public static void clear() {
         for (String key : PROPAGATED_KEYS) {
             MDC.remove(key);
+        }
+    }
+
+    static boolean valid(String key, String value) {
+        if (value == null) return false;
+        if (!ATTEMPT.equals(key)) return SAFE_ID.matcher(value).matches();
+        try {
+            return value.length() <= 10 && Integer.parseInt(value) >= 1;
+        } catch (NumberFormatException invalid) {
+            return false;
         }
     }
 }

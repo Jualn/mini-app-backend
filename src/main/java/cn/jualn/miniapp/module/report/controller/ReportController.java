@@ -42,13 +42,15 @@ public class ReportController {
 
     @SaCheckLogin
     @GetMapping("/me")
-    public Result<PageResult<ReportVO>> pageCurrentUserReports(@Valid ReportPageQuery query) {
+    public Object pageCurrentUserReports(@Valid ReportPageQuery query) {
         PageResult<ReportBO> pageResult = reportService.pageCurrentUserReports(reportConverter.toBO(query));
-        return Result.ok(PageResult.of(
-                reportConverter.toVOList(pageResult.getList()),
-                pageResult.getHasMore(),
-                pageResult.getNextCursor()
-        ));
+        return Result.ok(PageResult.of(pageResult.getList().stream().map(this::personal).toList(),pageResult.getHasMore(),pageResult.getNextCursor()));
+    }
+    @SaCheckLogin @GetMapping("/me/{reportId}")
+    public Object getMine(@PathVariable long reportId) {return Result.ok(personal(reportService.getMyReport(reportId)));}
+    private cn.jualn.miniapp.module.report.vo.MyReportVO personal(ReportBO r) {
+        if(r.getOutcome()==null && r.getStatus()!=cn.jualn.miniapp.module.report.enums.ReportStatus.PENDING) throw cn.jualn.miniapp.module.post.PostProblems.problem(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,"service-unavailable","Historical report outcome cannot be established");
+        return new cn.jualn.miniapp.module.report.vo.MyReportVO(r.getId(),r.getTargetType(),r.getTargetId(),r.getReason(),r.getRemark(),r.getStatus(),r.getCreatedAt(),r.getHandledAt(),r.getOutcome()==null?"PENDING":r.getOutcome());
     }
 
     @SaCheckLogin

@@ -12,4 +12,6 @@ public class AdminReportCaseDecisionBO {
     private Long targetId;
     private ReportStatus decision;
     private String remark;
+    @jakarta.validation.constraints.Pattern(regexp="NONE|TAKE_DOWN")
+    private String contentAction;
 }

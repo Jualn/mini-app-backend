@@ -8,11 +8,11 @@ import cn.jualn.miniapp.module.activity.controller.CanonicalActivityController;
 import cn.jualn.miniapp.module.activity.converter.ActivityConverter;
 import cn.jualn.miniapp.module.activity.converter.ActivityResourceConverter;
 import cn.jualn.miniapp.module.activity.mapper.ActivityMapper;
-import cn.jualn.miniapp.module.activity.service.impl.ActivityServiceImpl;
+import cn.jualn.miniapp.module.activity.service.ActivityTestServices;
 import cn.jualn.miniapp.module.eventcontent.service.EventContactCodec;
 import cn.jualn.miniapp.module.eventcontent.service.EventContentService;
-import cn.jualn.miniapp.module.interact.service.InteractService;
-import cn.jualn.miniapp.module.media.service.MediaService;
+import cn.jualn.miniapp.module.interact.service.InteractionLikeQueries;
+import cn.jualn.miniapp.module.media.TestMediaService;
 import cn.jualn.miniapp.module.notify.service.NotifyService;
 import cn.jualn.miniapp.module.timeline.service.TimelineService;
 import cn.jualn.miniapp.module.user.service.UserService;
@@ -23,6 +23,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mapstruct.factory.Mappers;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.core.io.ClassPathResource;
@@ -43,12 +45,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /** Real MVC -> Service -> MapStruct -> MyBatis/MySQL. Other business services and auth are doubles.
- * Uses only a newly created synthetic table in a disposable schema; no migrations or existing data are touched. */
+ * Applies V31 only to a newly created synthetic table in a disposable schema; existing data is never touched. */
 class ActivityDiscoveryDatabaseTest {
     private SingleConnectionDataSource source;
     private JdbcTemplate jdbc;
     private MockMvc mvc;
     private boolean createdTable;
+    private boolean migrated;
     private final ObjectMapper json = Jackson2ObjectMapperBuilder.json().build();
 
     @BeforeEach
@@ -80,19 +83,18 @@ class ActivityDiscoveryDatabaseTest {
         factory.setMapperLocations(new ClassPathResource("mapper/ActivityMapper.xml"));
         var mapper = new SqlSessionTemplate(factory.getObject()).getMapper(ActivityMapper.class);
         var converter = Mappers.getMapper(ActivityConverter.class);
-        ReflectionTestUtils.setField(converter, "enumConverter", new EnumConverter());
-        var media = mock(MediaService.class);
+        var media = mock(TestMediaService.class);
         when(media.batchGetAttachments(any())).thenReturn(Map.of());
         var timelines = mock(TimelineService.class);
         when(timelines.listTimelinesByTargets(any(), any())).thenReturn(Map.of());
         var registrations = mock(ActivityRegistrationService.class);
         when(registrations.countSubmittedByActivityIds(any())).thenReturn(Map.of());
         var subscriptions = mock(ActivityEnrollmentService.class);
-        var service = new ActivityServiceImpl(mock(EventContentService.class), mapper, converter,
-                subscriptions, media, mock(UserService.class), timelines, mock(RedisService.class),
-                mock(InteractService.class), mock(NotifyService.class), new EventContactCodec(json),
-                new ActivityParticipationPolicy(new ActivityFormAvailability(false)), registrations, new ActivityFormAvailability(false));
-        mvc = MockMvcBuilders.standaloneSetup(new CanonicalActivityController(service, subscriptions,
+        var service = new ActivityTestServices(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class), mock(EventContentService.class), mapper, converter,
+                subscriptions, media, media, mock(UserService.class), timelines, mock(RedisService.class),
+                mock(InteractionLikeQueries.class), mock(NotifyService.class), new EventContactCodec(json),
+                new ActivityParticipationPolicy(), registrations);
+        mvc = MockMvcBuilders.standaloneSetup(new CanonicalActivityController(service.queries(), subscriptions,
                 new ActivityResourceConverter(json))).setControllerAdvice(new GlobalExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(json)).build();
         UserContext.setUserId(7L);
@@ -120,6 +122,7 @@ class ActivityDiscoveryDatabaseTest {
 
     private JsonNode page(String audience, String department, String cursor, String keyword,
             String category, String lifecycle) throws Exception {
+        migrateAudience();
         var request = get("/v1/activities").param("pageSize", "20");
         if (audience != null) request.param("audienceFilter", audience);
         if (department != null) request.param("departmentId", department);
@@ -131,10 +134,60 @@ class ActivityDiscoveryDatabaseTest {
                 .andReturn().getResponse().getContentAsString());
     }
 
+    private void migrateAudience() throws Exception {
+        if (migrated) return;
+        org.springframework.jdbc.datasource.init.ScriptUtils.executeSqlScript(source.getConnection(),
+                new ClassPathResource("db/migration/V31__retire_activity_audience_bitmask.sql"));
+        migrated = true;
+        assertEquals(0, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_schema=DATABASE() AND table_name='activity' AND column_name='audience_scope'
+                """, Integer.class));
+    }
+
+    @Test
+    void migrationKeepsUnknownIdsAndDistinguishesUnsetDraftFromCampus() throws Exception {
+        activity(1, 62, null, 0, 0, "all old department bits");
+        activity(2, 3, null, 0, 0, "campus bit overrides departments");
+        activity(3, 0, "[\"unknown\",\"1\"]", 0, 0, "unknown structured IDs");
+        activity(4, 0, null, 0, 0, "unset draft");
+        jdbc.update("UPDATE activity SET audience_scope=NULL,publish_status=0 WHERE id=4");
+        activity(5, 0, null, 0, 0, "published null fallback");
+        jdbc.update("UPDATE activity SET audience_scope=NULL WHERE id=5");
+        migrateAudience();
+        assertEquals(json.readTree("[\"1\",\"2\",\"3\",\"4\",\"5\"]"),
+                json.readTree(jdbc.queryForObject("SELECT audience_department_ids FROM activity WHERE id=1", String.class)));
+        assertEquals("[]", jdbc.queryForObject("SELECT audience_department_ids FROM activity WHERE id=2", String.class));
+        assertEquals(json.readTree("[\"unknown\",\"1\"]"),
+                json.readTree(jdbc.queryForObject("SELECT audience_department_ids FROM activity WHERE id=3", String.class)));
+        assertNull(jdbc.queryForObject("SELECT audience_department_ids FROM activity WHERE id=4", String.class));
+        assertEquals("[]", jdbc.queryForObject("SELECT audience_department_ids FROM activity WHERE id=5", String.class));
+    }
+
+    @Test
+    void migrationBlocksUnknownBitsBeforeChangingActivity() {
+        activity(1, 128, null, 0, 0, "unrepresentable old bits");
+        assertThrows(org.springframework.jdbc.datasource.init.ScriptException.class, () -> migrateAudience());
+        assertEquals(128, jdbc.queryForObject("SELECT audience_scope FROM activity WHERE id=1", Integer.class));
+        assertNull(jdbc.queryForObject("SELECT audience_department_ids FROM activity WHERE id=1", String.class));
+        assertEquals(1L, jdbc.queryForObject("SELECT contract_version FROM activity WHERE id=1", Long.class));
+    }
+
     private List<String> ids(JsonNode page) {
         List<String> result = new ArrayList<>();
         page.path("items").forEach(item -> result.add(item.path("activityId").asText()));
         return result;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "[1]", "[null]", "[\"\"]", "[\" \" ]", "[\"information\",\"information\"]"})
+    void migrationRejectsMalformedAudienceBeforeChangingData(String departments) {
+        activity(1, 1, null, 0, 0, "valid row");
+        activity(2, 0, departments, 0, 0, "invalid row");
+        assertThrows(org.springframework.jdbc.datasource.init.ScriptException.class, this::migrateAudience);
+        assertEquals(1L, jdbc.queryForObject("SELECT contract_version FROM activity WHERE id=1", Long.class));
+        assertNull(jdbc.queryForObject("SELECT audience_department_ids FROM activity WHERE id=1", String.class));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='activity' AND column_name='audience_scope'", Integer.class));
     }
 
     @Test

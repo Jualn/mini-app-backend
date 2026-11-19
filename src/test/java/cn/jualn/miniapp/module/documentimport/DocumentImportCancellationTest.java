@@ -54,7 +54,7 @@ class DocumentImportCancellationTest {
         SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor("document-import-test-");
         DocumentImportService service = new DocumentImportService(reader, new DocumentImportPromptBuilder(), gateway,
                 new DocumentImportSuggestionValidator(mapper), mapper, factory, executor,
-                new DocumentImportProperties());
+                new DocumentImportProperties(), org.mockito.Mockito.mock(DocumentImportAuthorizer.class));
 
         service.importDocument(file, DocumentImportTarget.ACTIVITY, "r1");
         assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
@@ -88,7 +88,7 @@ class DocumentImportCancellationTest {
         when(factory.create(anyLong())).thenReturn(emitter);
         DocumentImportService service = new DocumentImportService(reader, new DocumentImportPromptBuilder(), gateway,
                 new DocumentImportSuggestionValidator(mapper), mapper, factory,
-                new SimpleAsyncTaskExecutor("document-import-timeout-test-"), new DocumentImportProperties());
+                new SimpleAsyncTaskExecutor("document-import-timeout-test-"), new DocumentImportProperties(), org.mockito.Mockito.mock(DocumentImportAuthorizer.class));
 
         service.importDocument(file, DocumentImportTarget.ACTIVITY, "r2");
         assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();

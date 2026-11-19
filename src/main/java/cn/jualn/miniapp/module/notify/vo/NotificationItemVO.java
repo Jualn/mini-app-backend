@@ -15,5 +15,10 @@ public record NotificationItemVO(String id, String category, String type, Presen
     public record Presentation(String title, String body, String context, String thumbnailUrl, List<Change> changes,
                                String subjectTitle, String quote) { }
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Target(String type, String postId, String commentId, String activityId, String publicEventId) { }
+    public record Target(String type, String postId, String commentId, String activityId, String publicEventId, String articleId, String taskId,String assignmentId,String reportId) {
+        public Target(String type,String postId,String commentId,String activityId,String publicEventId,String articleId,String taskId,String assignmentId) {this(type,postId,commentId,activityId,publicEventId,articleId,taskId,assignmentId,null);}
+        public Target(String type,String postId,String commentId,String activityId,String publicEventId,String articleId,String taskId) {this(type,postId,commentId,activityId,publicEventId,articleId,taskId,null);}
+        public Target(String type,String postId,String commentId,String activityId,String publicEventId,String articleId) { this(type,postId,commentId,activityId,publicEventId,articleId,null); }
+        public Target(String type,String postId,String commentId,String activityId,String publicEventId) { this(type,postId,commentId,activityId,publicEventId,null,null); }
+    }
 }

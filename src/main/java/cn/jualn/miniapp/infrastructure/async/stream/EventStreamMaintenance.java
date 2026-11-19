@@ -101,7 +101,7 @@ public class EventStreamMaintenance {
         Gauge.builder(name, value, AtomicReference::get).baseUnit(baseUnit).register(meters);
     }
 
-    @Scheduled(cron = "${async-processing.stream.trim-cron:0 40 4 * * *}")
+    @Scheduled(cron = "${async-processing.stream.trim-cron:0 40 4 * * *}", zone = "Asia/Shanghai")
     public void trimAcknowledgedHistory() {
         try {
             String safeBoundary = retentionBoundary();

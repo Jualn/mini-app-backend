@@ -7,6 +7,8 @@ import java.util.List;
 
 @Data
 public class AdminReportCaseItemVO {
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private cn.jualn.miniapp.module.post.bo.GrowthRecordBO.Link growthRecord;
     private String caseId;
     private String targetId;
     private String targetType;

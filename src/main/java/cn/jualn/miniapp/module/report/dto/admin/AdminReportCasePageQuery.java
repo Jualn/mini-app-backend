@@ -10,6 +10,8 @@ import lombok.Data;
 public class AdminReportCasePageQuery {
     @Size(max = 100, message = "关键词不能超过100字")
     private String keyword;
+    private String growthType;
+    private String growthOrganizationId;
     @Pattern(regexp = "pending|violation|normal", message = "案件状态不合法")
     private String status;
     @Pattern(regexp = "post|comment", message = "举报目标类型不合法")

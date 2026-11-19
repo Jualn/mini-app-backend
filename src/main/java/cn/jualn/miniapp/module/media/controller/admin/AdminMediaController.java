@@ -23,6 +23,14 @@ public class AdminMediaController {
 
     private final MediaService mediaService;
 
+    @PostMapping("/official-content-upload-credentials")
+    public Result<CosUploadCredentialDTO> getOfficialContentUploadCredential(
+            @Valid @RequestBody AdminMediaUploadCredentialRequest request) {
+        AdminStpUtil.STP_LOGIC.checkPermission("media:write");
+        return Result.ok(mediaService.generateAdminUploadCredential(TargetType.OFFICIAL_CONTENT, request.getFileNames(),
+                AdminStpUtil.STP_LOGIC.getLoginIdAsLong()));
+    }
+
     @PostMapping("/activity-upload-credentials")
     public Result<CosUploadCredentialDTO> getActivityUploadCredential(
             @Valid @RequestBody AdminMediaUploadCredentialRequest request) {

@@ -15,12 +15,12 @@ public final class JobExecutionContext {
         this.jobId = jobId;
         this.ownershipToken = ownershipToken;
         this.mapper = mapper;
-        this.budgetDeadline = LocalDateTime.now().plus(executionBudget);
+        this.budgetDeadline = LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")).plus(executionBudget);
     }
 
     /** Renew before each bounded batch. Budget exhaustion yields to durable retry instead of looping forever. */
     public void prepareBatch() {
-        if (!LocalDateTime.now().isBefore(budgetDeadline)) {
+        if (!LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")).isBefore(budgetDeadline)) {
             throw new JobYieldException("job execution budget exhausted");
         }
         if (mapper.renewLease(jobId, ownershipToken, LEASE_SECONDS) != 1) {

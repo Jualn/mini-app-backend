@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.audit.bo;
 
-import cn.jualn.miniapp.common.enums.AuditScene;
-import cn.jualn.miniapp.common.enums.MediaType;
+import cn.jualn.miniapp.module.audit.enums.AuditScene;
+import cn.jualn.miniapp.module.media.enums.MediaType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -18,6 +18,8 @@ public class AuditReserveBO {
     private AuditScene auditScene;
 
     private Long targetId;
+    /** Only Article's trusted admin orchestration supplies this; never mapped from a client request. */
+    private Long authenticatedActorAccountId;
 
     /**
      * 文本内容。为空则不预占文本审核记录。

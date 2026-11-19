@@ -37,7 +37,6 @@ public class ActivityCreateBO {
     private String location;
     private Integer category;
     private String organizer;
-    private Integer audienceScope;
     private String contactInfo;
     private String joinMethod;
     private String qrcodeUrl;

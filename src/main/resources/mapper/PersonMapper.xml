@@ -1,0 +1,373 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.person.mapper.PersonMapper">
+    <select id="organizationNames" resultType="cn.jualn.miniapp.common.web.NameRow" useCache="false" flushCache="true">
+        SELECT id, name FROM person_organization WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+<select id="gateShared" resultType="long" flushCache="true" useCache="false">SELECT epoch FROM person_authority_epoch WHERE id=1 FOR SHARE</select>
+<select id="currentEpoch" resultType="long" flushCache="true" useCache="false">SELECT epoch FROM person_authority_epoch WHERE id=1</select>
+<select id="gateExclusive" resultType="long" flushCache="true" useCache="false">SELECT epoch FROM person_authority_epoch WHERE id=1 FOR UPDATE</select>
+<update id="advanceEpoch">UPDATE person_authority_epoch SET epoch=epoch+1 WHERE id=1 AND epoch=#{expected} AND epoch&lt;9223372036854775807</update>
+<select id="now" resultType="java.time.LocalDateTime" flushCache="true" useCache="false">SELECT UTC_TIMESTAMP(6)</select>
+<select id="head" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$Head" flushCache="true" useCache="false">SELECT person_id,revision,identity_verification,identity_presence,current_record_id,stage_id,identity_status,identity_valid_from,identity_valid_until,identity_verified_by,identity_verified_at,membership_verification,membership_verified_by,membership_verified_at,last_change_id,identity_change_id,membership_change_id FROM person_fact_current WHERE person_id=#{person}</select>
+<select id="organization" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$Organization" flushCache="true" useCache="false">SELECT id,name,type,description,status,revision,created_at,updated_at,last_change_id FROM person_organization WHERE id=#{id}</select>
+<sql id="partyOrganizationFilter">
+ WHERE status='ACTIVE' AND type IN
+ <foreach collection="partyTypes" item="partyType" open="(" separator="," close=")">#{partyType}</foreach>
+ <if test="!platform">
+  <choose>
+   <when test="organizationIds.isEmpty()">AND 1=0</when>
+   <otherwise>
+    AND id IN <foreach collection="organizationIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+   </otherwise>
+  </choose>
+ </if>
+ <if test="type!=null">AND type=#{type}</if>
+ <if test="q!=null">AND LOCATE(#{q},name)&gt;0</if>
+</sql>
+<select id="partyOrganizationCount" resultType="long" flushCache="true" useCache="false">
+ SELECT COUNT(*) FROM person_organization <include refid="partyOrganizationFilter"/>
+</select>
+<select id="partyOrganizations" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$Organization" flushCache="true" useCache="false">
+ SELECT id,name,type FROM person_organization <include refid="partyOrganizationFilter"/>
+ ORDER BY name,id LIMIT #{limit} OFFSET #{offset}
+</select>
+<select id="scope" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$Scope" flushCache="true" useCache="false">SELECT id,grantee_user_id,mode,domain,actions,target_type,target_id,valid_from,valid_until,revoked_at,revoked_by,revoke_reason,source,authority_grant_id,granted_by,reason,verification_reference,revision,last_event_id,current_slot FROM person_scope_grant WHERE id=#{id}</select>
+<select id="event" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$Event" flushCache="true" useCache="false">SELECT id,aggregate_type,aggregate_id,aggregate_version,operation,before_json,after_json,operator_user_id,recorded_at,reason,verification_reference,source,corrects_event_id,receipt_id,trace_id,verification_method,source_reference,source_version,source_approver FROM person_foundation_event WHERE id=#{id}</select>
+<select id="memberships" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$Membership" flushCache="true" useCache="false">SELECT id,person_id,organization_id,valid_from,valid_until,created_event_id,ended_event_id FROM person_membership WHERE person_id=#{person} AND ended_event_id IS NULL ORDER BY organization_id</select>
+<select id="actorScopes" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$Scope" flushCache="true" useCache="false">SELECT id,grantee_user_id,mode,domain,actions,target_type,target_id,valid_from,valid_until,revoked_at,revoked_by,revoke_reason,source,authority_grant_id,granted_by,reason,verification_reference,revision,last_event_id,current_slot FROM person_scope_grant WHERE grantee_user_id=#{actor} ORDER BY id</select>
+<select id="receipt" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$Receipt" flushCache="true" useCache="false">SELECT id,actor,operation,target,command_key,fingerprint,result_json,etag,location,status,event_id,created_at FROM person_command_receipt WHERE actor=#{actor} AND operation=#{operation} AND target=#{target} AND command_key=#{key}</select>
+<insert id="insertEvent">INSERT INTO person_foundation_event(id,aggregate_type,aggregate_id,aggregate_version,operation,before_json,after_json,operator_user_id,recorded_at,reason,verification_reference,source,corrects_event_id,receipt_id,trace_id,local_organization_id,local_before_json,local_after_json,verification_method,source_reference,source_version,source_approver,person_id) VALUES(#{id},#{aggregateType},#{aggregateId},#{aggregateVersion},#{operation},#{beforeJson},#{afterJson},#{operatorUserId},#{recordedAt},#{reason},#{verificationReference},#{source},#{correctsEventId},#{receiptId},#{traceId},#{localOrganizationId},#{localBeforeJson},#{localAfterJson},#{verificationMethod},#{sourceReference},#{sourceVersion},#{sourceApprover},#{personId})</insert>
+<select id="localMembership" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$LocalMembership" flushCache="true" useCache="false">
+ SELECT person_id,organization_id,presence,membership_id,verified_by,verified_at,last_event_id
+ FROM person_local_membership WHERE person_id=#{person} AND organization_id=#{organization}
+</select>
+<insert id="saveLocalMembership">
+ INSERT INTO person_local_membership(person_id,organization_id,presence,membership_id,verified_by,verified_at,last_event_id)
+ VALUES(#{personId},#{organizationId},#{presence},#{membershipId},#{verifiedBy},#{verifiedAt},#{lastEventId})
+ ON DUPLICATE KEY UPDATE presence=VALUES(presence),membership_id=VALUES(membership_id),verified_by=VALUES(verified_by),verified_at=VALUES(verified_at),last_event_id=VALUES(last_event_id)
+</insert>
+<delete id="clearLocalMemberships">DELETE FROM person_local_membership WHERE person_id=#{person}</delete>
+<select id="localHistoryCount" resultType="long" flushCache="true" useCache="false">
+ SELECT COUNT(*) FROM person_foundation_event WHERE aggregate_type='PERSON' AND aggregate_id=CAST(#{person} AS CHAR) AND local_organization_id=#{organization}
+</select>
+<select id="localHistory" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$Event" flushCache="true" useCache="false">
+ SELECT id,aggregate_id,operation,local_organization_id,local_before_json,local_after_json,operator_user_id,recorded_at,reason,verification_reference,source
+ FROM person_foundation_event WHERE aggregate_type='PERSON' AND aggregate_id=CAST(#{person} AS CHAR) AND local_organization_id=#{organization}
+ ORDER BY aggregate_version LIMIT #{limit} OFFSET #{offset}
+</select>
+<insert id="insertReceipt">INSERT INTO person_command_receipt(id,actor,operation,target,command_key,fingerprint,result_json,etag,location,status,event_id,created_at) VALUES(#{id},#{actor},#{operation},#{target},#{commandKey},#{fingerprint},#{resultJson},#{etag},#{location},#{status},#{eventId},#{createdAt})</insert>
+<insert id="insertOrganization">INSERT INTO person_organization(id,name,type,description,status,revision,created_at,updated_at,last_change_id) VALUES(#{id},#{name},#{type},#{description},#{status},#{revision},#{createdAt},#{updatedAt},#{lastChangeId})</insert>
+<insert id="insertMembership">INSERT INTO person_membership(id,person_id,organization_id,valid_from,valid_until,created_event_id,ended_event_id) VALUES(#{id},#{personId},#{organizationId},#{validFrom},#{validUntil},#{createdEventId},#{endedEventId})</insert>
+<insert id="insertScope">INSERT INTO person_scope_grant(id,grantee_user_id,mode,domain,actions,target_type,target_id,valid_from,valid_until,revoked_at,revoked_by,revoke_reason,source,authority_grant_id,granted_by,reason,verification_reference,revision,last_event_id,current_slot) VALUES(#{id},#{granteeUserId},#{mode},#{domain},#{actions},#{targetType},#{targetId},#{validFrom},#{validUntil},#{revokedAt},#{revokedBy},#{revokeReason},#{source},#{authorityGrantId},#{grantedBy},#{reason},#{verificationReference},#{revision},#{lastEventId},#{currentSlot})</insert>
+<insert id="insertHead">INSERT INTO person_fact_current(person_id,revision,identity_verification,identity_presence,current_record_id,stage_id,identity_status,identity_valid_from,identity_valid_until,identity_verified_by,identity_verified_at,membership_verification,membership_verified_by,membership_verified_at,last_change_id,identity_change_id,membership_change_id) VALUES(#{personId},#{revision},#{identityVerification},#{identityPresence},#{currentRecordId},#{stageId},#{identityStatus},#{identityValidFrom},#{identityValidUntil},#{identityVerifiedBy},#{identityVerifiedAt},#{membershipVerification},#{membershipVerifiedBy},#{membershipVerifiedAt},#{lastChangeId},#{identityChangeId},#{membershipChangeId})</insert>
+<update id="saveHead">UPDATE person_fact_current SET revision=#{revision},identity_verification=#{identityVerification},identity_presence=#{identityPresence},current_record_id=#{currentRecordId},stage_id=#{stageId},identity_status=#{identityStatus},identity_valid_from=#{identityValidFrom},identity_valid_until=#{identityValidUntil},identity_verified_by=#{identityVerifiedBy},identity_verified_at=#{identityVerifiedAt},membership_verification=#{membershipVerification},membership_verified_by=#{membershipVerifiedBy},membership_verified_at=#{membershipVerifiedAt},last_change_id=#{lastChangeId},identity_change_id=#{identityChangeId},membership_change_id=#{membershipChangeId} WHERE person_id=#{personId} AND revision=#{revision}-1</update>
+<update id="updateOrganization">UPDATE person_organization SET name=#{name},type=#{type},description=#{description},status=#{status},revision=#{revision},updated_at=#{updatedAt},last_change_id=#{lastChangeId} WHERE id=#{id} AND revision=#{revision}-1</update>
+<update id="endMembership">UPDATE person_membership SET ended_event_id=#{event} WHERE id=#{id} AND ended_event_id IS NULL</update>
+<update id="revokeScope">UPDATE person_scope_grant SET revoked_at=#{revokedAt},revoked_by=#{revokedBy},revoke_reason=#{revokeReason},revision=#{revision},last_event_id=#{lastEventId},current_slot=NULL WHERE id=#{id} AND revoked_at IS NULL AND revision=#{revision}-1</update>
+<update id="releaseExpiredScopes">UPDATE person_scope_grant SET current_slot=NULL WHERE current_slot=1 AND valid_until&lt;=#{now}</update>
+
+<!-- Source integrity is checked separately from effectiveness: corruption cannot look like DENY. -->
+<sql id="eventProof">
+ e.id IS NOT NULL AND r.id=e.receipt_id AND r.event_id=e.id AND r.actor=e.operator_user_id
+ AND r.created_at=e.recorded_at AND e.source=s.source AND e.aggregate_id=s.id
+ AND e.aggregate_version=s.revision AND e.after_json IS NOT NULL
+ AND JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.scopeGrantId'))=s.id
+ AND JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.granteeUserId'))=CAST(s.grantee_user_id AS CHAR)
+ AND JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.mode'))=s.mode
+ AND JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.source'))=s.source
+ AND JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.version'))=CAST(s.revision AS CHAR)
+
+ AND (CAST(REPLACE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.validFrom')),'null'),'T',' ') AS DATETIME(6)) &lt;=&gt; s.valid_from)
+ AND (CAST(REPLACE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.validUntil')),'null'),'T',' ') AS DATETIME(6)) &lt;=&gt; s.valid_until)
+ AND (CAST(REPLACE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.revokedAt')),'null'),'T',' ') AS DATETIME(6)) &lt;=&gt; s.revoked_at)
+ AND (NULLIF(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.grantedByUserId')),'null') &lt;=&gt; CAST(s.granted_by AS CHAR))
+ AND (NULLIF(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.revokedByUserId')),'null') &lt;=&gt; CAST(s.revoked_by AS CHAR))
+ AND (NULLIF(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.authorityGrantId')),'null') &lt;=&gt; CAST(s.authority_grant_id AS CHAR)) AND JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.actionSet.domain'))=s.domain
+ AND JSON_LENGTH(JSON_EXTRACT(e.after_json,'$.actionSet.actions'))=1+CHAR_LENGTH(s.actions)-CHAR_LENGTH(REPLACE(s.actions,',',''))
+ AND NOT EXISTS(SELECT 1 FROM JSON_TABLE(e.after_json,'$.actionSet.actions[*]' COLUMNS(action VARCHAR(16) PATH '$')) proof_actions WHERE FIND_IN_SET(proof_actions.action,s.actions)=0)
+ AND JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.target.type'))=s.target_type
+ AND (s.target_type='DIRECTORY' OR JSON_UNQUOTE(JSON_EXTRACT(e.after_json,IF(s.target_type='PERSON','$.target.personId','$.target.organizationId')))=s.target_id)
+ AND (s.mode&lt;&gt;'ADMINISTER' OR EXISTS(SELECT 1 FROM person_foundation_event origin
+ WHERE origin.aggregate_type='SCOPE' AND origin.aggregate_id=s.id AND origin.aggregate_version=1
+ AND origin.operation='BOOTSTRAP_GRANT' AND origin.source='APPROVED_BOOTSTRAP'
+ AND JSON_UNQUOTE(JSON_EXTRACT(origin.before_json,'$.approvedPlan.granteeUserId'))=CAST(s.grantee_user_id AS CHAR)
+ AND JSON_UNQUOTE(JSON_EXTRACT(origin.before_json,'$.approvedPlan.actorUserId'))=CAST(s.granted_by AS CHAR)
+ AND JSON_UNQUOTE(JSON_EXTRACT(origin.before_json,'$.approvedPlan.approvalSha256')) REGEXP '^[0-9a-f]{64}$'
+ AND CHAR_LENGTH(JSON_UNQUOTE(JSON_EXTRACT(origin.before_json,'$.approvedPlan.approvalReference')))&gt;0))
+</sql>
+<sql id="controlContains">
+ a.domain=s.domain AND (a.target_type=s.target_type AND a.target_id=s.target_id
+ OR a.target_type='DIRECTORY' AND a.domain='ORGANIZATION' AND s.target_type='ORGANIZATION')
+ AND NOT EXISTS(SELECT 1 FROM JSON_TABLE(CONCAT('["',REPLACE(s.actions,',','","'),'"]'), '$[*]' COLUMNS(action VARCHAR(16) PATH '$')) acts WHERE FIND_IN_SET(acts.action,a.actions)=0)
+</sql>
+<sql id="liveScope">
+ s.revoked_at IS NULL AND s.valid_from&lt;=#{now} AND (s.valid_until IS NULL OR s.valid_until&gt;#{now})
+ AND ((s.source='ROOT_OWNER' AND s.authority_grant_id IS NULL) OR (a.revoked_at IS NULL AND a.valid_from&lt;=#{now} AND (a.valid_until IS NULL OR a.valid_until&gt;#{now})))
+</sql>
+<sql id="validOperate">
+ s.grantee_user_id=#{actor} AND s.mode='OPERATE' AND s.domain=#{check.domain} AND FIND_IN_SET(#{check.action},s.actions)&gt;0
+ AND <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.liveScope"/>
+</sql>
+<sql id="knownMembership">
+ h.membership_verification='VERIFIED'
+ AND NOT EXISTS(SELECT 1 FROM person_membership bad LEFT JOIN person_organization o ON o.id=bad.organization_id
+ WHERE bad.person_id=u.id AND bad.ended_event_id IS NULL
+ AND (o.id IS NULL OR o.status&lt;&gt;'ACTIVE'))
+</sql>
+<!-- Canonical owning predicate, shared by single, page and count. No client SQL fragments. -->
+<sql id="dutyDirect">
+ (FALSE <foreach collection="dutyTargets" item="dt"> OR (#{dt.domain}=#{check.domain} AND FIND_IN_SET(#{check.action},#{dt.actions})&gt;0
+ AND (#{dt.targetType}='PLATFORM' OR #{dt.targetType}='PERSON' AND #{dt.targetId}=CAST(u.id AS CHAR)))</foreach>)
+</sql>
+<!-- Prove complete membership against ONE scope row or ONE DutySelection, then union people. -->
+<sql id="personAllowed">
+ <foreach collection="checks" item="check" separator=" AND ">
+ ((#{check.action}&lt;&gt;'MAINTAIN' OR NOT EXISTS(SELECT 1 FROM person_account_binding self_binding WHERE self_binding.person_id=u.id AND self_binding.user_id=#{actor})) AND (
+  (#{rootOwner} AND #{check.domain} IN ('IDENTITY','ORGANIZATION'))
+  OR EXISTS(SELECT 1 FROM person_scope_grant s LEFT JOIN person_scope_grant a ON a.id=s.authority_grant_id
+   WHERE <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.validOperate"/>
+   AND s.target_type='PERSON' AND s.target_id=CAST(u.id AS CHAR)
+   AND (#{check.domain}&lt;&gt;'POINTS' OR (<include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.knownMembership"/>)))
+  OR <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.dutyDirect"/>
+  OR ((<include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.knownMembership"/>)
+   AND EXISTS(SELECT 1 FROM person_membership m WHERE m.person_id=u.id AND m.ended_event_id IS NULL AND m.valid_from&lt;=#{now} AND (m.valid_until IS NULL OR m.valid_until&gt;#{now}))
+   AND (EXISTS(SELECT 1 FROM person_scope_grant s LEFT JOIN person_scope_grant a ON a.id=s.authority_grant_id
+    WHERE <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.validOperate"/> AND s.target_type='ORGANIZATION'
+    AND NOT EXISTS(SELECT 1 FROM person_membership m WHERE m.person_id=u.id AND m.ended_event_id IS NULL AND m.valid_from&lt;=#{now} AND (m.valid_until IS NULL OR m.valid_until&gt;#{now}) AND m.organization_id&lt;&gt;s.target_id))
+    <foreach collection="dutyTargets" item="dt"> OR (#{dt.domain}=#{check.domain} AND FIND_IN_SET(#{check.action},#{dt.actions})&gt;0 AND #{dt.targetType}='ORGANIZATION'
+     AND NOT EXISTS(SELECT 1 FROM person_membership m WHERE m.person_id=u.id AND m.ended_event_id IS NULL AND m.valid_from&lt;=#{now} AND (m.valid_until IS NULL OR m.valid_until&gt;#{now}) AND m.organization_id&lt;&gt;#{dt.targetId}))</foreach>))
+ ))
+ </foreach>
+</sql>
+<sql id="businessCandidates">
+ <if test="personId == null"><foreach collection="checks" item="check">
+ AND (#{check.domain}&lt;&gt;'POINTS' OR EXISTS(SELECT 1 FROM point_application candidate WHERE candidate.person_id=u.id)
+ OR EXISTS(SELECT 1 FROM point_ledger candidate WHERE candidate.person_id=u.id))
+ </foreach></if>
+</sql>
+<sql id="personFilter">
+ TRUE <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.businessCandidates"/>
+ <if test="q != null">AND LOCATE(#{q},u.real_name)&gt;0</if>
+ <if test="status != null">AND u.status=#{status}</if>
+ <if test="personId != null">AND u.id=#{personId}</if>
+ AND <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.personAllowed"/>
+ <if test="organizationId != null">AND EXISTS(SELECT 1 FROM person_membership fm WHERE fm.person_id=u.id AND fm.organization_id=#{organizationId} AND fm.ended_event_id IS NULL AND fm.valid_from&lt;=#{now} AND (fm.valid_until IS NULL OR fm.valid_until&gt;#{now}))</if>
+</sql>
+<sql id="controlVisible">
+ (#{rootOwner} OR EXISTS(SELECT 1 FROM person_scope_grant a WHERE a.grantee_user_id=#{actor} AND a.mode='ADMINISTER'
+ AND a.revoked_at IS NULL AND a.valid_from&lt;=#{now} AND (a.valid_until IS NULL OR a.valid_until&gt;#{now})
+ AND <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.controlContains"/>))
+</sql>
+
+<select id="corruptSource" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM person_foundation_event e LEFT JOIN person_command_receipt r ON r.id=e.receipt_id
+ WHERE r.id IS NULL OR r.status NOT IN (200,201) OR r.event_id IS NULL OR r.actor&lt;&gt;e.operator_user_id OR r.created_at&lt;&gt;e.recorded_at
+ OR r.fingerprint NOT REGEXP '^[0-9a-f]{64}$'
+ OR (e.aggregate_type NOT IN ('PROFILE','MAJOR_CLASS','IDENTIFIER','BINDING') AND (r.event_id&lt;&gt;e.id OR NOT COALESCE(r.result_json=CASE WHEN e.operation='LOCAL_MEMBERSHIP_CHANGE' THEN JSON_EXTRACT(e.local_after_json,'$.fact') ELSE e.after_json END,FALSE)))
+ OR (e.aggregate_type IN ('PROFILE','MAJOR_CLASS','IDENTIFIER','BINDING') AND (e.person_id IS NULL OR e.after_version IS NULL
+ OR NOT EXISTS(SELECT 1 FROM person_profile independent_person WHERE independent_person.id=e.person_id)
+ OR NOT EXISTS(SELECT 1 FROM person_foundation_event anchor WHERE anchor.id=r.event_id AND anchor.receipt_id=r.id
+ AND anchor.operator_user_id=e.operator_user_id AND anchor.recorded_at=e.recorded_at AND anchor.person_id IS NOT NULL AND anchor.after_json=r.result_json)))
+ OR (e.source='ROSTER_EXACT_MATCH' AND NOT COALESCE((e.verification_method='ROSTER_EXACT_MATCH' AND e.source_reference IS NOT NULL AND e.source_version IS NOT NULL AND e.source_approver IS NOT NULL),FALSE))
+ OR (e.source='ROSTER_IMPORT' AND NOT COALESCE((e.verification_method='ROSTER_IMPORT' AND e.source_reference IS NOT NULL AND e.source_version IS NOT NULL AND e.source_approver IS NOT NULL),FALSE))
+ OR (e.operation='LOCAL_MEMBERSHIP_CHANGE' AND (e.local_organization_id IS NULL OR e.local_before_json IS NULL OR e.local_after_json IS NULL))</select>
+<select id="corruptScopes" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM person_scope_grant s
+ LEFT JOIN person_scope_grant a ON a.id=s.authority_grant_id
+ LEFT JOIN person_foundation_event e ON e.id=s.last_event_id LEFT JOIN person_command_receipt r ON r.id=e.receipt_id
+ WHERE (s.grantee_user_id=#{actor} OR s.id IN (SELECT authority_grant_id FROM person_scope_grant WHERE grantee_user_id=#{actor}))
+ AND (NOT COALESCE((<include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.eventProof"/>),FALSE)
+ OR (s.mode='OPERATE' AND s.source&lt;&gt;'ROOT_OWNER' AND (a.id IS NULL OR a.mode&lt;&gt;'ADMINISTER' OR a.source&lt;&gt;'APPROVED_BOOTSTRAP' OR a.authority_grant_id IS NOT NULL OR NOT COALESCE((<include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.controlContains"/>),FALSE)))
+ OR (s.target_type='PERSON' AND NOT EXISTS(SELECT 1 FROM person_profile u WHERE CAST(u.id AS CHAR)=s.target_id))
+ OR (s.target_type='ORGANIZATION' AND NOT EXISTS(SELECT 1 FROM person_organization o WHERE o.id=s.target_id)))</select>
+<select id="corruptPerson" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM person_fact_current h LEFT JOIN person_foundation_event e ON e.id=h.last_change_id
+ WHERE h.person_id=#{person} AND (e.id IS NULL OR e.aggregate_type&lt;&gt;'PERSON' OR e.aggregate_id&lt;&gt;CAST(h.person_id AS CHAR) OR e.aggregate_version&lt;&gt;h.revision OR h.revision&lt;&gt;(SELECT COUNT(*) FROM person_foundation_event chain WHERE chain.aggregate_type='PERSON' AND chain.aggregate_id=CAST(h.person_id AS CHAR)))</select>
+<select id="allowed" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM person_profile u LEFT JOIN person_fact_current h ON h.person_id=u.id WHERE <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.personFilter"/></select>
+<select id="personCount" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM person_profile u LEFT JOIN person_fact_current h ON h.person_id=u.id WHERE <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.personFilter"/></select>
+<select id="personPage" resultType="cn.jualn.miniapp.module.person.bo.PersonBO$Summary" flushCache="true" useCache="false">SELECT u.id AS person_id,u.real_name,u.status,COALESCE(h.identity_verification,'UNKNOWN') identity_verification,COALESCE(h.membership_verification,'UNKNOWN') membership_verification,NULL disambiguation
+ FROM person_profile u LEFT JOIN person_fact_current h ON h.person_id=u.id WHERE <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.personFilter"/> ORDER BY u.id LIMIT #{limit} OFFSET #{offset}</select>
+<select id="indeterminateCandidates" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM person_profile u LEFT JOIN person_fact_current h ON h.person_id=u.id
+ WHERE TRUE <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.businessCandidates"/>
+ <if test="q != null">AND LOCATE(#{q},u.real_name)&gt;0</if>
+ <if test="status != null">AND u.status=#{status}</if> <if test="personId != null">AND u.id=#{personId}</if>
+ AND (NOT #{rootOwner} OR #{organizationId} IS NOT NULL OR <foreach collection="checks" item="rootCheck" separator=" OR ">#{rootCheck.domain}='POINTS'</foreach>)
+ AND NOT COALESCE((<include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.knownMembership"/>),FALSE)
+ AND ((#{rootOwner} AND #{organizationId} IS NOT NULL) OR <foreach collection="checks" item="check" separator=" OR ">
+ ((EXISTS(SELECT 1 FROM person_scope_grant s LEFT JOIN person_scope_grant a ON a.id=s.authority_grant_id
+ WHERE <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.validOperate"/> AND
+ <choose><when test="personId != null">(s.target_type='ORGANIZATION' OR s.target_type='PERSON' AND s.target_id=CAST(u.id AS CHAR))</when><otherwise>(s.target_type='ORGANIZATION' OR s.target_type='PERSON' AND s.target_id=CAST(u.id AS CHAR))</otherwise></choose>)
+ <foreach collection="dutyTargets" item="dt"> OR (#{dt.domain}=#{check.domain} AND #{dt.targetType} IN ('ORGANIZATION','PLATFORM'))</foreach>)
+ <if test="organizationId == null">AND (#{check.domain}='POINTS' OR (NOT EXISTS(SELECT 1 FROM person_scope_grant s LEFT JOIN person_scope_grant a ON a.id=s.authority_grant_id WHERE <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.validOperate"/> AND s.target_type='PERSON' AND s.target_id=CAST(u.id AS CHAR)) AND NOT <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.dutyDirect"/>))</if>)
+ </foreach>)</select>
+<select id="indeterminatePointsCandidates" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM person_profile u LEFT JOIN person_fact_current h ON h.person_id=u.id
+ WHERE (EXISTS(SELECT 1 FROM point_application pc WHERE pc.person_id=u.id) OR EXISTS(SELECT 1 FROM point_ledger pc WHERE pc.person_id=u.id)) AND TRUE <if test="personId != null">AND u.id=#{personId}</if>
+ AND NOT COALESCE((<include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.knownMembership"/>),FALSE)
+ AND (<foreach collection="checks" item="check" separator=" OR ">
+ (EXISTS(SELECT 1 FROM person_scope_grant s LEFT JOIN person_scope_grant a ON a.id=s.authority_grant_id
+ WHERE <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.validOperate"/> AND
+ <choose><when test="personId != null">(s.target_type='ORGANIZATION' OR s.target_type='PERSON' AND s.target_id=CAST(u.id AS CHAR))</when><otherwise>(s.target_type='ORGANIZATION' OR s.target_type='PERSON' AND s.target_id=CAST(u.id AS CHAR))</otherwise></choose>)
+ <if test="organizationId == null">AND (#{check.domain}='POINTS' OR NOT EXISTS(SELECT 1 FROM person_scope_grant s LEFT JOIN person_scope_grant a ON a.id=s.authority_grant_id WHERE <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.validOperate"/> AND s.target_type='PERSON' AND s.target_id=CAST(u.id AS CHAR)))</if>)
+ </foreach>)</select>
+<select id="pointsOrganizationVisible" resultType="long">
+ SELECT COUNT(*) FROM person_organization o WHERE o.id=#{organizationId} AND o.status='ACTIVE'
+ AND (EXISTS(SELECT 1 FROM person_scope_grant s LEFT JOIN person_scope_grant a ON a.id=s.authority_grant_id
+ WHERE s.grantee_user_id=#{actor} AND s.mode='OPERATE' AND s.domain='POINTS' AND FIND_IN_SET('READ',s.actions)&gt;0
+ AND s.target_type='ORGANIZATION' AND s.target_id=o.id AND <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.liveScope"/>)
+ OR EXISTS(SELECT 1 FROM person_profile u LEFT JOIN person_fact_current h ON h.person_id=u.id
+ JOIN person_membership vm ON vm.person_id=u.id AND vm.organization_id=o.id AND vm.ended_event_id IS NULL
+ AND vm.valid_from&lt;=#{now} AND (vm.valid_until IS NULL OR vm.valid_until&gt;#{now})
+ WHERE <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.personFilter"/>))
+</select>
+
+<select id="organizationCount" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM person_organization o WHERE (#{rootOwner} <foreach collection="dutyOrganizations" item="dutyOrg"> OR o.id=#{dutyOrg}</foreach> OR EXISTS(SELECT 1 FROM person_scope_grant s LEFT JOIN person_scope_grant a ON a.id=s.authority_grant_id
+ WHERE s.grantee_user_id=#{actor} AND s.mode='OPERATE' AND s.domain='ORGANIZATION' AND FIND_IN_SET('READ',s.actions)&gt;0
+ AND s.target_type='ORGANIZATION' AND s.target_id=o.id AND <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.liveScope"/>))
+ <if test="status != null">AND o.status=#{status}</if></select>
+<select id="organizationPage" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$Organization" flushCache="true" useCache="false">SELECT o.id,o.name,o.type,o.description,o.status,o.revision,o.created_at,o.updated_at,o.last_change_id FROM person_organization o WHERE (#{rootOwner} <foreach collection="dutyOrganizations" item="dutyOrg"> OR o.id=#{dutyOrg}</foreach> OR EXISTS(SELECT 1 FROM person_scope_grant s LEFT JOIN person_scope_grant a ON a.id=s.authority_grant_id
+ WHERE s.grantee_user_id=#{actor} AND s.mode='OPERATE' AND s.domain='ORGANIZATION' AND FIND_IN_SET('READ',s.actions)&gt;0
+ AND s.target_type='ORGANIZATION' AND s.target_id=o.id AND <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.liveScope"/>))
+ <if test="status != null">AND o.status=#{status}</if> ORDER BY o.id LIMIT #{limit} OFFSET #{offset}</select>
+<select id="historyCount" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM person_foundation_event WHERE aggregate_type='PERSON' AND aggregate_id=CAST(#{person} AS CHAR) AND
+ <choose><when test="identity">operation NOT IN ('REPLACE_MEMBERSHIPS','LOCAL_MEMBERSHIP_CHANGE')</when><otherwise>operation='REPLACE_MEMBERSHIPS'</otherwise></choose></select>
+<select id="history" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$Event" flushCache="true" useCache="false">SELECT id,aggregate_type,aggregate_id,aggregate_version,operation,before_json,after_json,operator_user_id,recorded_at,reason,verification_reference,source,corrects_event_id,receipt_id,trace_id FROM person_foundation_event WHERE aggregate_type='PERSON' AND aggregate_id=CAST(#{person} AS CHAR) AND
+ <choose><when test="identity">operation NOT IN ('REPLACE_MEMBERSHIPS','LOCAL_MEMBERSHIP_CHANGE')</when><otherwise>operation='REPLACE_MEMBERSHIPS'</otherwise></choose> ORDER BY id LIMIT #{limit} OFFSET #{offset}</select>
+<select id="scopeCount" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM person_scope_grant s WHERE s.mode='OPERATE' AND <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.controlVisible"/>
+ <if test="grantee != null">AND s.grantee_user_id=#{grantee}</if><if test="domain != null">AND s.domain=#{domain}</if></select>
+<select id="scopePage" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$Scope" flushCache="true" useCache="false">SELECT s.id,s.grantee_user_id,s.mode,s.domain,s.actions,s.target_type,s.target_id,s.valid_from,s.valid_until,s.revoked_at,s.revoked_by,s.revoke_reason,s.source,s.authority_grant_id,s.granted_by,s.reason,s.verification_reference,s.revision,s.last_event_id,s.current_slot FROM person_scope_grant s WHERE s.mode='OPERATE' AND <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.controlVisible"/>
+ <if test="grantee != null">AND s.grantee_user_id=#{grantee}</if><if test="domain != null">AND s.domain=#{domain}</if> ORDER BY s.id LIMIT #{limit} OFFSET #{offset}</select>
+
+<select id="unknownUsers" resultType="long" flushCache="true" useCache="false">
+ SELECT COUNT(*) FROM person_profile u LEFT JOIN person_fact_current h ON h.person_id=u.id
+ WHERE TRUE AND (h.person_id IS NULL OR h.identity_verification&lt;&gt;'VERIFIED' OR h.membership_verification&lt;&gt;'VERIFIED')
+</select>
+<select id="corruptFacts" resultType="long" flushCache="true" useCache="false">
+ SELECT
+ (SELECT COUNT(*) FROM person_fact_current h LEFT JOIN person_foundation_event e ON e.id=h.last_change_id
+ WHERE e.id IS NULL OR e.aggregate_type&lt;&gt;'PERSON' OR e.aggregate_id&lt;&gt;CAST(h.person_id AS CHAR) OR e.aggregate_version&lt;&gt;h.revision OR h.revision&lt;&gt;(SELECT COUNT(*) FROM person_foundation_event chain WHERE chain.aggregate_type='PERSON' AND chain.aggregate_id=CAST(h.person_id AS CHAR)))
+ + (SELECT COUNT(*) FROM person_foundation_event lost WHERE
+ (lost.aggregate_type='PERSON' AND NOT EXISTS(SELECT 1 FROM person_fact_current h WHERE CAST(h.person_id AS CHAR)=lost.aggregate_id))
+ OR (lost.aggregate_type='ORGANIZATION' AND NOT EXISTS(SELECT 1 FROM person_organization o WHERE o.id=lost.aggregate_id))
+ OR (lost.aggregate_type='SCOPE' AND NOT EXISTS(SELECT 1 FROM person_scope_grant g WHERE g.id=lost.aggregate_id)))
+ + (SELECT COUNT(*) FROM person_fact_current h LEFT JOIN person_foundation_event ie ON ie.id=h.identity_change_id
+ LEFT JOIN person_foundation_event me ON me.id=h.membership_change_id
+ WHERE (h.identity_change_id IS NOT NULL AND (ie.id IS NULL OR ie.source NOT IN ('LOCAL_MANUAL','ROSTER_IMPORT') OR ie.aggregate_id&lt;&gt;CAST(h.person_id AS CHAR)
+ OR NOT (NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ie.after_json,'$.verification')),'null') &lt;=&gt; h.identity_verification)
+ OR NOT (NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ie.after_json,'$.presence')),'null') &lt;=&gt; h.identity_presence)
+ OR NOT (NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ie.after_json,'$.currentRecord.recordId')),'null') &lt;=&gt; h.current_record_id)
+ OR NOT (NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ie.after_json,'$.currentRecord.stageId')),'null') &lt;=&gt; h.stage_id)
+ OR NOT (NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ie.after_json,'$.currentRecord.status')),'null') &lt;=&gt; h.identity_status)
+ OR NOT (CAST(REPLACE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ie.after_json,'$.currentRecord.validFrom')),'null'),'T',' ') AS DATETIME(6)) &lt;=&gt; h.identity_valid_from)
+ OR NOT (CAST(REPLACE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ie.after_json,'$.currentRecord.validUntil')),'null'),'T',' ') AS DATETIME(6)) &lt;=&gt; h.identity_valid_until)
+ OR NOT (CAST(REPLACE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ie.after_json,'$.verifiedAt')),'null'),'T',' ') AS DATETIME(6)) &lt;=&gt; h.identity_verified_at)
+ OR NOT (NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ie.after_json,'$.verifiedByUserId')),'null') &lt;=&gt; CAST(h.identity_verified_by AS CHAR))))
+ OR (h.membership_change_id IS NOT NULL AND (me.id IS NULL OR me.source NOT IN ('LOCAL_MANUAL','ROSTER_IMPORT') OR me.aggregate_id&lt;&gt;CAST(h.person_id AS CHAR)
+ OR NOT (NULLIF(JSON_UNQUOTE(JSON_EXTRACT(me.after_json,'$.verification')),'null') &lt;=&gt; h.membership_verification)
+ OR (h.membership_verification='VERIFIED' AND
+ (COALESCE(JSON_LENGTH(JSON_EXTRACT(me.after_json,'$.currentMemberships')),0)&lt;&gt;(SELECT COUNT(*) FROM person_membership cm WHERE cm.person_id=h.person_id AND cm.ended_event_id IS NULL)
+ OR NOT (CAST(REPLACE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(me.after_json,'$.verifiedAt')),'null'),'T',' ') AS DATETIME(6)) &lt;=&gt; h.membership_verified_at)
+ OR NOT (NULLIF(JSON_UNQUOTE(JSON_EXTRACT(me.after_json,'$.verifiedByUserId')),'null') &lt;=&gt; CAST(h.membership_verified_by AS CHAR))
+ OR EXISTS(SELECT 1 FROM JSON_TABLE(me.after_json,'$.currentMemberships[*]' COLUMNS(mid VARCHAR(36) PATH '$.membershipId',oid VARCHAR(36) PATH '$.organizationId',vf VARCHAR(40) PATH '$.validFrom',vu VARCHAR(40) PATH '$.validUntil' NULL ON EMPTY)) expected
+ WHERE NOT EXISTS(SELECT 1 FROM person_membership actual WHERE actual.id=expected.mid AND actual.person_id=h.person_id AND actual.organization_id=expected.oid AND actual.ended_event_id IS NULL
+ AND actual.valid_from=CAST(REPLACE(expected.vf,'T',' ') AS DATETIME(6)) AND actual.valid_until &lt;=&gt; CAST(REPLACE(expected.vu,'T',' ') AS DATETIME(6))))))
+))
+ OR h.identity_change_id IS NULL AND h.identity_verification&lt;&gt;'UNKNOWN'
+ OR h.membership_change_id IS NULL AND h.membership_verification&lt;&gt;'UNKNOWN')
+ + (SELECT COUNT(*) FROM person_organization o LEFT JOIN person_foundation_event e ON e.id=o.last_change_id
+ WHERE e.id IS NULL OR e.aggregate_type&lt;&gt;'ORGANIZATION' OR e.aggregate_id&lt;&gt;o.id OR e.aggregate_version&lt;&gt;o.revision
+ OR NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.name'))=o.name,FALSE)
+ OR NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.status'))=o.status,FALSE) OR NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.description'))=o.description,FALSE))
+ + (SELECT COUNT(*) FROM person_membership m LEFT JOIN person_fact_current h ON h.person_id=m.person_id
+ LEFT JOIN person_foundation_event e ON e.id=m.created_event_id
+ WHERE h.person_id IS NULL OR e.id IS NULL OR e.aggregate_type&lt;&gt;'PERSON' OR e.aggregate_id&lt;&gt;CAST(m.person_id AS CHAR)
+ OR e.operation NOT IN ('REPLACE_MEMBERSHIPS','LOCAL_MEMBERSHIP_CHANGE')
+ OR NOT EXISTS(SELECT 1 FROM JSON_TABLE(e.after_json,'$.currentMemberships[*]' COLUMNS(membership_id VARCHAR(36) PATH '$.membershipId',organization_id VARCHAR(36) PATH '$.organizationId')) proof
+ WHERE proof.membership_id=m.id AND proof.organization_id=m.organization_id)
+ OR (m.ended_event_id IS NULL AND h.membership_verification&lt;&gt;'VERIFIED'
+ AND NOT EXISTS(SELECT 1 FROM person_local_membership lm WHERE lm.person_id=m.person_id AND lm.organization_id=m.organization_id AND lm.membership_id=m.id AND lm.presence='PRESENT')))
+ + (SELECT COUNT(*) FROM person_local_membership lm
+ LEFT JOIN person_foundation_event le ON le.id=lm.last_event_id
+ LEFT JOIN person_membership member ON member.id=lm.membership_id
+ WHERE le.id IS NULL OR le.operation&lt;&gt;'LOCAL_MEMBERSHIP_CHANGE' OR le.source NOT IN ('LOCAL_MANUAL','ROSTER_IMPORT')
+ OR le.aggregate_id&lt;&gt;CAST(lm.person_id AS CHAR) OR le.local_organization_id&lt;&gt;lm.organization_id
+ OR NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(le.local_after_json,'$.fact.presence'))=lm.presence,FALSE)
+ OR NOT (NULLIF(JSON_UNQUOTE(JSON_EXTRACT(le.local_after_json,'$.fact.membershipId')),'null') &lt;=&gt; lm.membership_id)
+ OR NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(le.local_after_json,'$.fact.verifiedByUserId'))=CAST(lm.verified_by AS CHAR),FALSE)
+ OR NOT (CAST(REPLACE(JSON_UNQUOTE(JSON_EXTRACT(le.local_after_json,'$.fact.verifiedAt')),'T',' ') AS DATETIME(6)) &lt;=&gt; lm.verified_at)
+ OR (lm.presence='PRESENT' AND (member.id IS NULL OR member.person_id&lt;&gt;lm.person_id OR member.organization_id&lt;&gt;lm.organization_id OR member.ended_event_id IS NOT NULL)))
+ + (SELECT COUNT(*) FROM person_scope_grant s LEFT JOIN person_scope_grant a ON a.id=s.authority_grant_id
+ LEFT JOIN person_foundation_event e ON e.id=s.last_event_id LEFT JOIN person_command_receipt r ON r.id=e.receipt_id
+ WHERE NOT COALESCE((<include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.eventProof"/>),FALSE)
+ OR s.mode='OPERATE' AND s.source&lt;&gt;'ROOT_OWNER' AND (a.id IS NULL OR a.mode&lt;&gt;'ADMINISTER' OR NOT COALESCE((<include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.controlContains"/>),FALSE)))
+</select>
+<select id="personGroups" resultType="cn.jualn.miniapp.module.person.bo.PersonBO$OrganizationGroup" flushCache="true" useCache="false">
+ SELECT gm.organization_id,COUNT(DISTINCT u.id) total_persons
+ FROM person_profile u LEFT JOIN person_fact_current h ON h.person_id=u.id
+ JOIN person_membership gm ON gm.person_id=u.id AND gm.ended_event_id IS NULL AND gm.valid_from&lt;=#{now} AND (gm.valid_until IS NULL OR gm.valid_until&gt;#{now})
+ WHERE <include refid="cn.jualn.miniapp.module.person.mapper.PersonMapper.personFilter"/> GROUP BY gm.organization_id ORDER BY gm.organization_id
+</select>
+<!-- Registered positive relations only. This is not a complete-membership/roster query. -->
+<sql id="registeredMembershipJoins">
+ FROM person_membership m JOIN person_profile profile ON profile.id=m.person_id
+ LEFT JOIN person_fact_current h ON h.person_id=m.person_id
+ LEFT JOIN person_local_membership lm ON lm.person_id=m.person_id AND lm.organization_id=m.organization_id
+</sql>
+<sql id="registeredMembersFrom">
+ <include refid="registeredMembershipJoins"/>
+ WHERE m.organization_id=#{organization} AND m.ended_event_id IS NULL
+ AND m.valid_from&lt;=#{now} AND (m.valid_until IS NULL OR m.valid_until&gt;#{now})
+</sql>
+<select id="corruptOrganizationMembers" resultType="long" flushCache="true" useCache="false">
+ SELECT COUNT(*) FROM (
+ SELECT m.person_id <include refid="registeredMembersFrom"/>
+ GROUP BY m.person_id HAVING COUNT(*)&lt;&gt;1
+ OR SUM(CASE WHEN h.person_id IS NOT NULL AND h.revision&gt;0
+ AND EXISTS(SELECT 1 FROM person_profile u WHERE u.id=m.person_id)
+ AND ((lm.person_id IS NOT NULL AND lm.presence='PRESENT' AND lm.membership_id=m.id AND lm.verified_by IS NOT NULL AND lm.verified_at IS NOT NULL)
+ OR (lm.person_id IS NULL AND h.membership_verification='VERIFIED' AND h.membership_verified_by IS NOT NULL AND h.membership_verified_at IS NOT NULL))
+ THEN 0 ELSE 1 END)&gt;0
+ ) invalid_members
+</select>
+<select id="organizationMemberCount" resultType="long" flushCache="true" useCache="false">
+ SELECT COUNT(*) <include refid="registeredMembersFrom"/>
+</select>
+<select id="organizationMembers" resultType="cn.jualn.miniapp.module.person.bo.PersonBO$LocalMembership" flushCache="true" useCache="false">
+ SELECT m.person_id,m.organization_id,'VERIFIED' verification,'PRESENT' presence,
+ m.id membership_id,m.valid_from,CAST(h.revision AS CHAR) version,
+ CAST(COALESCE(lm.verified_by,h.membership_verified_by) AS CHAR) verified_by_user_id,
+ COALESCE(lm.verified_at,h.membership_verified_at) verified_at,profile.real_name,profile.status AS person_status
+ <include refid="registeredMembersFrom"/>
+ ORDER BY m.person_id LIMIT #{limit} OFFSET #{offset}
+</select>
+<sql id="partyMemberFilter">
+ <include refid="registeredMembersFrom"/>
+ <if test="personId!=null">AND m.person_id=#{personId}</if>
+ <if test="q!=null">AND (LOCATE(#{q},profile.real_name)&gt;0
+  <if test="matchedPerson!=null">OR m.person_id=#{matchedPerson}</if>)</if>
+</sql>
+<select id="partyNamedCandidates" resultType="cn.jualn.miniapp.module.person.mapper.PersonMapper$PartyNamedCandidate" flushCache="true" useCache="false">
+ SELECT DISTINCT m.person_id,profile.real_name
+ <include refid="registeredMembershipJoins"/>
+ JOIN person_organization o ON o.id=m.organization_id
+ WHERE o.status='ACTIVE' AND o.type IN ('PARTY_COMMITTEE','PARTY_GENERAL_BRANCH','PARTY_BRANCH')
+ AND profile.status='ACTIVE' AND LOWER(profile.real_name)=LOWER(#{name})
+ AND m.ended_event_id IS NULL AND m.valid_from&lt;=#{now} AND (m.valid_until IS NULL OR m.valid_until&gt;#{now})
+ AND ((lm.presence='PRESENT' AND lm.membership_id=m.id) OR (lm.person_id IS NULL AND h.membership_verification='VERIFIED'))
+ <if test="!platform">
+  <choose>
+   <when test="organizations!=null and !organizations.isEmpty()">
+    AND m.organization_id IN <foreach collection="organizations" item="id" open="(" separator="," close=")">#{id}</foreach>
+   </when>
+   <otherwise>AND 1=0</otherwise>
+  </choose>
+ </if>
+ ORDER BY m.person_id LIMIT 21
+</select>
+<select id="partyMemberCount" resultType="long" flushCache="true" useCache="false">
+ SELECT COUNT(*) <include refid="partyMemberFilter"/>
+</select>
+<select id="partyMembers" resultType="cn.jualn.miniapp.module.person.service.roster.PartyPersonnelDirectory$MemberRow" flushCache="true" useCache="false">
+ SELECT m.person_id,m.id membership_id,m.organization_id,profile.real_name
+ <include refid="partyMemberFilter"/>
+ ORDER BY profile.real_name,m.person_id LIMIT #{limit} OFFSET #{offset}
+</select>
+</mapper>

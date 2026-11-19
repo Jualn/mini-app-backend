@@ -1,12 +1,13 @@
 package cn.jualn.miniapp.module.interact.service.impl;
 
+import cn.jualn.miniapp.module.interact.service.InteractionTestServices;
 import cn.jualn.miniapp.common.constant.UserContext;
 import cn.jualn.miniapp.common.enums.TargetType;
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
+import cn.jualn.miniapp.module.subject.service.SubjectExistenceService;
 import cn.jualn.miniapp.module.activity.mapper.ActivityMapper;
-import cn.jualn.miniapp.module.exam.mapper.ExamInfoMapper;
+import cn.jualn.miniapp.module.publicevent.mapper.PublicEventMapper;
 import cn.jualn.miniapp.module.interact.mapper.LikeRecordMapper;
 import cn.jualn.miniapp.module.interact.mapper.ShareRecordMapper;
 import cn.jualn.miniapp.module.post.mapper.PostMapper;
@@ -35,11 +36,9 @@ class LikeNotificationProducerTest {
     private final CommentNotificationFactsService comments = mock(CommentNotificationFactsService.class);
     private final UserService users = mock(UserService.class);
     private final NotifyService notifications = mock(NotifyService.class);
-    private InteractServiceImpl service() {
+    private InteractionTestServices service() {
         UserContext.setUserId(7L);
-        return new InteractServiceImpl(likes, mock(ShareRecordMapper.class), mock(RedisService.class),
-                mock(TargetValidator.class), mock(PostMapper.class), mock(ActivityMapper.class), mock(ExamInfoMapper.class),
-                posts, comments, users, notifications);
+        return new InteractionTestServices(likes, mock(ShareRecordMapper.class), mock(RedisService.class), mock(SubjectExistenceService.class), new cn.jualn.miniapp.module.interact.service.InteractionSubjects(java.util.List.of(new cn.jualn.miniapp.module.post.service.PostInteractionSubject(mock(PostMapper.class),mock(RedisService.class)),new cn.jualn.miniapp.module.activity.service.ActivityInteractionSubject(mock(ActivityMapper.class),mock(RedisService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventInteractionSubject(mock(PublicEventMapper.class)))), posts, comments, users, org.mockito.Mockito.mock(cn.jualn.miniapp.module.user.service.UserAccountService.class), notifications, org.mockito.Mockito.mock(cn.jualn.miniapp.module.article.service.ArticleService.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.comment.service.CommentTargetAccess.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.interact.mapper.ViewLogMapper.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.comment.service.ArticleCommentNotifications.class));
     }
     @AfterEach void clear() { UserContext.clear(); }
     @Test void actualNewPostLikeFreezesActorAndUsesStableSourceWhileDuplicateInsertProducesNothing() {
@@ -48,7 +47,7 @@ class LikeNotificationProducerTest {
         when(users.getSimpleInfo(7L)).thenReturn(actor);
         when(likes.insert(any(cn.jualn.miniapp.module.interact.entity.LikeRecord.class))).thenReturn(1).thenThrow(new DuplicateKeyException("synthetic duplicate"));
         var service = service();
-        service.like(TargetType.POST, 42L); service.like(TargetType.POST, 42L);
+        service.likes().like(TargetType.POST, 42L); service.likes().like(TargetType.POST, 42L);
         var payload = ArgumentCaptor.forClass(NotifyPayload.class);
         verify(notifications, times(1)).processNotificationPayload(payload.capture());
         actor.setNickname("changed later");
@@ -64,13 +63,13 @@ class LikeNotificationProducerTest {
         when(likes.insert(any(cn.jualn.miniapp.module.interact.entity.LikeRecord.class))).thenReturn(1);
         when(posts.published(42)).thenReturn(new PostNotificationFactsService.Fact(42, 7, "self"));
         var service = service();
-        service.like(TargetType.POST, 42L); service.like(TargetType.ACTIVITY, 43L);
+        service.likes().like(TargetType.POST, 42L); service.likes().like(TargetType.ACTIVITY, 43L);
         verifyNoInteractions(notifications);
     }
     @Test void nonPostCommentLikeRemainsReadableWithoutAnInventedTarget() {
         when(likes.insert(any(cn.jualn.miniapp.module.interact.entity.LikeRecord.class))).thenReturn(1);
         when(comments.published(19)).thenReturn(new CommentNotificationFactsService.Fact(19, 8, 2, 42, "comment preview"));
-        var service = service(); service.like(TargetType.COMMENT, 19L);
+        var service = service(); service.likes().like(TargetType.COMMENT, 19L);
         var payload = ArgumentCaptor.forClass(NotifyPayload.class);
         verify(notifications).processNotificationPayload(payload.capture());
         assertEquals(NotifyType.COMMENT_LIKED, payload.getValue().getType());
@@ -85,7 +84,7 @@ class LikeNotificationProducerTest {
         when(comments.published(19)).thenReturn(new CommentNotificationFactsService.Fact(19, 8, 1, 42, "original comment"));
         when(posts.published(42)).thenReturn(new PostNotificationFactsService.Fact(42, 8, "post title"));
         when(users.getSimpleInfo(7L)).thenReturn(UserSimpleBO.builder().id(7L).nickname("actor").avatarUrl("https://example.com/a.png").build());
-        service().like(TargetType.COMMENT, 19L);
+        service().likes().like(TargetType.COMMENT, 19L);
         var payload = ArgumentCaptor.forClass(NotifyPayload.class);
         verify(notifications).processNotificationPayload(payload.capture());
         var frozen = payload.getValue().getSnapshot();

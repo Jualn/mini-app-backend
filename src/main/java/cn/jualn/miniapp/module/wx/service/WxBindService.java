@@ -2,7 +2,7 @@ package cn.jualn.miniapp.module.wx.service;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.module.user.service.UserService;
+import cn.jualn.miniapp.module.user.service.UserWechatIdentityService;
 import cn.jualn.miniapp.third.wx.client.WxClient;
 import cn.jualn.miniapp.third.wx.dto.MpQrCodeCreateResponse;
 import lombok.AllArgsConstructor;
@@ -34,7 +34,7 @@ public class WxBindService {
 
     private final WxClient wxClient;
     private final RedisService redisService;
-    private final UserService userService;
+    private final UserWechatIdentityService userService;
 
     /**
      * 生成绑定二维码。通常由小程序端触发，展示给用户去扫码关注服务号。
@@ -55,7 +55,7 @@ public class WxBindService {
                 .scene(scene)
                 .ticket(qrCode.getTicket())
                 .qrUrl(qrUrl)
-                .expireAt(LocalDateTime.now().plusSeconds(DEFAULT_SCENE_EXPIRE_SECONDS))
+                .expireAt(LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")).plusSeconds(DEFAULT_SCENE_EXPIRE_SECONDS))
                 .build();
     }
 

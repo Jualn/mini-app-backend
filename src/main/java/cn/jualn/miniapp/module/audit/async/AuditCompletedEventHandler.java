@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.audit.async;
 
-import cn.jualn.miniapp.common.enums.AuditScene;
+import cn.jualn.miniapp.module.audit.enums.AuditScene;
 import cn.jualn.miniapp.infrastructure.async.message.EventHandler;
 import cn.jualn.miniapp.infrastructure.async.message.MessageEnvelope;
 import cn.jualn.miniapp.infrastructure.async.message.EventConsumptionService;
@@ -16,15 +16,21 @@ import java.util.Map;
 public class AuditCompletedEventHandler implements EventHandler<AuditCompletedEventPayload> {
     private final Map<AuditScene, AuditResultCallback> registry;
     private final EventConsumptionService consumptionService;
+    @org.springframework.beans.factory.annotation.Autowired
+    private cn.jualn.miniapp.module.audit.service.ContentSafetyReviewService reviews;
 
     @Override public String topic() { return "audit.completed"; }
     @Override public int schemaVersion() { return 1; }
     @Override public Class<AuditCompletedEventPayload> payloadType() { return AuditCompletedEventPayload.class; }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation=org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public void handle(AuditCompletedEventPayload payload, MessageEnvelope envelope) {
         if (!consumptionService.beginOnce("audit-completed-v1", envelope.messageId())) return;
+        if (cn.jualn.miniapp.module.audit.service.ContentSafetyReviewService.supported(payload.auditScene())) {
+            reviews.reconcile(payload.auditLogId());
+            return;
+        }
         AuditResultCallback callback = registry.get(payload.auditScene());
         if (callback == null) {
             throw new IllegalArgumentException("No audit callback for scene " + payload.auditScene());

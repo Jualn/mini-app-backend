@@ -5,6 +5,8 @@ import cn.jualn.miniapp.module.notify.bo.AdminNotificationPlanPageBO;
 import cn.jualn.miniapp.module.notify.bo.AdminNotificationPlanQueryBO;
 
 public interface AdminNotificationPlanService {
+    cn.jualn.miniapp.module.notify.bo.AdminNotificationPlanSummaryBO dashboardSummary(java.time.LocalDateTime dayStart, java.time.LocalDateTime dayEnd);
+
 
     AdminNotificationPlanPageBO pagePlans(AdminNotificationPlanQueryBO query);
 

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.interact.mapper.InteractionStatisticsMapper">
+ <select id="counts" resultType="cn.jualn.miniapp.module.interact.mapper.InteractionStatisticsRow">
+  SELECT t.target_id,
+  (SELECT COUNT(*) FROM view_log v WHERE v.target_type=#{type} AND v.target_id=t.target_id) AS view_count,
+  (SELECT COUNT(*) FROM like_record l WHERE l.target_type=#{type} AND l.target_id=t.target_id) AS like_count,
+  (SELECT COUNT(*) FROM share_record s WHERE s.target_type=#{type} AND s.target_id=t.target_id) AS share_count
+  FROM (<foreach collection="ids" item="id" separator=" UNION ALL ">SELECT #{id} AS target_id</foreach>) t
+ </select>
+</mapper>

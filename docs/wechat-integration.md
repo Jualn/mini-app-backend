@@ -15,7 +15,7 @@
 | 维护对象 | 唯一落点与责任 |
 |---|---|
 | 采用哪些能力、账号与协议边界、启用条件 | 本文；微信适配维护者负责，业务含义仍由业务 owner 决定 |
-| 请求/响应、字段转换、错误分类、验签与 token 行为 | `third/wx` 的 Client、DTO、适配代码及对应测试；文档不代替执行约束 |
+| 请求/响应、字段转换、错误分类、验签与 token 行为 | `third/wx` 的 Client、DTO、纯格式化/结果分类及对应测试；文档不代替执行约束 |
 | 登录、绑定、审核、通知用例及持久状态 | 对应模块 Service；沿用架构中的数据所有权，不在 Client 建第二套业务状态 |
 | 环境账号、模板映射、开关、回调及跳转参数 | 类型化配置与部署配置；secret/token/密钥由环境秘密管理，仓库只保留配置引用和无敏感示例 |
 | 平台已开通权限、模板审核、域名关联及实际发送能力 | 微信后台与指定环境的验证证据；不能由配置存在或代码编译推断 |
@@ -35,10 +35,10 @@
 | 服务号 OAuth 与 JS-SDK | `module/wx/service/WxMpOauthService`、`WxJsSdkService` | OAuth state 有短租约 claim、身份解析态和可重放完成态；签名 URL 限定配置 HTTPS origin；具体官方 code/URL 规则仍需协议核验 |
 | 内容安全 | `module/audit/service/impl/AuditServiceImpl` → `WxClient`；`module/wx/handler/ma/WxaMediaCheckHandler` | 同步结果、异步任务关联及审核回调；审核业务结果归 audit |
 | 接入验证与消息回调 | `module/wx/controller/WxCallbackController` | 账号识别、验签/解密、事件路由、重复与迟到处理；业务成功后才按 provider 协议 ACK |
-| 服务号订阅通知 | `module/wx/service/WxMpNoticeSendService` → `WxClient.sendMpSubscribeMessage` | legacy 及 canonical `ACTIVITY_START_REMINDER` 复用既有发送基础；本地不虚构永久 GRANTED，微信发送响应权威判定该次投递 |
+| 服务号订阅通知 | `module/wx/service/WxMpNoticeSendService` → `WxClient.sendMpSubscribeMessage` | legacy 及具有有效显式绑定的 canonical 类型复用既有发送基础；本地不虚构永久 GRANTED，微信发送响应权威判定该次投递 |
 | 服务号模板消息 | `WxClient.sendMpTemplateMessage` | 当前仅确认 Client 方法；生产 Java 源码搜索未发现调用方，不等于已有业务投递链路 |
-| 小程序订阅消息 | 登录/token 已有；通知 Adapter 尚缺 | 不得用服务号发送接口或模板代替 |
-| 新通知模型的微信规划 | `module/notify/service/impl/NotificationDeliveryServiceImpl` | IN_APP 独立规划；服务号适用类型见 §17，小程序通知渠道保持独立启用边界 |
+| 小程序订阅消息 | `WxMiniNoticeSendService` → `WxClient.sendMiniSubscribeMessage`，授权协议未接通，保持不可发送 | 不得用服务号发送接口或模板代替 |
+| 新通知模型的微信规划 | `module/notify/service/impl/NotificationDeliveryServiceImpl` | IN_APP 独立规划；服务号适用类型见 §17，小程序通知 Adapter/分派已实现，订阅资格协议未接通，保持不可发送 |
 
 ### 0.2 微信与腾讯云 COS
 
@@ -67,7 +67,7 @@ WxClient
 - Delivery 层分别决定是否存在 `WECHAT_MINI_PROGRAM`、`WECHAT_OFFICIAL_ACCOUNT` 渠道意图，并持久化每个渠道结果；禁止使用笼统 `WECHAT`。
 - WeChat Integration 按渠道解析身份与 permission、选择独立模板、把稳定字段映射成各自 provider DTO、调用对应 API，并分别分类 provider 结果。
 - `WxClient` 只负责 token、HTTP、序列化、微信响应码和一次受控 token refresh；不读取业务表，不判断 Activity/PublicEvent 状态，不创建 Notification。
-- Integration 不得依赖 ActivityMapper、ExamInfoMapper、NotifyPlan Entity 或业务 Controller DTO；模板映射只消费业务 owner 冻结的快照，不回查主体补字段。
+- Integration 不得依赖 ActivityMapper、PublicEventMapper、NotifyPlan Entity 或业务 Controller DTO；模板映射只消费业务 owner 冻结的快照，不回查主体补字段。
 
 ## 2. 微信身份不是一个 openid
 
@@ -88,14 +88,14 @@ WxClient
 | Capability | WECHAT_MINI_PROGRAM | WECHAT_OFFICIAL_ACCOUNT |
 |---|---|---|
 | identity | 小程序 `openid` | 服务号 `mp_openid`，必要时以 unionid 作为关联证据而非发送身份 |
-| authorization / permission | 对应小程序订阅消息的用户授权事实；当前没有可靠持久模型 | 服务号关注/绑定及具体订阅通知权限；当前 H5 回传只证明入口操作完成，不是持久 permission 事实 |
-| template registry | 必须独立建立；当前缺失 | 已有 `wx.mp.notice-templates` 基础，但新 Activity/PublicEvent NotificationType 默认未配置/未验证 |
+| authorization / permission | 对应小程序订阅消息的用户授权事实；Contracts 未定义申请、消费与撤销协议，当前不开放发送 | 服务号关注/绑定及具体订阅通知权限；当前 H5 回传只证明入口操作完成，不是持久 permission 事实 |
+| template registry | `wx.notification` 中独立的 ma-primary / MINI_PROGRAM_SUBSCRIBE Definition 与 Binding | 已有 `wx.mp.notice-templates` 基础，但新 Activity/PublicEvent NotificationType 默认未配置/未验证 |
 | field mapping | 小程序订阅消息字段规范，独立 mapping | 服务号订阅通知字段 mapping |
 | jump target | 小程序页面路径，由该渠道配置 | 服务号通知中的 miniprogram/pagePath，由该渠道配置 |
-| request API | 小程序订阅消息 API；当前通知 Adapter 缺失 | 当前 `WxMpNoticeSendService -> sendMpSubscribeMessage` |
+| request API | `WxClient.sendMiniSubscribeMessage` → `/cgi-bin/message/subscribe/send`；未开放资格门槛 | 当前 `WxMpNoticeSendService -> sendMpSubscribeMessage` |
 | error classification | 按小程序 API code 单独注册 | 按服务号订阅通知 API code 单独注册 |
 
-两渠道可以共享 access-token/HTTP/provider client foundation、脱敏日志、Unknown Outcome 模型，但不能共享 provider identity、templateId、permission 判定或假设相同 error code 语义。当前只有服务号通知发送基础可用；小程序登录/token/内容安全能力不能证明 `WECHAT_MINI_PROGRAM` Notification Delivery 已可用。
+两渠道可以共享 access-token/HTTP/provider client foundation、脱敏日志、Unknown Outcome 模型，但不能共享 provider identity、templateId、permission 判定或假设相同 error code 语义。两个渠道已有独立发送适配与 Delivery 分派；小程序授权协议尚未定义，`WxMiniSubscriptionCapability` 明确返回 CONTRACT_NOT_DEFINED，发送门槛关闭，配置、登录或偏好不能打开此门槛。该渠道仍不可发送。
 
 ## 4. 稳定内部 Contract
 
@@ -176,7 +176,7 @@ Admin QR Login v2 使用 `WxClient.generateMiniProgramCode`：使用 ma 凭据�
 
 | 渠道 / 产品 | 项目中的区分方式 | 禁止的推断 |
 |---|---|---|
-| 小程序 / 订阅消息 | 独立 Adapter、身份、模板及授权来源；当前尚未接通通知发送 | 小程序登录成功不等于允许发消息 |
+| 小程序 / 订阅消息 | 独立 Adapter、身份、模板及请求 DTO 已实现；订阅资格协议尚未接通，不开放通知发送 | 小程序登录成功不等于允许发消息 |
 | 服务号 / 订阅通知 | 当前 `sendMpSubscribeMessage` 调用 `/cgi-bin/message/subscribe/bizsend`；使用 `wx.mp.notice-templates` | H5 入口 success、关注和绑定不证明具体模板可发 |
 | 服务号 / 模板消息 | 当前 `sendMpTemplateMessage` 调用 `/cgi-bin/message/template/send`；独立 DTO | Client 方法存在不证明账号有权限，也不是订阅通知失败后的备用发送方式 |
 
@@ -192,7 +192,7 @@ Admin QR Login v2 使用 `WxClient.generateMiniProgramCode`：使用 ma 凭据�
 
 ### 8.3 模板注册应维护什么
 
-注册的逻辑定位为“环境/账号 + channel + 消息产品 + NotificationType”。这不是新增数据库键或现有配置 schema 声明；当前仅服务号订阅通知已有 `WxMpNoticeTemplateProperties/Registry`，其他产品不能复用其 ID 与规则。
+注册的逻辑定位为“环境/账号 + channel + 消息产品 + NotificationType”。这不是新增数据库键或现有配置 schema 声明；Registry 复用类型化配置校验与字段渲染基础；服务号与小程序分别配置 Definition/Binding，不能复用账号、产品、模板 ID、provider DTO 或授权事实。
 
 每个启用项应可追溯到以下事实；可执行项留在配置/代码，审核和验证证据附在对应变更记录，不再复制一份易过期的模板 ID 清单：
 
@@ -241,7 +241,8 @@ Admin QR Login v2 使用 `WxClient.generateMiniProgramCode`：使用 ma 凭据�
 | `third/wx/config` | 账号及 provider 配置绑定、结构校验 | 查询用户、决定通知接收者 |
 | `third/wx/client` | 按账号执行 provider 请求，解析协议响应；凭据获取与缓存可在确有复用时分离 | 用户表读写、通知/审核状态迁移 |
 | `third/wx/crypto`、provider DTO | 验签、加解密、安全解析及微信线上的请求/响应模型 | 应用登录态、绑定和业务权限 |
-| `third/wx/notice` | 具体消息产品的模板定义、注册校验、纯字段渲染 | 从 user/activity/exam 查数据、创建 Delivery |
+| `third/wx/notice` | 无业务依赖的值格式化与 provider 结果分类 | 业务类型目录、页面路径、用户查询、Delivery 状态迁移 |
+| `module/wx/notice` | 有效模板目录、字段白名单、应用跳转、冻结快照与渠道应用边界 | 业务触发、跨模块 Mapper、微信 HTTP/token 细节 |
 | `module/wx/controller` | 项目微信入口及 provider 回调的 HTTP 适配 | 直接访问 Client/Mapper、承载完整编排 |
 | `module/wx/service`、handler/adapter | 绑定/OAuth/订阅入口编排、可信回调路由、身份与许可解析、渠道适配 | 绕过其他模块 Service 写表、自行决定业务通知内容 |
 | `module/auth`、`module/user` | auth 负责应用登录；user 负责现有用户微信标识的读写和关联不变量 | 把模板配置或 provider 错误当用户模型 |
@@ -389,33 +390,35 @@ Admin QR Login v2 使用 `WxClient.generateMiniProgramCode`：使用 ma 凭据�
 模板配置经类型化属性与 Registry 校验后分别供订阅入口和发送路径使用；授权模式按 §5.1 判断，不再保留设计前的诊断快照。
 
 ```text
-application.yaml 的 wx.mp.notice-templates + 实际环境覆盖
-  → WxMpNoticeTemplateProperties
-  → WxMpNoticeTemplateRegistry（启动校验和按 type 索引）
-      ├→ H5 /templates（enabled + subscribeVisible + templateId）
+application.yaml 的 wx.mp.notice-templates（兼容）/ wx.notification（显式定义与绑定）+ 实际环境覆盖
+  → WxMpNoticeTemplateProperties / WxNotificationTemplateProperties
+  → module/wx/notice/WxNotificationTemplateRegistry（启动校验、兼容配置归一化为不可变 WxEffectiveTemplate）
+      ├→ H5 /templates（有效服务号绑定 + 兼容 legacy，enabled + subscribeVisible，templateId 去重）
       └→ WxMpNoticeSendService（明确授权模式 → 模板开关 → 身份 → 字段/跳转）
           → WxClient.sendMpSubscribeMessage
 
-业务 NotifyType → Delivery 规划/执行 → WxMpNoticeType 映射 → 发送 Service
+业务 NotifyType → Notification 冻结业务字段 → Delivery 规划并冻结模板请求
+  → v2 Job → Notify NotificationChannelAdapter → WxNotificationChannelAdapter → 微信资格复核 → bizsend / subscribe/send
+  → WxNoticeSendResult → Notify NotificationSendResult（接受/明确可重试拒绝/永久拒绝/未知）→ Delivery/Job 收尾
 ```
 
 源码检查到的具体限制：
 
 | 条件/配置 | 当前影响 | 证据入口 |
 |---|---|---|
-| 服务号 permission capability | 服务号不宣称可在发送前可靠查询逐用户剩余许可；capability 返回 `PROVIDER_VERIFIED_AT_SEND`，provider 响应权威判定该次结果 | `CanonicalNotificationServiceImpl`、`WxMpNoticeSendService`、`NotificationDeliveryServiceImpl` |
-| canonical 微信渠道 | `ACTIVITY_START_REMINDER` 在模板、服务号身份、用户偏好和冻结 payload 均满足时规划服务号 Delivery；IN_APP 与服务号互不阻塞 | `NotificationDeliveryServiceImpl.planCanonicalDeliveries` |
-| 通知类型映射 | 新 code 8 映射既有 `activity_start`；code 9–18 仍未映射、保持 unavailable | `NotifyType`、`WxMpNoticeType`、Delivery Service |
+| 服务号 permission capability | 服务号不宣称可在发送前可靠查询逐用户剩余许可；capability 返回 `PROVIDER_VERIFIED_AT_SEND`，provider 响应权威判定该次结果 | `NotificationCapabilityQueries`、`WxMpNoticeSendService`、`NotificationDeliveryServiceImpl` |
+| canonical 微信渠道 | 已存在的通知类型按各自有效绑定与冻结字段规划；服务号与 IN_APP 独立，小程序资格门槛未开放 | `NotificationDeliveryServiceImpl.planCanonicalDeliveries` |
+| 通知类型映射 | 精确 notificationType/channel 绑定优先；保留已有 legacy 别名回退，其他类型无绑定仍 unavailable | `NotifyType`、`WxMpNoticeType`、Delivery Service |
 | 仓库模板条目 | 基础 application.yaml 只有 audit_result、comment_reply、activity_start、reply 四项，均显式 enabled/subscribe-visible=true；不证明 ID 与实际账号匹配 | `src/main/resources/application.yaml`，实际环境覆盖仍未知 |
-| 配置 type | 受 `WxMpNoticeType` 枚举限制，未知 type 或重复 type 启动校验拒绝；当前枚举有 8 项，不等于 8 项均配置且有业务发送入口 | `WxMpNoticeTemplateRegistry.validateAndIndex` |
+| 配置 type | legacy type 受 `WxMpNoticeType` 限制；显式绑定受 `WxNoticeFieldCatalog` 的既有类型/字段白名单限制，未知类型和重复绑定拒绝 | `WxNotificationTemplateRegistry.validateAndIndex` |
 | enabled | 控制模板是否可发送，也参与 H5 列表过滤；false 时仍要求 type 合法且不重复 | Registry、SendService |
 | subscribe-visible | 只控制 H5 列表，不被 send 用作许可检查；隐藏不是撤销授权或停止发送 | `listSubscribeVisibleTemplates` |
-| 必填/跳转参数 | 缺失在调用微信前抛错；当前 required=true 时先报错，不使用 default-value | `WxMpNoticeFieldRenderer` |
-| 格式/长度 | 当前 datetime/date 对非 LocalDateTime 值直接转字符串，max-length 用 Java substring 截断 | FieldRenderer；不能视为已符合真实微信字段协议 |
+| 必填/跳转参数 | 缺失在调用微信前抛错；当前 required=true 时先报错，不使用 default-value | `WxNotificationTemplateRenderer` |
+| 格式/长度 | 严格解析日期及 JSON LocalDateTime 数组；文本按 Unicode code point 计数。显式定义逐字段声明类型/长度，绑定选择 reject/truncate；不按 thing/time 等 key 推测微信约束 | FieldRenderer；本地校验不证明真实微信字段协议 |
 
 因此服务号是否创建新 Delivery 由类型映射、模板、身份、有效偏好和冻结字段共同决定，不能只靠增加 YAML 条目。模板校验通过仍不证明账号权限、字段协议、跳转或该次 provider 接受。
 
-当前 H5 列表未检查上述 permission capability，可能展示暂时无法发送的订阅入口。业务枚举、provider 类型枚举、配置 type、payload source 与 pagePath 占位符是多处隐式关联：缺一处就可能不规划、启动失败或渲染失败。特别是配置中的 `required=true + default-value` 容易让维护者误以为缺值会回退；应按下一节明确语义。
+H5 列表使用同一启动时 Registry，合并启用且可展示的服务号有效绑定与仍有效的 legacy 配置，并按 templateId 去重；小程序模板不进入该列表。列表只表达可申请模板，不证明用户已有许可。业务枚举、provider 类型枚举、配置 type、payload source 与 pagePath 占位符是多处隐式关联：缺一处就可能不规划、启动失败或渲染失败。特别是配置中的 `required=true + default-value` 容易让维护者误以为缺值会回退；应按下一节明确语义。
 
 ### 16.2 配置应分清的四种事实
 
@@ -438,7 +441,7 @@ application.yaml 的 wx.mp.notice-templates + 实际环境覆盖
 - 静态就绪检查覆盖绑定唯一性、已支持类型/产品、字段 source 白名单及类型、required/default 语义、formatter、长度策略和路径占位符；实际 payload 检查发生在发送前。只验证字符串非空不足以证明字段可用。
 - 必须存在的业务事实不可用默认值编造；可选展示字段允许经确认的 default。required 与 default 的冲突组合明确拒绝或迁移为清晰的缺省规则，不能悄悄改变老通知文案。
 - 内容截断仅用于允许缩略的展示文本；ID、时间和状态不能随意截断。字符计量与 provider 字段规则核验后实现，Unicode 边界、日期序列化及冻结 payload 经 JSON 读取后的类型都要测试。
-- 跳转是否必填、路径格式与字段限制由所选产品和本项目场景共同确定。当前 Registry 的“必须以 / 开头”是本地检查，不是本文认证的微信通用规则；核验真实页面及客户端参数，避免自造校验误挡合法发送。
+- 跳转是否必填、路径格式与字段限制由所选产品和本项目场景共同确定。Registry 允许既有相对站内路径；冻结 Delivery 另校验已注册页面。所有检查都是本地限制，不是本文认证的微信通用规则；核验真实页面及客户端参数，避免自造校验误挡合法发送。
 - 显式启用却矛盾的静态配置按 §11.1 提前失败；运行时某用户无许可只影响该次资格，不能触发应用启动失败。未启用条目仍不得含歧义的绑定键/type。
 - 记录实际生效配置的来源（基础文件、profile、部署覆盖）及无敏感摘要。仓库 application.yaml 中的 enabled 不等于运行环境的有效值；项目不输出真实模板 ID 或秘密。
 
@@ -458,7 +461,42 @@ application.yaml 的 wx.mp.notice-templates + 实际环境覆盖
 
 配置变更须验证：业务类型到产品/模板绑定覆盖检查、基础配置与实际 override 说明、H5 与发送就绪一致性、source/跳转/JSON 快照兼容验证。至少覆盖未映射类型、枚举已存在但未配置、禁用/隐藏的区别、展示入口无需事先授权、整体渠道未接通不诱导订阅、必填与默认值、重复绑定及合法模板复用、旧待发送快照。
 
-配置专项完成不等于真实账号验收。canonical 活动开始提醒已接入本地规划/执行代码；目标环境迁移、部署、真实 provider 响应及设备展示仍需单独验证。
+配置专项完成不等于真实账号验收。canonical 服务号按有效绑定接入通用规划/执行代码；目标环境迁移、部署、真实 provider 响应及设备展示仍需单独验证。
+
+
+### 16.6 WeChat Notification Template V1 实施边界
+
+模板目录、业务字段白名单、页面跳转与冻结快照属于应用适配，统一放在 `module/wx/notice`。`WxNotificationTemplateRegistry` 在启动时将旧 `wx.mp.notice-templates` 和显式 Definition/Binding 转为不可变 `WxEffectiveTemplate`；统一 resolve 承担精确绑定优先、显式禁用遮蔽及有限 legacy 别名回退。订阅入口、能力查询、规划和发送只消费此有效目录；不向调用方暴露可变绑定 Bean。旧配置键、有效模板 ID、V1 JSON 字段及 legacy 快照引用保持兼容，Java 包路径不作为持久协议。
+
+`WxNotificationTemplateRenderer` 只渲染有效模板，业务字段读取留在 `WxNoticeFieldCatalog`，页面和参数由 `WxNotificationTargetResolver` 处理。`third/wx/notice/WxTemplateValueFormatter` 只接受值、格式和显式源/目标时区，不依赖业务枚举、配置绑定或客户端页面。小程序模板可独立准备/预览，不意味着具备发送资格。
+
+两个微信产品实现 `WxNoticeDeliveryAdapter`；`WxNotificationChannelAdapter` 将它们接入 Notify 所定义的 `NotificationChannelAdapter`，由 `WxNotificationChannelConfiguration` 分别注册服务号与小程序渠道。Notify 的 `NotificationChannels` 按渠道选择实现，拒绝重复注册。微信端读取/校验 `WxDeliveryTemplateSnapshot` 并转换 `WxNoticeSendResult`；Delivery 只持久化包含 schemaVersion/channel 的 JSON 快照并消费渠道无关的 `NotificationSendResult`，V1 快照字段与现有历史读取保持。结果仍分为 ACCEPTED、REJECTED_RETRYABLE、REJECTED_PERMANENT、UNKNOWN；两个产品分别承担 provider 错误分类，原始 errmsg/URI 不进入结果。Delivery 负责状态迁移、所有权及 Job 收尾。Job yield/ownership lost 继续交给 Worker，不能当普通内部异常把尚未发送的 Delivery 错误终结。
+
+
+`wx.notification` 扩展现有类型化配置和 Registry，不新增模板表、管理 API、Admin Web 页面或热更新。`environment` 由 `WX_NOTIFICATION_ENVIRONMENT` 明确指定（基础缺省 local，dev/prod profile 分别缺省 dev/prod）；测试、预发布、生产分别提供实际环境覆盖。Definition 包含 channel/accountRef/product/templateId/version/enabled/evidenceRef/fields，以及小程序专属 miniProgramState；Binding 包含 notificationType/channel/accountRef/definitionRef/version/enabled/fields/jumpTarget/subscribeVisible/displayName。当前固定账号引用只有 `mp-primary` 与 `ma-primary`，分别从既有 `wx.mp`、`wx.ma` 取得账号凭据。配置中不重复保存 Secret。
+
+同一 type/channel/account 只能有一个 Binding；不同业务类型可引用同一 Definition，但必须人工核实场景相符。允许同一通知类型为两个渠道各配不同 Definition。服务号对既有类型通过合法绑定、完整冻结数据和当前资格进入通用流程，不再限定活动开始提醒；未配置类型保持 unavailable。精确绑定优先（显式禁用不回退），既有 legacy 别名与 `wx.mp.notice-templates` 兼容保留；修改映射需递增 version。H5 列表与发送端共用启动时 Registry；Binding 的 `subscribe-visible` 缺省 true、`display-name` 可选，二者仅管理订阅入口展示，不授予权限。相同 legacy type 有显式绑定时旧条目不再展示，其他仍有效的 legacy 配置保留。
+
+小程序已有独立 Adapter、`subscribe/send` DTO、Delivery 规划分支及执行分派，使用 ma 身份/token，仅消费自己的 Definition/Binding。Definition 的 `mini-program-state` 为 developer/trial/formal，缺省 formal，并随模板快照冻结；旧服务号 V1 快照该字段可缺省，保持读取兼容。小程序不使用服务号的 miniprogram/pagepath 请求结构。
+
+Contracts 当前未定义小程序订阅申请、结果采集、次数消费及撤销协议（见 contracts `notification-delivery.md` 和 canonical `NotificationChannelCapabilities`），本轮不新增跨端授权接口或资格台账。`WxMiniSubscriptionCapability` 明确返回 CONTRACT_NOT_DEFINED，发送门槛关闭，因此即使配置完整也不规划/执行小程序发送；能力查询可展示模板已配置，但 permission=UNKNOWN、原因 PERMISSION_UNKNOWN。授权能力 owner 后续须先按确认的 Contracts 接入真实资格、并发消费和 UNKNOWN 后额度处置，再开放门槛，不能仅改常量。
+
+Definition 字段类型为本地受控类型 `TEXT/NUMBER/DATE/DATETIME`；必填、maxLength（Unicode code point）、allowedValues 必须根据真实模板定义填写，不能从字段 key 推断。Binding 转换器仅 `text/number/date/datetime`，文本溢出 `reject/truncate`；必填不能设 default，时间和数字不能截断。无 offset 的业务时间及 Jackson LocalDateTime 数组以 Asia/Shanghai 解释，然后转换到绑定 zone；有 offset/Instant 的值按绝对时刻转换。受控来源由 `WxNoticeFieldCatalog` 枚举，支持共同冻结字段、presentation.subjectTitle 的固定读取、changesText 的固定格式及五种提醒 anchor；不提供任意属性路径、反射、SpEL、SQL 或脚本。发送过程中不回查主体填补业务时间。
+
+启用 Definition 要求 `evidence-ref` 非空，仅用于指向人工审核记录，不是平台认证。应用不能通过模板 ID 的字符串证明所属 AppID；需微信后台按当前环境 AppID 核实模板产品、场景、字段、一次性/长期订阅类型和权限，并做另阶段真实联调。此阶段没有调用模板元数据接口、订阅接口或发送接口。本地配置校验和平台验证分别记录。
+
+新外部 Delivery 的 V1 JSON 快照冻结 channel、accountRef、环境、账号 AppID、消息产品、templateId、Binding/Definition 引用及版本、渲染 data、跳转 AppID/pagePath 和不含密钥的配置摘要。重试只读原 JSON，不重新渲染或换模板。配置更新要求重启；更新 ID/字段/映射应增加各自 version，Registry 保存启动时显式配置的脱离副本。发送前仍检查当前 Binding/原 Definition enabled、账号/环境一致、业务资格、偏好及当前用户服务号身份；服务号逐次许可仍由 Provider 裁决。保留旧 Definition 引用直到相关任务终结；删除、禁用或切换账号/环境会安全 SKIPPED，不能自动复活任务。当前旧 identity 未持久化绑定 AppID，因此快照的账号核对不替代身份归属审核。
+
+V34 不回填历史模板事实。原有 NULL 快照的 PENDING Delivery 以 `legacy_template_unfrozen` → SKIPPED，PROCESSING → UNKNOWN，已有终局保持不变；禁止把最新配置伪装成创建时配置。需运维盘点积压并明确接受该安全终止策略。结构兼容不保证旧 JAR 可安全回滚；切换时停止旧通知/Delivery writer 和 worker，再迁移、启动新版。微信 validation failure 保存 FAILED、不开 Job，IN_APP 同事务正常入箱；真正 DB/序列化内部失败按事务整体回滚。
+
+WxClient 服务号发送仍使用 bizsend；缓存读写、Token 锁等待、取 Token、最多一次明确失效刷新及两个 HTTP 请求共用 25 秒预算。Job 调用前通过既有 prepareBatch 复核并续租，120 秒租约仍由现有 Job 机制维护。超时停止等待；后台被中断的本地缓存操作返回后也必须通过剩余预算检查才可能发出 HTTP。Provider 已接收但响应丢失仍可能 UNKNOWN，绝不据此重发。错误日志/Delivery 不保存 provider errmsg、原始 HTTP cause、URL 或响应 body；只保留受控消息与明确 provider code。
+
+离线示例是 [wechat-template-preview.yaml](../src/test/resources/wechat-template-preview.yaml) 与 [模拟 Notification](../src/test/resources/wechat-template-preview.json)。`thing1` 的 3 字符上限等规则纯属测试 Fixture，**不能作为真实模板配置**；示例 enabled=false 仍可预览。预览输出 valid/errors、最终 data/pagePath、版本及摘要，不获取账号、用户身份或 Token。
+
+离线预览执行方法见 [commands](../governance/commands.md#微信模板离线预览)，只使用明确的测试 Fixture，不启动应用或调用微信。
+
+生产配置从上述结构复制，使用微信后台提供的真实字段定义和模板 ID、正确环境并递增 version；审核前保持 Definition/Binding disabled。必要微信后台信息：两个 AppID 的环境对应、服务号 bizsend 权限/模板和订阅类型、字段约束、允许跳转的小程序关联；小程序模板 ID/字段/订阅类型与可申请场景。真实用户身份、授权条件、回调关联和设备打开验收属于下一阶段；小程序发送 Adapter 已实现；可信许可消费流程与相应最小 Contracts API 尚未定义/实现，发送门槛保持关闭。本阶段不修改 Contracts。
+
 
 ## 17. 服务号订阅通知适用范围
 
@@ -466,7 +504,7 @@ application.yaml 的 wx.mp.notice-templates + 实际环境覆盖
 
 ### 17.1 适用范围与保证
 
-- 原 NotifyType 1–7 中确有启用模板的服务号订阅通知，以及具备冻结字段、canonical 偏好 owner 和 Delivery 规划的 code 8 `ACTIVITY_START_REMINDER` 使用此模式；type 19/20 复用现有 comment/reply 模板。code 9–18、新增 like 与小程序渠道不借兼容路径开放、补发或绕过各自资格。
+- 原有效 legacy 模板及兼容别名继续使用此模式；其他既有 canonical 类型仅在其自己的服务号显式绑定启用、冻结字段完整、偏好和身份均满足时使用通用投递。新增绑定不等于新增业务触发，不自动补发历史。未配置类型、新增 like 与小程序渠道不借兼容路径开放或绕过各自资格。
 - 本地在规划及执行时检查模板配置/开关，执行时检查用户设置、服务号身份及冻结字段；订阅入口继续展示可订阅的启用模板，不要求事先已有许可。微信决定是否接受本次发送及消费资格，应用不持久化虚构 GRANTED/次数，不宣称本地能预知每次是否可发。
 - 模板存在不等于许可存在；明确的 provider 拒绝按永久失败收尾，不反复尝试到成功。超时、空/不完整响应及调用后结果未可靠记录保持 UNKNOWN；不得通过重放通知、重置终局或刷新开关补发。
 - 复用当前 `bizsend` 产品和模板，不在失败后改用模板消息。保留明确 token 失效码的一次受控刷新；无明确安全依据的重试不可新增。
@@ -486,6 +524,6 @@ application.yaml 的 wx.mp.notice-templates + 实际环境覆盖
 
 ### 17.3 Notification Contract 外部入口
 
-NotificationDelivery 复用现有 v2 AsyncJob 与 UNKNOWN 策略。冻结 provider 业务字段在发送时加入 originating `notificationId`，覆盖配置中同名参数；page-path 保留目标参数并携带该 ID。Notification Delivery 的模板就绪同时要求站内 page-path 和小程序 appId；缺入口不规划发送，既有待发送任务重查后 SKIPPED。仅有模板存在不能表示可恢复通知的渠道已就绪。旧直接发送方法的无 Notification payload 兼容仍保留，不扩张通知渠道。
+NotificationDelivery 复用现有 v2 AsyncJob 与 UNKNOWN 策略。规划 Delivery 时解析并冻结 provider 字段和 originating `notificationId`，覆盖配置中同名参数；发送时验证它仍等于原 Notification ID；page-path 保留目标参数并携带该 ID。Notification Delivery 的模板就绪同时要求站内 page-path、服务号 appId 和跳转小程序 appId；缺入口不规划发送，既有待发送任务重查后 SKIPPED。仅有模板存在不能表示可恢复通知的渠道已就绪。旧直接发送方法的无 Notification payload 兼容仍保留，不扩张通知渠道。
 
-外部点击由消费者 GET 恢复同一 Notification，再显式提交同一 readAt，最后按 semantic target 跳转；Delivery success 不写已读。type 19/20 仅复用现有 comment/reply 模板，新增 like 不默认开放外部发送。服务号真实 page-path 接受、订阅权限、设备打开与消费者恢复链仍需目标环境验收；小程序订阅消息渠道仍未接通。
+外部点击由消费者 GET 恢复同一 Notification，再显式提交同一 readAt，最后按 semantic target 跳转；Delivery success 不写已读。type 19/20 仅复用现有 comment/reply 模板，新增 like 不默认开放外部发送。服务号真实 page-path 接受、订阅权限、设备打开与消费者恢复链仍需目标环境验收；小程序订阅消息 Adapter 已实现，但订阅资格协议未接通，保持不可发送。

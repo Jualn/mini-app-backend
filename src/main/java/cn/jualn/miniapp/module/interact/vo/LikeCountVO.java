@@ -10,6 +10,7 @@ import lombok.Data;
 @Builder
 public class LikeCountVO {
 
+    @com.fasterxml.jackson.databind.annotation.JsonSerialize(using=InteractionCountSerializer.class)
     private Long count;
 }
 
