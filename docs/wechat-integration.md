@@ -502,6 +502,22 @@ WxClient 服务号发送仍使用 bizsend；缓存读写、Token 锁等待、取
 生产配置从上述结构复制，使用微信后台提供的真实字段定义和模板 ID、正确环境并递增 version；审核前保持 Definition/Binding disabled。必要微信后台信息：两个 AppID 的环境对应、服务号 bizsend 权限/模板和订阅类型、字段约束、允许跳转的小程序关联；小程序模板 ID/字段/订阅类型与可申请场景。真实用户身份、授权条件、回调关联和设备打开验收属于下一阶段；小程序后端可按有效绑定发送，真实订阅操作、收件和点击尚需联调。本阶段不修改其他工作区或新增 HTTP 接口。
 
 
+### 16.7 帖子一级评论模板
+
+`application.yaml` 的 `mini-post-comment` Definition/Binding 配置用户提供的“新的评论提醒”小程序模板；ID 以配置为准。仅绑定 `POST_COMMENTED`，一级评论首次公开后向帖子作者发送，排除自己评论自己；二级回复使用 COMMENT_REPLIED，不借此模板发送。沿用现有 notifyComment 设置作为评论通知意愿，规划和发送前均检查；不加入 ACTIVITY/PUBLIC_EVENT 偏好矩阵，也不写本地微信许可。服务号渠道仍默认关闭。
+
+| 模板字段 | 冻结来源 |
+|---|---|
+| thing15 原文内容 | 原帖正文摘要 originalContent；正文不可得时显示“查看帖子详情” |
+| thing5 评论用户 | replyUserName；缺省“同学” |
+| thing2 评论内容 | replyContent；纯图片等缺少正文时显示“查看评论详情” |
+| time3 评论时间 | replyTime，优先评论 createdAt，以 Asia/Shanghai 渲染 |
+
+三项文本采用本地 20 个 Unicode 字符摘要策略；字段约束和真实账号归属仍以微信后台及实际响应核验。正文摘要由 Post owner 提供并随 CommentNoticeData 冻结，发送不回查帖子；旧 CommentNoticeData 缺少 originalContent 仍可读取。跳转为 POST_DETAIL，携带 postId 和 originating notificationId。
+
+本地收件步骤：在原有本地配置基础上设置 `WX_NOTIFICATION_MINI_PROGRAM_ENABLED=true`；测试开发版卡片跳转时设置 `WX_NOTIFICATION_MINI_PROGRAM_STATE=developer`（支持 trial/formal，默认 formal）。重新编译/启动应用，接收账户先在同 AppID 小程序订阅该模板并开启评论通知，用该账户发帖，再由另一账户提交一级评论。以实际公开/审核通过为触发点，检查 provider 接受、设备收件与详情跳转；本地使用固定接收账户只是测试数据，不写入发送代码。渠道重开不补发旧事件。
+
+
 ## 17. 服务号订阅通知适用范围
 
 既有服务号订阅通知沿用微信发送接口权威校验实际资格与次数，不建设虚构本地许可台账。此授权模式仅适用于下列明确路径，不表示前端 success、模板存在或用户偏好就是 provider 许可。

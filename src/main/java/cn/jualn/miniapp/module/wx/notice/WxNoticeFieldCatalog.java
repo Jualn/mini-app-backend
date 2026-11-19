@@ -20,7 +20,7 @@ public final class WxNoticeFieldCatalog {
             "ACTIVITY_REGISTRATION_START_REMINDER", "ACTIVITY_REGISTRATION_DEADLINE_REMINDER", "ACTIVITY_START_REMINDER",
             "ACTIVITY_CANCELLED", "ACTIVITY_TIME_CHANGED", "ACTIVITY_LOCATION_CHANGED", "ACTIVITY_ENDED_EARLY",
             "PUBLIC_EVENT_START_REMINDER", "PUBLIC_EVENT_REGISTRATION_DEADLINE_REMINDER",
-            "PUBLIC_EVENT_CANCELLED", "PUBLIC_EVENT_TIME_CHANGED", "PUBLIC_EVENT_LOCATION_CHANGED");
+            "PUBLIC_EVENT_CANCELLED", "PUBLIC_EVENT_TIME_CHANGED", "PUBLIC_EVENT_LOCATION_CHANGED", "POST_COMMENTED");
     public static boolean knownType(String type) { return type != null && (CANONICAL.contains(type) || LEGACY.containsKey(type)); }
     public static boolean allows(String type, String source) {
         if (source == null) return false;
@@ -29,6 +29,7 @@ public final class WxNoticeFieldCatalog {
         if (!CANONICAL.contains(type)) return false;
         if (Set.of("subjectTitle", "changesText").contains(source)) return true;
         return switch (type) {
+            case "POST_COMMENTED" -> Set.of("postId", "commentId", "originalContent", "postTitle", "replyUserName", "replyContent", "replyTime").contains(source);
             case "ACTIVITY_START_REMINDER" -> Set.of("activityId", "activityTitle", "startTime", "location", "businessTime").contains(source);
             case "ACTIVITY_REGISTRATION_START_REMINDER" -> Set.of("registrationStartTime", "businessTime", "location").contains(source);
             case "ACTIVITY_REGISTRATION_DEADLINE_REMINDER", "PUBLIC_EVENT_REGISTRATION_DEADLINE_REMINDER" -> Set.of("registrationDeadlineTime", "businessTime", "location").contains(source);

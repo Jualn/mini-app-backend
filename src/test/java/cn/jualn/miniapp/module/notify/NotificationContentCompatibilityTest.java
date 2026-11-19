@@ -16,6 +16,7 @@ class NotificationContentCompatibilityTest {
     @Test void storedJavaTypeIdsRemainReadableAndNewContentUsesStableIds() throws Exception {
         var time=LocalDateTime.of(2026,10,31,10,20,30);
         for(var data:List.<NoticeData>of(new CommentNoticeData(1L,2L,"post","comment","author",time),
+                new CommentNoticeData(1L,2L,"post","comment","author",time,"original body"),
                 new ReplyNoticeData("original","reply","author",time),
                 new AuditResultNoticeData("content","approved","reason",time),
                 new ActivityRemindNoticeData(3L,"activity",time,"location"),new BroadcastNoticeData("title","body","scene"))) {
@@ -31,6 +32,13 @@ class NotificationContentCompatibilityTest {
             var legacy=json.treeToValue(stored,NotifyPayload.class);
             assertEquals(data.toMap(),legacy.getContentData().toMap());
         }
+    }
+
+    @Test void historicalCommentWithoutOriginalContentRemainsReadable() throws Exception {
+        var payload=NotifyPayload.builder().contentData(new CommentNoticeData(1L,2L,"post","comment","author",LocalDateTime.of(2026,11,19,10,20))).build();
+        var stored=json.valueToTree(payload);
+        ((com.fasterxml.jackson.databind.node.ObjectNode)stored.path("wxData")).remove("originalContent");
+        assertFalse(json.treeToValue(stored,NotifyPayload.class).getContentData().toMap().containsKey("originalContent"));
     }
 
     @Test void unknownStoredClassCannotBeInstantiatedAsNotificationContent() {

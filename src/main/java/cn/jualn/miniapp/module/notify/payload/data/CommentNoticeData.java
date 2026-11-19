@@ -22,18 +22,27 @@ public record CommentNoticeData(
         String postTitle,
         String replyContent,
         String replyUserName,
-        LocalDateTime replyTime
+        LocalDateTime replyTime,
+        String originalContent
 ) implements NoticeData {
+
+    /** Preserve existing durable payloads and callers without an original-body snapshot. */
+    public CommentNoticeData(Long postId, Long commentId, String postTitle, String replyContent,
+                             String replyUserName, LocalDateTime replyTime) {
+        this(postId, commentId, postTitle, replyContent, replyUserName, replyTime, null);
+    }
 
     @Override
     public Map<String, Object> toMap() {
-        return Map.of(
+        Map<String, Object> result = new java.util.LinkedHashMap<>(Map.of(
                 NoticeKeys.POST_ID, postId,
                 NoticeKeys.COMMENT_ID, commentId,
                 NoticeKeys.POST_TITLE, postTitle != null ? postTitle : "",
                 NoticeKeys.REPLY_USER_NAME, replyUserName != null ? replyUserName : "",
                 NoticeKeys.REPLY_CONTENT, replyContent != null ? replyContent : "",
                 NoticeKeys.REPLY_TIME, replyTime
-        );
+        ));
+        if (originalContent != null) result.put(NoticeKeys.ORIGINAL_CONTENT, originalContent);
+        return result;
     }
 }

@@ -82,10 +82,12 @@ public class NotificationDeliveryServiceImpl implements NotificationDeliveryServ
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public void planWeChatDelivery(Notification notification, NotifyType type) {
-        if (notification == null || notification.getId() == null || type == null
-                || !channels.available(WECHAT_CHANNEL,type)) return;
-        createExternalDelivery(notification, type, WECHAT_CHANNEL);
+    public void planWeChatDelivery(Notification notification, NotifyType type, Set<NotificationChannel> allowedChannels) {
+        if (notification == null || notification.getId() == null || type == null) return;
+        for (NotificationChannel channel : Set.of(NotificationChannel.WECHAT_OFFICIAL_ACCOUNT, NotificationChannel.WECHAT_MINI_PROGRAM)) {
+            if ((allowedChannels == null || allowedChannels.contains(channel)) && channels.available(channel.name(), type))
+                createExternalDelivery(notification, type, channel.name());
+        }
     }
 
     private void createExternalDelivery(Notification notification, NotifyType type, String channel) {
@@ -326,7 +328,7 @@ public class NotificationDeliveryServiceImpl implements NotificationDeliveryServ
             return category != null && Boolean.TRUE.equals(preferenceMapper.selectEnabled(
                     notification.getUserId(), category.name(), channel));
         }
-        if (!WECHAT_CHANNEL.equals(channel)) return false; // Legacy settings never grant Mini Program preference.
+        if (!WECHAT_CHANNEL.equals(channel) && !NotificationChannel.WECHAT_MINI_PROGRAM.name().equals(channel)) return false;
         UserSettingBO setting = settingService.getSettingByUserId(notification.getUserId());
         if (setting == null || type == null) return false;
         if (type == NotifyType.POST_COMMENTED || type == NotifyType.COMMENT_REPLIED) { type = type.legacyRepresentation(); }

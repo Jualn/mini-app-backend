@@ -78,7 +78,7 @@ class NotificationDeliveryServiceImplTest {
 
     @Test
     void planDoesNotCreateWechatIntentWithoutConfiguredTemplate() {
-        service().planWeChatDelivery(Notification.builder().id(7L).build(), NotifyType.ACTIVITY_REMIND);
+        service().planWeChatDelivery(Notification.builder().id(7L).build(), NotifyType.ACTIVITY_REMIND, null);
         verify(deliveryMapper, never()).insert(any(NotificationDelivery.class));
         verify(jobService, never()).create(any());
     }
@@ -264,7 +264,7 @@ class NotificationDeliveryServiceImplTest {
             return 1;
         }).when(deliveryMapper).insert(any(NotificationDelivery.class));
 
-        service().planWeChatDelivery(Notification.builder().id(7L).build(), NotifyType.ACTIVITY_REMIND);
+        service().planWeChatDelivery(Notification.builder().id(7L).build(), NotifyType.ACTIVITY_REMIND, null);
 
         verify(deliveryMapper).insert(any(NotificationDelivery.class));
         verify(jobService).create(any(JobDefinition.class));
@@ -272,7 +272,7 @@ class NotificationDeliveryServiceImplTest {
 
     @Test
     void newlyDefinedNotificationTypesAreNotEnabledByLegacyTemplate() {
-        service().planWeChatDelivery(Notification.builder().id(7L).build(), NotifyType.ACTIVITY_START_REMINDER);
+        service().planWeChatDelivery(Notification.builder().id(7L).build(), NotifyType.ACTIVITY_START_REMINDER, null);
         verify(deliveryMapper, never()).insert(any(NotificationDelivery.class));
         verify(jobService, never()).create(any());
     }

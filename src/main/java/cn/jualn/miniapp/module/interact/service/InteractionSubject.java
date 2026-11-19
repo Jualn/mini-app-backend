@@ -6,7 +6,9 @@ import java.util.Map;
 
 /** Subject-owned metadata and derived counter projection. Does not grant public access. */
 public interface InteractionSubject {
-    record Summary(Long ownerId, String title) { }
+    record Summary(Long ownerId, String title, String preview) {
+        public Summary(Long ownerId, String title) { this(ownerId, title, null); }
+    }
     TargetType targetType();
     Summary notificationSummary(long id);
     void commentApproved(long id);

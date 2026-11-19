@@ -329,6 +329,8 @@ business recipient
 | PublicEvent Reminder / Direct (`PUBLIC_EVENT`) | 支持；本地事务完成 | 独立渠道开关及模板映射；微信响应判定该次资格 | 按有效显式绑定进入通用投递；未配置或未核验模板默认 unavailable | 同上；具体 ID 均为“配置缺失”，不得编造 | 同上 |
 | 未来 System/Admin producer | 基础能力可复用，当前不新增产品 producer | 不预建未使用模板 | 既有 SYSTEM_NOTICE 可作为历史能力证据，不等于新广播产品已迁移 | 只有真实 producer/类型启用时配置 | 按该类型的 mandatory/configurable policy 与 provider 权限判断 |
 
+帖子一级评论的 POST_COMMENTED 仍使用既有 notifyComment 设置，不进入 Activity/PublicEvent 六组合。旧通知规划可分别创建两个已配置微信渠道的 Delivery，并遵守 allowedChannels 上限；每个渠道仍受自己的总开关与精确模板绑定控制。发送前对两渠道重查同一评论通知意愿，微信各自判定实际订阅资格。二级回复未绑定小程序模板，不扩大发送范围；具体字段与本地收件步骤见 [微信集成 §16.7](wechat-integration.md#167-帖子一级评论模板)。
+
 `WECHAT_MINI_PROGRAM` 与 `WECHAT_OFFICIAL_ACCOUNT` 各自拥有 provider identity、authorization/permission、template registry、field mapping、jump target、request API 和 error classifier；只共享 token/HTTP/client foundation 与通用错误模型。当前仓库的 `openid` 是小程序身份，`mp_openid` 是服务号身份；两个发送器分别调用各自产品的 API，不以改名或失败后切换替代独立渠道。
 
 ### 7.3 Preference Model

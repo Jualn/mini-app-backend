@@ -32,8 +32,12 @@ public class PostInteractionSubject implements InteractionSubject {
     @Override
     public Summary notificationSummary(long id) {
         var row = mapper.selectOne(new LambdaQueryWrapper<Post>()
-                .select(Post::getUserId, Post::getTitle).eq(Post::getId, id));
-        return row == null ? null : new Summary(row.getUserId(), row.getTitle());
+                .select(Post::getUserId, Post::getTitle, Post::getContent).eq(Post::getId, id));
+        if (row == null) return null;
+        String text = row.getContent();
+        String preview = text == null || text.codePointCount(0, text.length()) <= 80
+                ? text : text.substring(0, text.offsetByCodePoints(0, 80));
+        return new Summary(row.getUserId(), row.getTitle(), preview);
     }
 
     @Override

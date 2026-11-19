@@ -8,8 +8,8 @@ import java.util.Set;
 import cn.jualn.miniapp.module.notify.model.NotificationChannel;
 
 public interface NotificationDeliveryService {
-    /** Creates the Delivery and its unique job in the caller's notification transaction. */
-    void planWeChatDelivery(Notification notification, NotifyType type);
+    /** Plans configured external channels in the notification transaction; null allows both WeChat channels. */
+    void planWeChatDelivery(Notification notification, NotifyType type, Set<NotificationChannel> allowedChannels);
 
     /** Plans the currently available canonical channels in the notification transaction. */
     boolean planCanonicalDeliveries(Notification notification, NotifyType type,

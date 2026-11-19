@@ -15,6 +15,7 @@ public final class WxNotificationTargetResolver {
         String path = template.jumpTarget() == null ? resolvePath(template.pagePath(), frozen) : switch (template.jumpTarget()) {
             case "ACTIVITY_DETAIL" -> "/subpkg_activity/pages/detail/detail?activityId=" + positiveId(frozen.get("targetId"));
             case "PUBLIC_EVENT_DETAIL" -> "/subpkg_public_event/pages/detail/detail?publicEventId=" + positiveId(frozen.get("targetId"));
+            case "POST_DETAIL" -> "/subpkg_community/pages/detail/detail?postId=" + positiveId(frozen.get("targetId"));
             case "INBOX" -> "/pages/message/message";
             default -> throw payloadInvalid();
         };

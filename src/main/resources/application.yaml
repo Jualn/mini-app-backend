@@ -193,8 +193,35 @@ wx:
       enabled: ${WX_NOTIFICATION_MINI_PROGRAM_ENABLED:false}
     official-account:
       enabled: ${WX_NOTIFICATION_OFFICIAL_ACCOUNT_ENABLED:false}
-    definitions: { }
-    bindings: { }
+    definitions:
+      mini-post-comment:
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        product: MINI_PROGRAM_SUBSCRIBE
+        template-id: BG9O2XEYbm3G6ulpVMmB91jHBNLScKjs6Vq620uvAHQ
+        version: 1
+        enabled: true
+        evidence-ref: docs/wechat-integration.md#167-帖子一级评论模板
+        mini-program-state: ${WX_NOTIFICATION_MINI_PROGRAM_STATE:formal}
+        fields:
+          thing15: {data-type: TEXT, required: false, max-length: 20}
+          thing5: {data-type: TEXT, required: false, max-length: 20}
+          thing2: {data-type: TEXT, required: false, max-length: 20}
+          time3: {data-type: DATETIME, required: true}
+    bindings:
+      mini-post-comment:
+        notification-type: POST_COMMENTED
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-post-comment
+        version: 1
+        enabled: true
+        jump-target: POST_DETAIL
+        fields:
+          thing15: {source: originalContent, formatter: text, overflow: truncate, default-value: 查看帖子详情}
+          thing5: {source: replyUserName, formatter: text, overflow: truncate, default-value: 同学}
+          thing2: {source: replyContent, formatter: text, overflow: truncate, default-value: 查看评论详情}
+          time3: {source: replyTime, formatter: datetime, zone: Asia/Shanghai}
   mp:
     notice-templates:
       audit-result:

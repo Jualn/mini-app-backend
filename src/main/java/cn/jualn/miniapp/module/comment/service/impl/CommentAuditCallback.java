@@ -161,7 +161,8 @@ public class CommentAuditCallback implements AuditResultCallback {
                         content.getTitle() == null ? "" : content.getTitle(),
                         truncate(comment.getContent(), 20),
                         senderName,
-                        LocalDateTime.now(ZoneId.of("Asia/Shanghai"))))
+                        comment.getCreatedAt() == null ? LocalDateTime.now(ZoneId.of("Asia/Shanghai")) : comment.getCreatedAt(),
+                        content.getPreview()))
                 .build();
 
         notifyService.processNotificationPayload(payload);
@@ -251,12 +252,12 @@ public class CommentAuditCallback implements AuditResultCallback {
 
         if (type != TargetType.POST && type != TargetType.ACTIVITY && type != TargetType.EXAM) return null;
         var summary = subjects.require(type).notificationSummary(targetId);
-        return summary == null ? null : ContentSummary.builder().ownerId(summary.ownerId()).title(summary.title()).build();
+        return summary == null ? null : ContentSummary.builder().ownerId(summary.ownerId()).title(summary.title()).preview(summary.preview()).build();
     }
 
     private String truncate(String s, int maxLen) {
         if (s == null) return "";
-        return s.length() <= maxLen ? s : s.substring(0, maxLen) + "...";
+        return s.codePointCount(0, s.length()) <= maxLen ? s : s.substring(0, s.offsetByCodePoints(0, maxLen)) + "...";
     }
 
     @Data
@@ -264,5 +265,6 @@ public class CommentAuditCallback implements AuditResultCallback {
     private static class ContentSummary {
         private Long ownerId;
         private String title;
+        private String preview;
     }
 }

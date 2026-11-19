@@ -233,9 +233,10 @@ public class WxNotificationTemplateRegistry {
             if (definition == null || !definition.getChannel().equals(binding.getChannel())
                     || !definition.getAccountRef().equals(binding.getAccountRef())) throw invalid(ref, "绑定跨渠道/账号或引用缺失");
             if (!identities.add(binding.getNotificationType() + ":" + binding.getChannel() + ":" + binding.getAccountRef())) throw invalid(ref, "重复绑定");
-            if (!Set.of("ACTIVITY_DETAIL", "PUBLIC_EVENT_DETAIL", "INBOX").contains(binding.getJumpTarget())) throw invalid(ref, "跳转规则未注册");
+            if (!Set.of("ACTIVITY_DETAIL", "PUBLIC_EVENT_DETAIL", "POST_DETAIL", "INBOX").contains(binding.getJumpTarget())) throw invalid(ref, "跳转规则未注册");
             if (binding.getNotificationType().startsWith("ACTIVITY_") && !"ACTIVITY_DETAIL".equals(binding.getJumpTarget())
-                    || binding.getNotificationType().startsWith("PUBLIC_EVENT_") && !"PUBLIC_EVENT_DETAIL".equals(binding.getJumpTarget())) throw invalid(ref, "业务目标不匹配");
+                    || binding.getNotificationType().startsWith("PUBLIC_EVENT_") && !"PUBLIC_EVENT_DETAIL".equals(binding.getJumpTarget())
+                    || "POST_COMMENTED".equals(binding.getNotificationType()) && !"POST_DETAIL".equals(binding.getJumpTarget())) throw invalid(ref, "业务目标不匹配");
             if (!binding.getFields().keySet().equals(definition.getFields().keySet())) throw invalid(ref, "字段映射不完整");
             binding.getFields().forEach((key, mapping) -> {
                 if (mapping == null || !WxNoticeFieldCatalog.allows(binding.getNotificationType(), mapping.getSource())

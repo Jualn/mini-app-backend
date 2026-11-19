@@ -29,20 +29,22 @@ class CommentNotificationSnapshotTest {
     private final PostMapper posts = mock(PostMapper.class);
     private final UserService users = mock(UserService.class);
     private final NotifyService notifications = mock(NotifyService.class);
+    private final cn.jualn.miniapp.module.comment.mapper.CommunityCommentMapper community = mock(cn.jualn.miniapp.module.comment.mapper.CommunityCommentMapper.class);
     private CommentAuditCallback callback() {
-        return new CommentAuditCallback(comments, mock(cn.jualn.miniapp.module.audit.service.AuditLogService.class), notifications, users, new cn.jualn.miniapp.module.interact.service.InteractionSubjects(java.util.List.of(new cn.jualn.miniapp.module.post.service.PostInteractionSubject(posts,mock(cn.jualn.miniapp.infrastructure.cache.RedisService.class)),new cn.jualn.miniapp.module.activity.service.ActivityInteractionSubject(mock(cn.jualn.miniapp.module.activity.mapper.ActivityMapper.class),mock(cn.jualn.miniapp.infrastructure.cache.RedisService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventInteractionSubject(mock(cn.jualn.miniapp.module.publicevent.mapper.PublicEventMapper.class)))), mock(cn.jualn.miniapp.module.comment.service.CommentTargetAccess.class), mock(cn.jualn.miniapp.module.comment.mapper.CommunityCommentMapper.class));
+        return new CommentAuditCallback(comments, mock(cn.jualn.miniapp.module.audit.service.AuditLogService.class), notifications, users, new cn.jualn.miniapp.module.interact.service.InteractionSubjects(java.util.List.of(new cn.jualn.miniapp.module.post.service.PostInteractionSubject(posts,mock(cn.jualn.miniapp.infrastructure.cache.RedisService.class)),new cn.jualn.miniapp.module.activity.service.ActivityInteractionSubject(mock(cn.jualn.miniapp.module.activity.mapper.ActivityMapper.class),mock(cn.jualn.miniapp.infrastructure.cache.RedisService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventInteractionSubject(mock(cn.jualn.miniapp.module.publicevent.mapper.PublicEventMapper.class)))), mock(cn.jualn.miniapp.module.comment.service.CommentTargetAccess.class), community);
     }
     private Comment comment(Long parent) {
         var row = Comment.builder().id(19L).parentId(parent).userId(7L).targetType(TargetType.POST.getCode()).targetId(42L)
-                .content("new response").build();
+                .content("new response").status(0).auditStatus(0).createdAt(java.time.LocalDateTime.of(2026,11,19,10,20)).build();
         when(comments.selectById(19L)).thenReturn(row);
         when(comments.update(any(Wrapper.class))).thenReturn(1);
-        when(posts.selectOne(any(Wrapper.class))).thenReturn(Post.builder().id(42L).userId(8L).title("frozen post title").build());
+        when(posts.selectOne(any(Wrapper.class))).thenReturn(Post.builder().id(42L).userId(8L).title("frozen post title").content("frozen post body").build());
         return row;
     }
     @Test void replyKeepsOriginalQuoteNewBodyAndPostTitleWithAvatar() {
         var row = comment(18L);
-        var parent = Comment.builder().id(18L).userId(8L).content("original parent comment").build();
+        var parent = Comment.builder().id(18L).userId(8L).content("original parent comment").status(1).build();
+        when(community.get(18L)).thenReturn(parent);
         when(comments.selectById(18L)).thenReturn(parent);
         var actor = UserSimpleBO.builder().id(7L).nickname("old nickname").avatarUrl("https://example.com/a.png").build();
         when(users.getSimpleInfo(7L)).thenReturn(actor);
@@ -69,6 +71,25 @@ class CommentNotificationSnapshotTest {
         var frozen = captured.getValue().getSnapshot();
         assertEquals("frozen post title", frozen.presentation().subjectTitle());
         assertEquals("frozen post title", frozen.presentation().context());
+        assertEquals(cn.jualn.miniapp.module.notify.enums.NotifyType.POST_COMMENTED, captured.getValue().getType());
+        var data = captured.getValue().getContentData().toMap();
+        assertEquals("frozen post body", data.get("originalContent"));
+        assertEquals("actor", data.get("replyUserName"));
+        assertEquals(java.time.LocalDateTime.of(2026,11,19,10,20), data.get("replyTime"));
         assertNull(frozen.presentation().quote()); assertNotNull(frozen.actor()); assertNull(frozen.actor().avatarUrl());
+    }
+
+    @Test void commentingOnOwnPostDoesNotCreateNotification() {
+        comment(null);
+        when(posts.selectOne(any(Wrapper.class))).thenReturn(Post.builder().id(42L).userId(7L).title("own post").build());
+        callback().activateCommentAfterAuditPass(19L);
+        verifyNoInteractions(notifications);
+    }
+
+    @Test void repeatedApprovalWithoutStateTransitionDoesNotNotify() {
+        comment(null);
+        when(comments.update(any(Wrapper.class))).thenReturn(0);
+        callback().activateCommentAfterAuditPass(19L);
+        verifyNoInteractions(notifications);
     }
 }

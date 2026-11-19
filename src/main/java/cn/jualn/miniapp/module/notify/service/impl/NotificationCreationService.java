@@ -196,7 +196,7 @@ public class NotificationCreationService implements cn.jualn.miniapp.module.noti
             return new Result(Outcome.CREATED, notification.getId());
         }
 
-        deliveryService.planWeChatDelivery(notification, payload.getType());
+        deliveryService.planWeChatDelivery(notification, payload.getType(), payload.getAllowedChannels());
 
         log.debug("[Notify] 个人通知处理完成，userId={}, type={}",
                 payload.getReceiverId(), payload.getType());
