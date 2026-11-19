@@ -3,8 +3,14 @@
 ssl/
 
 # 本地环境配置文件
-.env.prod
 .env
+.env.prod
+.env.dev
+
+# 本地验证中间产物与 JVM 崩溃日志
+/.validation/
+/replay_pid*.log
+/hs_err_pid*.log
 
 # agent配置文件
 .agents
