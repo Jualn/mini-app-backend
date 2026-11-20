@@ -13,22 +13,17 @@ import java.util.List;
 @ConfigurationProperties(prefix = "wx.notification")
 public class WxNotificationTemplateProperties {
     private String environment = "local";
-    private Channel miniProgram = new Channel();
-    private Channel officialAccount = new Channel();
     private Map<String, Definition> definitions = new LinkedHashMap<>();
     private Map<String, Binding> bindings = new LinkedHashMap<>();
-
-    @Data public static class Channel {
-        private boolean enabled;
-    }
 
     @Data public static class Definition {
         private String channel;
         private String accountRef;
         private String product;
         private String templateId;
+        private String title;
+        private String subscriptionKind = "ONE_TIME";
         private int version = 1;
-        private boolean enabled;
         /** Human-reviewed evidence reference; never means per-user permission. */
         private String evidenceRef;
         private String miniProgramState = "formal";
@@ -46,8 +41,6 @@ public class WxNotificationTemplateProperties {
         private String accountRef;
         private String definitionRef;
         private int version = 1;
-        private boolean enabled;
-        private boolean subscribeVisible = true;
         private String displayName;
         private String jumpTarget;
         private Map<String, Mapping> fields = new LinkedHashMap<>();

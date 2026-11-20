@@ -167,7 +167,7 @@ node tools/validate-managed-person.mjs
 .\mvnw.cmd -B -ntp '-Dtest=PointsIntegrationHttpTest#v66*' '-Dpoints.integration.jdbcUrl=jdbc:mysql://127.0.0.1:<approved-port>/points_integration_test_<new-suffix>' '-Dpoints.integration.serverUuid=<verified-instance-uuid>' '-Dunified.r3.fixture=EXPLICIT_SYNTHETIC_R3_APPROVAL' test
 ```
 
-完整应用运行后再执行 `node tools/validate-managed-person.mjs --full`，对捕获的业务响应另做当前契约校验；已脱敏凭证不计入。该组合实际执行完整 Spring 应用、Sa/扫码会话、Redis、RBAC、Person、Points、私有材料 owner、Learning 和通知持久化。外部微信、COS/STS、安全供应商仍是显式替身；不是设备或真实 Provider 端到端验收。既有目录未授调整/批准能力时冲正保持403；同人换号自审的服务专项与真实目录拒绝分别留证。Learning 通知用 `representation=structured` 核对 assignmentId 和原实际投递账号。
+完整应用运行后再执行 `node tools/validate-managed-person.mjs --full`，对捕获的业务响应另做当前契约校验；已脱敏凭证不计入。该组合实际执行完整 Spring 应用、Sa/扫码会话、Redis、RBAC、Person、Points、私有材料 owner、Learning 和通知持久化。外部微信、COS/STS、安全供应商仍是显式替身；不是设备或真实 Provider 端到端验收。既有目录未授调整/批准能力时冲正保持403；同人换号自审的服务专项与真实目录拒绝分别留证。Learning 通知用首版结构化响应核对 assignmentId 和原实际投递账号。
 
 证据：`target/independent-person/schema.json`、`http.json`、`wire-validation.json`（核心20个管理操作），`target/points-integration/http.json`（完整应用响应）、`target/independent-person/v66/`（手动 SOURCE 重建/升级与行证据）及 Surefire。validator 同时复核固定三份 handoff 与同一135文件 SHA 清单。源码/编译/Mock/SQL/数据库/完整应用分别标层级；以上不代表主开发库、服务器、真实名单、外部 Provider 或 Admin/Mini 发布。V66 手动执行和恢复见[数据库说明](../src/main/resources/db/README.md#独立-person-旧结构清理-v66)。
 
@@ -407,7 +407,7 @@ Activity 草稿参与形式回归可显式选取 `AdminActivityConverterTest,Act
 ```powershell
 .\tools\validate-event-information.ps1 -Maven '.\mvnw.cmd' -JavaHome 'D:\Jualn\Java\jdk-17.0.18+8' `
   -JdbcUrl 'jdbc:mysql://127.0.0.1:33987/notification_contract_replay_final' `
-  -TestNames @('NotificationCenterDatabaseTest','NotificationCenterMvcTest','NotificationStreamCursorCodecTest','ReminderOccurrenceTest','NotifyServiceImplTest','NotificationDeliveryServiceImplTest','CanonicalNotificationCapabilityTest','LikeNotificationProducerTest','ActivityServiceImplTest','PublicEventServiceImplTest','WxMpNoticeSendServiceTest')
+  -TestNames @('NotificationCenterDatabaseTest','NotificationCenterMvcTest','NotificationStreamCursorCodecTest','ReminderOccurrenceTest','NotifyServiceImplTest','NotificationDeliveryServiceImplTest','NotificationFirstReleaseTest','LikeNotificationProducerTest','ActivityServiceImplTest','PublicEventServiceImplTest','WxMpNoticeSendServiceTest')
 ```
 
 该 URL 仅为隔离环境示例，数据库须已完整执行测试所需迁移。`NotificationUpgradeDatabaseTest` 单独使用 `notification_contract_upgrade` 专用 schema：先迁移到 V25，加载 `src/test/resources/notification-v25-upgrade-fixture.sql`，再迁移到 V28。测试会验证明确编号的 synthetic fixture；不能在真实业务库运行。升级语义与恢复限制见 [数据库说明](../src/main/resources/db/README.md)。Redis 与微信在这些测试中使用替身；数据库测试使用真实 MySQL、Mapper 与 Spring 事务代理。
@@ -435,7 +435,7 @@ Activity 草稿参与形式回归可显式选取 `AdminActivityConverterTest,Act
 ```powershell
 .\tools\validate-event-information.ps1 -Maven .\mvnw.cmd -JavaHome '<configured Java 17>' `
   -JdbcUrl 'jdbc:mysql://127.0.0.1:<dedicated-port>/learning_task_test' `
-  -TestNames LearningTaskAuthorizationPolicyTest,LearningTaskTextSafetyTest,LearningTaskDatabaseTest,LearningTaskDraftHttpTest,LearningTaskHttpGateTest,CurrentAuthorizationTest,ArticleBodyCodecTest,ArticleAuthorizationTest,AttachmentReadServiceTest,CanonicalNotificationCapabilityTest,NotifyServiceImplTest,NotificationCenterServiceTest,JobHandlerRegistryTest,JobExecutionContextTest
+  -TestNames LearningTaskAuthorizationPolicyTest,LearningTaskTextSafetyTest,LearningTaskDatabaseTest,LearningTaskDraftHttpTest,LearningTaskHttpGateTest,CurrentAuthorizationTest,ArticleBodyCodecTest,ArticleAuthorizationTest,AttachmentReadServiceTest,NotificationFirstReleaseTest,NotifyServiceImplTest,NotificationCenterServiceTest,JobHandlerRegistryTest,JobExecutionContextTest
 ```
 
 `LearningTaskDatabaseTest` 只接受该精确 loopback schema、显式端口、root/空密码。测试通过真实 MyBatis/Spring 事务和 MySQL 唯一键/外键/行锁验证状态、竞争、幂等与回滚；测试 Provider 仅在测试源中写入已有 outbox 表验证原子提交，不包含真实通知消费/提醒调度/私有 COS/人员权限。测试会清除上述 schema 的 LearningTask 行及 topic=`learning-task.test` 的 synthetic Outbox 行，不能传业务目标。无 JdbcUrl 会跳过 DB 测试，不得报告 DB PASS。
@@ -500,24 +500,14 @@ Environment: 使用仓库 Wrapper / 已配置 Java 17 环境；未额外探测
 
 ### Activity Reminder V1 focused validation
 
-使用 `tools/validate-event-information.ps1` 指定 `ActivityReminderPolicyTest,ActivityReminderSubjectStatusTest,ReminderReconcileServiceTest,ReminderOccurrenceTest,ActionableTimelineChangeDetectorTest,CanonicalNotificationCapabilityTest,NotifyServiceImplTest,NotificationDeliveryServiceImplTest,ActivityDeliveryEligibilityTest,ActivityReminderDatabaseTest`，并选择 Java 17。相关回归可加入 Activity/Registration、PublicEventPolicy、TimelineIdentity、Notification MVC 和 Async Job 测试，不从无关全仓 testCompile 失败扩大修复。
+使用 `tools/validate-event-information.ps1` 指定 `ActivityReminderPolicyTest,ActivityReminderSubjectStatusTest,ReminderReconcileServiceTest,ReminderOccurrenceTest,ActionableTimelineChangeDetectorTest,NotificationFirstReleaseTest,NotifyServiceImplTest,NotificationDeliveryServiceImplTest,ActivityDeliveryEligibilityTest,ActivityReminderDatabaseTest`，并选择 Java 17。相关回归可加入 Activity/Registration、PublicEventPolicy、TimelineIdentity、Notification MVC 和 Async Job 测试，不从无关全仓 testCompile 失败扩大修复。
 
 `ActivityReminderDatabaseTest` 仅接受 `jdbc:mysql://127.0.0.1:<port>/activity_reminder_test<可选数字>` 的一次性 MySQL 8.4、root/空密码，要求完整 V1–V84。它不读取 application.yaml，使用 synthetic fixture、真实 Mapper/Spring 事务和微信/Redis替身；无 JdbcUrl 时跳过，不可报告 DB PASS。空库完整 Flyway replay、带旧数据 V32→V33 升级和旧字段不变分别验证。测试不得改为业务库；结束后清理本次创建的专用容器。
 
 
 ### 微信模板 V1 基础验证
 
-复用 `tools/validate-event-information.ps1` 并显式选择下列测试；只有专用一次性数据库才传 JdbcUrl：
-
-```powershell
-.\tools\validate-event-information.ps1 -Maven '.\mvnw.cmd' -JavaHome 'D:\Jualn\Java\jdk-17.0.18+8' `
-  -JdbcUrl 'jdbc:mysql://127.0.0.1:3307/activity_reminder_test' `
-  -TestNames PostCommentMiniNotificationTest,CommentNotificationSnapshotTest,NotificationContentCompatibilityTest,WxNotificationChannelTest,WxNotificationTemplateTest,WxNotificationTemplateRegistryTest,WxNotificationTemplateRendererTest,WxMpNoticeSendServiceTest,WxNoticeBudgetTest,WxLoginSecurityTest,NotificationDeliveryServiceImplTest,NotifyServiceImplTest,CanonicalNotificationCapabilityTest,LegacyNotificationDeliveryJobHandlerTest,JobExecutionContextTest,JobFailureClassifierTest,NotificationDeliveryMapperSqlTest,WeChatTemplateDatabaseTest,ActivityReminderDatabaseTest
-```
-
-`WeChatTemplateDatabaseTest` 复用 `ActivityReminderDatabaseTest` 的专用 MySQL 8.4 harness，两者须共同选入编译范围；要求当前完整 V1–V84、root/空密码，不读应用配置。验证快照 JSON 与版本重读、明确失败重试不改快照、真实事务回滚、IN_APP 不受字段失败影响、DEAD 修复。其他微信测试为纯离线或 loopback HTTP，不连接微信。没有 JdbcUrl 时数据库测试跳过，不可称 DB PASS。模板结构和 Fixture 边界见 [微信集成 §16.6](../docs/wechat-integration.md#166-wechat-notification-template-v1-实施边界)，离线执行见下节。
-
-迁移升级验证另建一次性 schema：Flyway target=33 migrate，插入 synthetic Notification 及 PENDING/PROCESSING Delivery，再执行 V34 migrate/validate，确认原状态及两列 NULL 未变。空库另完整重放 V1–V34。不要对业务库创建测试身份或调用真实微信；测试结束只清理本次专用容器。
+当前首版模板、真实任务落库和 HTTP 验证统一使用下方[通知首版验证](#通知首版验证)，不再以旧服务号配置或旧通知表示作为验收。模板结构与离线 Fixture 边界见[微信集成 §16.6](../docs/wechat-integration.md#166-wechat-notification-template-v1-实施边界)。离线模板测试不调用真实微信；历史 V34 专项只证明当时迁移，不替代 V98 验证。
 
 ### Official content M01 focused validation
 
@@ -632,17 +622,17 @@ $env:JAVA_HOME='D:\Jualn\Java\jdk-17.0.18+8'
 ```
 
 
-## Notification foundation validation
+## 通知首版验证
 
-使用 Java 17 和既有 `tools/validate-event-information.ps1`。`NotificationFoundationDatabaseTest` 只接受本次拥有的 `jdbc:mysql://127.0.0.1:<owned-mysql-port>/notification_contract_foundation`，须在独占临时 MySQL 8.4 完整重放当前迁移历史；测试会清除该专用 schema 的通知、回执及 Job，绝不可指向业务实例。个人偏好测试仅重置该专用 schema 的合成用户偏好与 owner 行，并验证 HTTP 请求到写入、显式 null 重置、整批校验、回滚及提交后缓存失效。Redis 为同任务独占的 loopback 实例，通过 `notification.test.redisPort` 显式指定端口，使用真实 RedisService；Tomcat 随机 loopback 端口。HTTP 身份由测试源 synthetic header interceptor 提供，业务/微信 provider 为显式替身，不证明真实认证、微信或设备。无符合 URL 的属性时跳过，不报告 PASS。
+使用 Java 17 和既有选择测试脚本。`NotificationFoundationDatabaseTest` 仅接受本次独占 MySQL 8.4 的 `jdbc:mysql://127.0.0.1:<owned-port>/notification_v1_test_<suffix>`，同时显式匹配 server UUID。完整重放并 validate 当前迁移（包括 V98）；测试清理该专用 schema 的合成通知、偏好及 Job，禁止业务或共享实例。真实机制为 MyBatis、Spring事务、Job持久化和MVC；Redis、身份/业务资格、微信Provider及监测授权是显式替身，不代表真实登录、微信或设备验收。缺属性为 SKIPPED。
 
 ```powershell
-.\mvnw.cmd -B -ntp '-Devent.test.jdbcUrl=jdbc:mysql://127.0.0.1:<owned-mysql-port>/notification_contract_foundation' '-Dnotification.test.redisPort=<owned-redis-port>' '-Dtest=NotificationFoundationDatabaseTest,NotificationContentCompatibilityTest,NotificationDeliveryServiceImplTest,CanonicalNotificationCapabilityTest,LegacyNotificationDeliveryJobHandlerTest,ArchitectureBoundaryTest' test
+$env:JAVA_TOOL_OPTIONS='-Dnotification.v1.jdbcUrl=jdbc:mysql://127.0.0.1:<owned-port>/notification_v1_test_<suffix> -Dnotification.v1.serverUuid=<verified-uuid>'
+.\tools\validate-event-information.ps1 -Maven '.\mvnw.cmd' -JavaHome '<Java17Home>' -TestNames NotificationFirstReleaseTest,NotificationFoundationDatabaseTest,NotificationDeliveryServiceImplTest,WxNotificationTemplateTest,WxNotificationTemplateRegistryTest,WxNotificationTemplateRendererTest,WxNotificationChannelTest,WxMpNoticeSendServiceTest,WxNoticeBudgetTest,WxNoticeSendResultTest,CanonicalNotificationControllerTest,NotificationCenterMvcTest,CommentNotificationSnapshotTest,NotificationContentCompatibilityTest
+Remove-Item Env:JAVA_TOOL_OPTIONS
 ```
 
-活动/模板数据库回归的现行 harness 需要 V84（保留原专用 schema 名），与上述实例隔离到 `activity_reminder_test`，仍使用 provider/Redis 替身。该迁移版本替代早期 V34/V75 harness 前提，不表示改写历史迁移。
-
-跨端联调在同一独占环境增加 `NotificationCrossEndHttpTest`（同时选择 `NotificationFoundationDatabaseTest` 作为其测试配置依赖）。它通过真实 AuthController/AuthService、UserService、Sa-Token JWT/Redis 与生产 MVC 拦截器建立两个同账号独立会话，再启动相邻 Mini Program 的 `scripts/test-notification-backend-http.mjs`，运行实际 request/API/service/owner/Page/Behavior/TabBar。需要 Node.js、该仓库已安装的 TypeScript，以及兄弟工作区布局。微信 code→openid、无关领域和 native wx 视图是显式替身，不证明真人登录、设备渲染或微信发送。额外 fixture server 仅随机 loopback 端口并要求进程内临时 key，不增加生产路由；凭据不写证据，HTTP/数据库与客户端结果写入 `target/notification-cross-integration/`。新测试不读取或变更业务库；业务历史保护的真实只读前后核对须另外记录。
+覆盖27项偏好和99项能力、并发组合/重置、触发器故障回滚、33类型站内落库、一级评论模板冻结与真实任务链、原生拒绝/UNKNOWN、服务号安全跳过和去个人化聚合。响应写入 `target/notification-first-release/responses.json` 与 `monitoring.json`，需对照当前 Contracts schemas 校验；目录未配置其他真实模板时不可声称这些模板已实际收件。权限、当前Person绑定与安全字段的专项替身证据由 `NotificationFirstReleaseTest` 给出。保留证据后仅停止本次拥有的测试容器。
 
 ## 运行日志基础验证
 

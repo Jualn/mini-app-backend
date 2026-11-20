@@ -14,10 +14,6 @@ admin-auth:
 wx:
   notification:
     environment: ${WX_NOTIFICATION_ENVIRONMENT:dev}
-    mini-program:
-      enabled: ${WX_NOTIFICATION_MINI_PROGRAM_ENABLED:false}
-    official-account:
-      enabled: ${WX_NOTIFICATION_OFFICIAL_ACCOUNT_ENABLED:false}
   ma:
     app-id: ${WX_MA_APP_ID}
     app-secret: ${WX_MA_APP_SECRET}

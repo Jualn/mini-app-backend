@@ -120,13 +120,14 @@ class NotifyServiceImplTest {
     }
 
     @Test
-    void articleCommentInteractionEntersInboxWithoutCreatingWeChatDelivery() {
+    void articleReplyUsesTheUnifiedChannelPlanner() {
         var payload=NotifyPayload.builder().receiverId(43L).senderId(42L).type(NotifyType.COMMENT_REPLIED)
-                .title("有人回复了你").content("回复摘录").inAppOnly(true)
+                .title("有人回复了你").content("回复摘录")
                 .sourceKey("reply:synthetic:receiver:43:approved").build();
         createService().processNotificationPayload(payload);
         verify(notificationMapper).insert(any(Notification.class));
-        verifyNoInteractions(deliveryService,settingService,userService);
+        verify(deliveryService).planCanonicalDeliveries(any(),eq(NotifyType.COMMENT_REPLIED),eq(java.util.Set.of(NotificationChannel.IN_APP)));
+        verifyNoInteractions(settingService,userService);
     }
 
     private NotifyServiceImpl createService(List<ReminderSubjectStatus> statuses) {
@@ -143,12 +144,10 @@ class NotifyServiceImplTest {
                 meters,
                 org.mockito.Mockito.mock(cn.jualn.miniapp.module.notify.service.inbox.NotificationInboxService.class),
                 deliveryService,
-                settingService,
                 redisService,
                 targetValidator,
                 new ObjectMapper().findAndRegisterModules(),
                 preferenceMapper,
-                preferenceOwnerMapper,
                 new cn.jualn.miniapp.module.user.service.UserNotificationIdentityService(userProfileMapper),
                 java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollmentService),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(examSubService))),
                     statuses,
@@ -268,35 +267,11 @@ class NotifyServiceImplTest {
     }
 
     @Test
-    void processNotificationPayload_shouldInsertAndSkipWeChatWhenDisabled() {
-        NotifyServiceImpl service = createService();
-        NotifyPayload payload = NotifyPayload.builder()
-                .receiverId(3L)
-                .senderId(1L)
-                .type(NotifyType.COMMENTED_ME)
-                .title("title")
-                .content("content")
-                .targetType(TargetType.POST)
-                .targetId(99L)
-                .contentData(new CommentNoticeData(99L, 1L, "测试标题", "测试内容", "小明", LocalDateTime.now()))
-                .build();
-        when(targetValidator.exists(TargetType.POST, 99L)).thenReturn(true);
-        when(settingService.getSettingByUserId(3L)).thenReturn(UserSettingBO.builder()
-                .notifyComment(false)
-                .notifyReply(false)
-                .notifyLike(false)
-                .notifyActivityRemind(false)
-                .notifyExamRemind(false)
-                .notifySystem(false)
-                .notifyAuditResult(false)
-                .build());
-
-        service.processNotificationPayload(payload);
-
-        verify(notificationMapper).insert(any(Notification.class));
-        org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations().forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit);
-        verify(redisService).delete(RedisKeyConstant.userUnreadCount(3L));
-        verifyNoInteractions(userService, deliveryService);
+    void retiredCoarseTypeCannotEnterFirstReleaseOrReadOldSettings() {
+        var payload=NotifyPayload.builder().receiverId(3L).senderId(1L).type(NotifyType.COMMENTED_ME)
+                .title("title").content("content").build();
+        createService().processNotificationPayload(payload);
+        verifyNoInteractions(notificationMapper,deliveryService,settingService,userService);
     }
 
     @Test
@@ -306,7 +281,6 @@ class NotifyServiceImplTest {
                 .type(NotifyType.ACTIVITY_CANCELLED).title("活动已取消").content("内容")
                 .targetType(TargetType.ACTIVITY).targetId(8L).sourceKey("activity:8:cancel:v2:user:3").build();
         when(targetValidator.exists(TargetType.ACTIVITY, 8L)).thenReturn(true);
-        when(preferenceOwnerMapper.selectCanonicalUserIds(List.of(3L))).thenReturn(List.of(3L));
         when(preferenceMapper.selectByUserIds(List.of(3L))).thenReturn(List.of());
         doAnswer(invocation -> {
             ((Notification) invocation.getArgument(0)).setId(91L);
@@ -319,7 +293,7 @@ class NotifyServiceImplTest {
 
         ArgumentCaptor<Notification> notification = ArgumentCaptor.forClass(Notification.class);
         verify(notificationMapper).insert(notification.capture());
-        assertEquals("CANONICAL", notification.getValue().getInboxGeneration());
+        assertEquals("V1", notification.getValue().getInboxGeneration());
         verify(deliveryService).planCanonicalDeliveries(eq(notification.getValue()),
                 eq(NotifyType.ACTIVITY_CANCELLED), eq(java.util.Set.of(NotificationChannel.IN_APP)));
         org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations().forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit);
@@ -343,7 +317,6 @@ class NotifyServiceImplTest {
                 .type(NotifyType.ACTIVITY_TIME_CHANGED).title("时间变化").content("内容")
                 .targetType(TargetType.ACTIVITY).targetId(8L).sourceKey("activity:8:time:v3:user:3").build();
         when(targetValidator.exists(TargetType.ACTIVITY, 8L)).thenReturn(true);
-        when(preferenceOwnerMapper.selectCanonicalUserIds(List.of(3L))).thenReturn(List.of(3L));
         NotificationPreference disabled = new NotificationPreference();
         disabled.setUserId(3L);
         disabled.setCategory("ACTIVITY");
@@ -365,14 +338,12 @@ class NotifyServiceImplTest {
                 .type(NotifyType.ACTIVITY_START_REMINDER).title("活动开始").content("内容")
                 .targetType(TargetType.ACTIVITY).targetId(8L).sourceKey("plan:7:user:3").build();
         when(targetValidator.exists(TargetType.ACTIVITY, 8L)).thenReturn(true);
-        when(preferenceOwnerMapper.selectCanonicalUserIds(List.of(3L))).thenReturn(List.of(3L));
         NotificationPreference official = new NotificationPreference();
         official.setUserId(3L);
         official.setCategory("ACTIVITY");
         official.setChannel("WECHAT_OFFICIAL_ACCOUNT");
         official.setEnabled(true);
         when(preferenceMapper.selectByUserIds(List.of(3L))).thenReturn(List.of(official));
-        when(userProfileMapper.selectOfficialAccountUserIds(List.of(3L))).thenReturn(List.of());
 
         service.processNotificationPayload(payload);
 

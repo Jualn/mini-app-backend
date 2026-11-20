@@ -4,12 +4,13 @@ wx:
     environment: fixture
     definitions:
       fixture-start:
-        channel: WECHAT_OFFICIAL_ACCOUNT
-        account-ref: mp-primary
-        product: OFFICIAL_ACCOUNT_SUBSCRIBE_BIZSEND
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        product: MINI_PROGRAM_SUBSCRIBE
+        title: 合成活动提醒
+        subscription-kind: ONE_TIME
         template-id: fixture-template-not-for-send
         version: 1
-        enabled: false
         evidence-ref: test-fixture
         fields:
           thing1: {data-type: TEXT, required: true, max-length: 3}
@@ -17,11 +18,10 @@ wx:
     bindings:
       fixture-activity-start:
         notification-type: ACTIVITY_START_REMINDER
-        channel: WECHAT_OFFICIAL_ACCOUNT
-        account-ref: mp-primary
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
         definition-ref: fixture-start
         version: 1
-        enabled: false
         jump-target: ACTIVITY_DETAIL
         fields:
           thing1: {source: subjectTitle, formatter: text, overflow: truncate}

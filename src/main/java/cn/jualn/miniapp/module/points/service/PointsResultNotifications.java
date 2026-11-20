@@ -99,7 +99,7 @@ public class PointsResultNotifications {
                 null,new NotificationCenterBO.Subject("POINT_APPLICATION",Long.toString(result.applicationId())),null);
         notifications.processNotificationPayload(NotifyPayload.builder().receiverId(result.userId()).type(type)
                 .title(type.getDesc()).content("请查看积分申请与积分记录。").sourceKey("points:"+result.occurrence())
-                .snapshot(snapshot).inAppOnly(true).build());
+                .snapshot(snapshot).recipientPersonId(result.personId()).recipientBindingId(result.bindingId()).build());
         resolve(result,"INBOX_ACCEPTED");
     }
     private void resolve(Result result,String outcome) {

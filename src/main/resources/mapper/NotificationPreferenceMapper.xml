@@ -3,7 +3,7 @@
 <mapper namespace="cn.jualn.miniapp.module.notify.mapper.NotificationPreferenceMapper">
   <select id="selectByUserIds" resultType="cn.jualn.miniapp.module.notify.entity.NotificationPreference">
     SELECT user_id, category, channel, enabled, source
-    FROM notification_preference
+    FROM notification_preference_v1
     WHERE user_id IN
     <foreach collection="userIds" item="userId" open="(" separator="," close=")">#{userId}</foreach>
     ORDER BY user_id, category, channel

@@ -8,6 +8,8 @@ import java.util.Map;
 public interface NotificationChannelAdapter {
     String channel();
     boolean isEnabled();
+    String configurationRevision();
+    NotificationTemplateStatus templateStatus(NotifyType type);
     boolean isTemplateConfigured(NotifyType type);
     boolean isDeliveryAvailable(NotifyType type);
     JsonNode prepare(NotifyType type, Map<String,Object> frozenContent);

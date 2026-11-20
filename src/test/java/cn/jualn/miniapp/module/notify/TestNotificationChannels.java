@@ -11,7 +11,7 @@ public final class TestNotificationChannels {
     private TestNotificationChannels() {}
     public static NotificationChannels create(WxMpNoticeSendService official,WxMiniNoticeSendService mini,ObjectMapper json) {
         return new NotificationChannels(List.of(
-                new WxNotificationChannelAdapter(WxMpNoticeSendService.CHANNEL,official,official::isDeliveryAvailable,json),
-                new WxNotificationChannelAdapter(WxMiniNoticeSendService.CHANNEL,mini,mini::isTemplateConfigured,json)));
+                new WxNotificationChannelAdapter(WxMpNoticeSendService.CHANNEL,official,official::isDeliveryAvailable,json,new cn.jualn.miniapp.module.wx.notice.WxNotificationTemplateRegistry(new cn.jualn.miniapp.module.wx.notice.WxNotificationTemplateProperties(),null)),
+                new WxNotificationChannelAdapter(WxMiniNoticeSendService.CHANNEL,mini,mini::isTemplateConfigured,json,new cn.jualn.miniapp.module.wx.notice.WxNotificationTemplateRegistry(new cn.jualn.miniapp.module.wx.notice.WxNotificationTemplateProperties(),null))));
     }
 }

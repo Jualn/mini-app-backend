@@ -11,15 +11,34 @@ import java.nio.charset.StandardCharsets;
 /** Application route mapping; provider clients and value formatters never know these paths. */
 public final class WxNotificationTargetResolver {
     private static final Pattern PATH_VARIABLE_PATTERN = Pattern.compile("\\{(\\w+)}");
+    public boolean supports(String type,String target) {
+        if(!WxNoticeFieldCatalog.knownType(type)||target==null)return false;
+        if("INBOX".equals(target)||"SEMANTIC_TARGET".equals(target))return true;
+        if(type.startsWith("ACTIVITY_"))return "ACTIVITY_DETAIL".equals(target);
+        if(type.startsWith("PUBLIC_EVENT_"))return "PUBLIC_EVENT_DETAIL".equals(target);
+        return "POST_COMMENTED".equals(type)&&"POST_DETAIL".equals(target);
+    }
     public String resolve(WxEffectiveTemplate template, Map<String, Object> frozen) {
         String path = template.jumpTarget() == null ? resolvePath(template.pagePath(), frozen) : switch (template.jumpTarget()) {
             case "ACTIVITY_DETAIL" -> "/subpkg_activity/pages/detail/detail?activityId=" + positiveId(frozen.get("targetId"));
             case "PUBLIC_EVENT_DETAIL" -> "/subpkg_public_event/pages/detail/detail?publicEventId=" + positiveId(frozen.get("targetId"));
             case "POST_DETAIL" -> "/subpkg_community/pages/detail/detail?postId=" + positiveId(frozen.get("targetId"));
+            case "SEMANTIC_TARGET" -> semanticPath(frozen);
             case "INBOX" -> "/pages/message/message";
             default -> throw payloadInvalid();
         };
         return originatingPath(path, frozen);
+    }
+    private String semanticPath(Map<String,Object> frozen) {
+        if(frozen.get("target") instanceof Map<?,?> target && target.get("type")!=null) {
+            return switch(target.get("type").toString()) {
+                case "POST_DETAIL" -> "/subpkg_community/pages/detail/detail?postId="+positiveId(target.get("postId"));
+                case "ACTIVITY_DETAIL" -> "/subpkg_activity/pages/detail/detail?activityId="+positiveId(target.get("activityId"));
+                case "PUBLIC_EVENT_DETAIL" -> "/subpkg_public_event/pages/detail/detail?publicEventId="+positiveId(target.get("publicEventId"));
+                default -> "/pages/message/message";
+            };
+        }
+        return "/pages/message/message";
     }
     public String originatingPath(String path, Map<String, Object> frozen) {
         if (!StringUtils.hasText(path) || path.contains("..") || path.contains("%") || path.startsWith("//")

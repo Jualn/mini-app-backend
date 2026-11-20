@@ -36,7 +36,7 @@ class CanonicalNotificationControllerTest {
     private final NotificationPreferences preferences = mock(NotificationPreferences.class);
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new CanonicalNotificationController(service,preferences,mock(NotificationCapabilityQueries.class),new NotificationPersonalConverter(),
             mock(cn.jualn.miniapp.module.notify.service.inbox.NotificationCenterService.class),
-            org.mapstruct.factory.Mappers.getMapper(cn.jualn.miniapp.module.notify.converter.NotificationCenterConverter.class)))
+            org.mapstruct.factory.Mappers.getMapper(cn.jualn.miniapp.module.notify.converter.NotificationCenterConverter.class),org.mockito.Mockito.mock(cn.jualn.miniapp.module.notify.service.capability.NotificationCatalogQueries.class),org.mapstruct.factory.Mappers.getMapper(cn.jualn.miniapp.module.notify.converter.NotificationCatalogConverter.class)))
             .setMessageConverters(new MappingJackson2HttpMessageConverter(
                     new JacksonConfig().objectMapper(new Jackson2ObjectMapperBuilder())))
             .build();

@@ -15,7 +15,7 @@
 
 LearningTask V1 的来源事实和固定 T-24h 规则由 LearningTask owner 持有，不能套用 Activity 的订阅人群。`LearningTaskNotifications` 在原业务事务调用既有 `NotifyService.processNotificationPayload`，写入 Notification 和 inbox sequence；九种 LearningTask 类型只走 SYSTEM / IN_APP，旧投影不增加渠道偏好类别。历史 sourceKey 去重与统一已读保持；这证明本地收件箱受理，不表示真人收到或微信送达。未来提醒复用 `learning-task.reminder` Job 和通用 Worker；Job 是任务/分配事实的执行投影，执行时重新锁定来源并检查资格、deadlineRevision/固定补交窗口。完成/撤销/取消/关闭使候选失效，RUNNING 候选也必须重验；写收件箱与 Job ownership fence 同事务。已合法计划但延迟的候选在截止前可恢复，T-24h 已过才创建的任务不即时补发。实现和隔离/真实环境证据分别见 [LearningTask](learning-task.md)，不扩大本文的发布声明。
 
-Points 的批准/驳回/冲正结果使用 `points.result-notification` Job，在账务事务内可靠受理，Worker 在独立本地事务复核当前收件账号及 ownership 后调用 NotifyService 写 SYSTEM/IN_APP。禁言不等于不可接收；封禁账号不投递、来源未知保留重试。sourceKey 分别为申请+决定或新冲正流水，重投不重复建通知；无 target、材料、签名或审核备注。生产开关默认关闭，已发布客户端兼容和实际外部依赖需独立验收，见 [Points](points.md)。
+Points 的批准/驳回/冲正结果使用 `points.result-notification` Job，在账务事务内可靠受理，Worker 在独立本地事务复核当前收件账号及 ownership 后调用 NotifyService 写 POINTS 类通知并统一规划渠道。禁言不等于不可接收；封禁账号不投递、来源未知保留重试。sourceKey 分别为申请+决定或新冲正流水，重投不重复建通知；无 target、材料、签名或审核备注。生产链默认提供；外部仅使用安全通用摘要与当前绑定证据，真实模板和实际外部依赖需独立验收，见 [Points](points.md)。
 
 Notification owner 写入现有秒精度 `created_at` 前显式截断到秒，避免 MySQL 把小数秒舍入到未来、随后真实已读时间反早于创建。此为写入精度兼容修复，不改变已读规则或历史时间。
 
@@ -215,9 +215,9 @@ R 是当前用户拥有的 Notification，GET by ID 与 batch-read 使用 R；V 
 
 summary 在单个一致性快照内读取 head、V unread 与新增数量；没有 afterCursor 时 newCount 为 0。batch-read 去重、整批 ownership 校验、原子且幂等；read-through 只消费 sequence 不超过提交 head 的 V。readAt 只在首次阅读写入。Redis 是 V unread 的短期 projection，以 head/read_version 隔离迟到重建；MySQL 是裁决依据。
 
-structured 与 legacy 使用同一 row/ID/readAt。`content_payload` 冻结 presentation、actor、subject 与可靠 target，不在读取时回查业务对象；时间/地点变更在业务变更事务中冻结 before/after。历史缺少变更快照时退化 SYSTEM 类型展示，不能从当前主体补 before。Notification 存在与目标可访问性分离，目标详情失败不会删除通知。NORMAL / MENTOR_QA Post 及其评论不再生产新点赞通知，历史通知保留；导师正式回答只在首次真正公开产生 POST_COMMENTED，普通二级向可信具体目标产生 COMMENT_REPLIED，待检查、回放和恢复不重复首次通知。其他既有 POST/COMMENT 的成功新增 like fact 仍按原领域产生通知，取消不产生通知，重新点赞复用首次 actor/recipient/source 身份；self-action 排除，不扫描伪造历史 like。
+首版仅一种结构化表示，Notification 与 Delivery 共用同一 notificationId/readAt。`content_payload` 冻结 presentation、actor、subject 与可靠 target，不在读取时回查业务对象；时间/地点变更在业务变更事务中冻结 before/after。历史缺少变更快照时退化 SYSTEM 类型展示，不能从当前主体补 before。Notification 存在与目标可访问性分离，目标详情失败不会删除通知。NORMAL / MENTOR_QA Post 及其评论不再生产新点赞通知，历史通知保留；导师正式回答只在首次真正公开产生 POST_COMMENTED，普通二级向可信具体目标产生 COMMENT_REPLIED，待检查、回放和恢复不重复首次通知。其他既有 POST/COMMENT 的成功新增 like fact 仍按原领域产生通知，取消不产生通知，重新点赞复用首次 actor/recipient/source 身份；self-action 排除，不扫描伪造历史 like。
 
-普通社区评论/回复仅在正式公开时产生通知；`POST_CONTENT_HANDLED` / `POST_REPORT_RESOLVED` 属 SYSTEM、仅 IN_APP，跳转本人帖子/评论/举报资源。处置以版本与实际效果身份去重，举报以 reportId 与固定结案身份去重；业务效果、管理历史与通知事实同事务接受。正常安全通过不新增审核成功通知，不扩展微信模板。
+普通社区评论/回复仅在正式公开时产生通知；`POST_CONTENT_HANDLED` / `POST_REPORT_RESOLVED` 归入 AUDIT_RESULT 偏好类别，使用安全通用外部摘要，跳转本人帖子/评论/举报资源。处置以版本与实际效果身份去重，举报以 reportId 与固定结案身份去重；业务效果、管理历史与通知事实同事务接受。正常安全通过不新增审核成功通知；未配置真实模板时不规划外部发送。
 
 展示快照：presentation 的可选纯文本 `subjectTitle` 是关联帖子/活动/公共事项的创建时标题，`quote` 是原评论/原内容摘要，回复的 `body` 仍是新回复。保留旧 `context` 的已有含义和值，不能用它猜新增字段。评论/回复与点赞在创建时冻结可靠 actor；头像可用时保存 avatarUrl，无头像时保留 actor 并省略 avatarUrl。历史缺新增字段/actor 的消息保持缺省，不在读取时用当前实体或用户资料回填。新消费者的字段优先级与 context 去重由共享契约承接；站内模型/read/target/Delivery 身份不变。JSON payload 扩展无需新表或历史数据迁移。
 
@@ -249,20 +249,11 @@ structured 与 legacy 使用同一 row/ID/readAt。`content_payload` 冻结 pres
 
 ### 6.3 既有通知目录与设置归属
 
-| Producer / 触发 | 接收者与抑制 | 稳定来源 | 设置及渠道边界 |
-|---|---|---|---|
-| 评论审核通过 callback | 内容所有者；发送者本人不通知 | 既有 commentId + receiver + approved | 原互动设置 owner；不归入 ACTIVITY/PUBLIC_EVENT |
-| 回复审核通过 callback | 被回复用户；发送者本人不通知 | 既有 reply commentId + receiver + approved | 同上 |
-| 用户资料审核拒绝 callback | 资料所属用户；不扩大为所有审核成功通知 | 既有 auditLogId + profile-reject | 原审核结果设置 owner；不臆造 mandatory |
-| Activity/PublicEvent Reminder | §2.1 与 §5 | business anchor occurrence + userId（旧 type 1–7 保留 planId） | 六组合 Category × Channel |
-| Activity/PublicEvent 主动事件 | §6.1–6.2 | event identity + receiverId | 六组合 Category × Channel |
-| 历史系统通知/广播 | 仅保留已有 producer/旧计划的明确接收范围 | 保持既有稳定身份；无身份项先 preflight | 原系统设置 owner；不新增广播产品 |
-
-评论/回复/资料审核等既有路径的设置当前控制外部投递，不能无声扩展成删除或隐藏站内事实。它们沿兼容路径保留；迁移到新的类型/渠道策略前核对现有调用与设置含义，不把新三渠道 Planner 的默认值自动套给未归类类型。具体历史 key 拼写保持原实现，不为统一表格改名。外部发送同样遵守真实 capability/permission 与 UNKNOWN 边界。
+评论、回复、点赞、审核与处理结果、学习任务、积分及活动/公共事项各 producer 保持既有业务触发与稳定来源；统一使用 NotificationCategory 的九类映射和27组合偏好。本人行为抑制、业务接收账号和事务边界仍由业务 owner 负责，模板不能扩大接收范围。旧粗粒度类型1–5不进入首版目录；33种合法类型均使用统一规划，不读取旧互动/审核设置或迁移owner。
 
 ## 7. NotificationDelivery
 
-渠道投递是 Notification 的派生意图与结果。`IN_APP` 是本地渠道，两个微信渠道是独立外部渠道；它们不能复用笼统 `WECHAT`。V20 已落 `notification_delivery` 基础表；V21 增加 sparse preference 和明确的旧/新收件箱世代分类；V22 增加 `LEGACY_MIGRATION` 来源与逐用户 owner。它们不制造历史 Delivery。D1 已确认关闭 IN_APP 只影响未来规划，已有消息、已读状态和已规划投递保持，重开不补发。源码已有 canonical IN_APP、按有效绑定规划的服务号渠道，以及小程序独立 Adapter/分派；小程序按独立渠道开关和有效模板接入，微信响应判定该次资格；下列设计与目标环境部署/兼容切换证据分别判断：
+渠道投递是 Notification 的派生意图与结果。IN_APP 与两个微信渠道独立，V98 新增首版偏好表及投递类型/类别归属。关闭 IN_APP 只影响未来规划，已有消息与已读保持，重开不补发。小程序有效模板直接接入；服务号首版停发。历史表保留，不导入或重建历史 Delivery。
 
 | 字段 | 类型/可空方向 | 含义 |
 |---|---|---|
@@ -291,56 +282,29 @@ Notification 与所有初始 Channel Delivery 在同一 MySQL 事务规划。`IN
 初始规划与 Notification 插入是一次原子决定，即使全部渠道关闭也保留去重所需的 Notification。重复 source key 只读取已有结果，不按后来偏好/配置补建缺失渠道，不重置 FAILED/SKIPPED/UNKNOWN，不重写内容；修复真实事务不变量破坏需受控处理，不能借事件重放实施补发。IN_APP 偏好按 D1 仅影响初始规划；微信在调用前再次检查当前有效偏好，关闭则 SKIPPED，重开不会复活该终局。偏好检查后的在途调用不承诺可撤回。
 
 
-微信模板 V1 的新外部投递在本事务中冻结已渲染字段及完整模板/绑定版本到 `notification_delivery.template_snapshot`（schema version 1），Job 只携带 deliveryId。配置更新不能修改重试内容；当前禁用、身份、偏好与业务资格仍在发送前复核。channel 明确分派：服务号沿用 bizsend，小程序使用独立 subscribe/send Adapter。小程序渠道关闭或模板缺失时不规划；已有小程序投递在渠道关闭后安全 SKIPPED，不能送到服务号接口。V34 的旧 NULL 快照 PENDING → SKIPPED（legacy_template_unfrozen），PROCESSING → UNKNOWN；不伪造历史模板。细节和离线示例见 [微信集成 §16.6](wechat-integration.md#166-wechat-notification-template-v1-实施边界)。不新增队列、Job 类型或 Delivery 状态。
+微信模板 V1 的新外部投递在本事务中冻结已渲染字段及完整模板/绑定版本到 `notification_delivery.template_snapshot`（schema version 1），Job 只携带 deliveryId。配置更新不能修改重试内容；当前禁用、身份、偏好与业务资格仍在发送前复核。channel 明确分派：小程序使用独立 subscribe/send Adapter；服务号固定停发，未开始投递安全 SKIPPED。小程序模板缺失时不规划，不能转到服务号接口。V34 的旧 NULL 快照 PENDING → SKIPPED（legacy_template_unfrozen），PROCESSING → UNKNOWN；不伪造历史模板。细节和离线示例见 [微信集成 §16.6](wechat-integration.md#166-wechat-notification-template-v1-实施边界)。不新增队列、Job 类型或 Delivery 状态。
 
 五类定时 Notification 在创建时由 producer 的 ReminderPlan anchor 冻结 `businessTime` 和相应 `registrationStartTime/registrationDeadlineTime/publicEventStartTime/startTime`，同时保存已知 location/targetId。公共事项截止沿用 registrationDeadlineTime 的业务含义；不以 sendAt 或主体当前时间补旧通知。取消、时间/地点变化、提前结束等继续使用既有结构化事件快照，不扩展无关业务时间。
 
 ### 7.1 DeliveryPlanner
 
-DeliveryPlanner 根据 NotificationType、Category、mandatory policy、用户 preference、渠道 capability、provider identity/permission 和当前业务相关性生成候选 Delivery：
+所有33种合法类型统一经过 NotificationCreationService，偏好类别由 NotificationCategory.of 唯一定义。消息写入使用 inbox_generation=V1，与旧消息结构隔离；不导入、重建或删除历史记录。Notification、被选择的 IN_APP/小程序 Delivery 和外部 v2 Job 同事务完成；重复 source 只返回原事实，不随设置、模板或渠道变化补建投递。
 
-canonical 规划按下面条件执行。服务号适用路径采用 [发送时校验授权](wechat-integration.md#51-调用前-eligibility)；`PROVIDER_VERIFIED_AT_SEND` 表示应用无法预知本次订阅资格，不宣称 GRANTED，也不追溯历史终局。适用类型与未接通渠道见微信文档 §17。
+IN_APP 按九类别各自默认开启，微信默认关闭；个人 override 只影响对应组合。没有 IN_APP 投递的通知不进入 V，外部恢复按同一 ID 与 R 边界读取。站内入箱顺序仍由每用户流边界锁确定，列表、summary、未读与 read-through 共用可见集合；旧 representation 参数与无界 mark-all 路由退役。
 
-- `USER_CONFIGURABLE` 且用户关闭某渠道时，不创建该渠道 Delivery；`MANDATORY` 忽略用户 preference，但仍须满足渠道 capability、身份和 provider permission。
-- 规划时已知 `enabled=false`、templateId 缺失或 Adapter/permission capability 不存在时，不创建该渠道 Delivery，并产生低基数 planning reason/metric；不能故意调用 provider 等其拒绝。
-- 已创建 Delivery 后，执行时发现 capability 被关闭、身份解绑、permission 失效或主体不再相关，转 `SKIPPED` 并记录稳定 reason。
-- capability 已确认可用但冻结 payload 违反既定模板 contract，属于实现/数据错误，记 `FAILED`；不要把“根本未配置渠道”伪装成 provider failure。
-- Notification 与 Delivery 的创建事务不执行远程调用。
-
-Eligibility 至少是以下条件的交集：
-
-```text
-business recipient
-+ notification policy (USER_CONFIGURABLE / MANDATORY)
-+ Category × Channel preference
-+ channel enabled
-+ provider identity
-+ provider permission
-+ template/adapter capability
-```
-
-用户愿意接收某渠道和 provider 当前允许发送是两个独立事实，不能互相代替。
+服务号首版固定停发。小程序有效模板直接参与统一规划，无默认关闭的功能总开关或试运行名单。业务生产代码不再使用 inAppOnly 永久限制学习任务、积分或处理结果；业务资格、当前 Person 绑定、安全字段和个人意愿仍在各自边界执行。未配置模板只影响该类型外部投递，站内消息独立正常处理。
 
 ### 7.2 Channel Capability Matrix
 
-| Notification / Category | IN_APP | WECHAT_MINI_PROGRAM | WECHAT_OFFICIAL_ACCOUNT | Template requirement | Provider permission requirement |
-|---|---|---|---|---|---|
-| Activity Reminder / Direct (`ACTIVITY`) | 支持；本地事务完成 | 独立渠道开关及模板映射；微信响应判定该次资格 | 按有效显式绑定进入通用投递；活动开始保留 `activity_start` 兼容回退，无配置类型 unavailable | 微信两渠道各自 templateId、字段 mapping、jump target；不能共享 ID | 两个渠道分别由各自 provider 发送响应校验资格，不维护本地次数，不表示永久 GRANTED |
-| PublicEvent Reminder / Direct (`PUBLIC_EVENT`) | 支持；本地事务完成 | 独立渠道开关及模板映射；微信响应判定该次资格 | 按有效显式绑定进入通用投递；未配置或未核验模板默认 unavailable | 同上；具体 ID 均为“配置缺失”，不得编造 | 同上 |
-| 未来 System/Admin producer | 基础能力可复用，当前不新增产品 producer | 不预建未使用模板 | 既有 SYSTEM_NOTICE 可作为历史能力证据，不等于新广播产品已迁移 | 只有真实 producer/类型启用时配置 | 按该类型的 mandatory/configurable policy 与 provider 权限判断 |
+首版完整33类型×3渠道=99组合，偏好为9类×3渠道=27组合。类别映射、订阅目录与 HTTP schema 以 Contracts notification-delivery/notification.yaml 为准；不在此复制另一份类型矩阵。通知的收件箱分类保持 INTERACTION/ACTIVITY/SYSTEM，独立于九类接收偏好。
 
-帖子一级评论的 POST_COMMENTED 仍使用既有 notifyComment 设置，不进入 Activity/PublicEvent 六组合。旧通知规划可分别创建两个已配置微信渠道的 Delivery，并遵守 allowedChannels 上限；每个渠道仍受自己的总开关与精确模板绑定控制。发送前对两渠道重查同一评论通知意愿，微信各自判定实际订阅资格。二级回复未绑定小程序模板，不扩大发送范围；具体字段与本地收件步骤见 [微信集成 §16.7](wechat-integration.md#167-帖子一级评论模板)。
-
-`WECHAT_MINI_PROGRAM` 与 `WECHAT_OFFICIAL_ACCOUNT` 各自拥有 provider identity、authorization/permission、template registry、field mapping、jump target、request API 和 error classifier；只共享 token/HTTP/client foundation 与通用错误模型。当前仓库的 `openid` 是小程序身份，`mp_openid` 是服务号身份；两个发送器分别调用各自产品的 API，不以改名或失败后切换替代独立渠道。
+WxNotificationTemplateRegistry 是模板元数据、字段与跳转的同一目录；订阅、能力、预览和投递均使用此目录。新增已有类型的真实模板不增加业务发送分支；不借一级评论模板代发其他场景。小程序 PROVIDER_VERIFIED_AT_SEND 仅表示由微信判定该次资格，服务号全部 CHANNEL_DISABLED；没有本地精确订阅次数台账或客户端授权上报接口。
 
 ### 7.3 Preference Model
 
-- 第一版粒度为 `NotificationCategory × Channel`，Category 先启用 `ACTIVITY`、`PUBLIC_EVENT`，Channel 为三种正式渠道。不为每个 NotificationType 建独立开关。
-- 使用 sparse override：没有 row 时取版本化 system default，只有用户修改时持久化 override。第一版 `ACTIVITY/PUBLIC_EVENT × IN_APP` 默认开启；两个微信渠道默认关闭，用户明确开启 preference 后仍需独立满足 provider permission。唯一约束语义为 `(user_id, category, channel)`，实际结构以 Flyway 为准；同时保留适合批量读取的 `(user_id, category, channel)` 覆盖索引/主键布局。
-- Activity/PublicEvent 第一版都是 `USER_CONFIGURABLE`。当前代码虽有 `notifySystem/notifyAuditResult` 开关，但没有已确认且不可关闭的系统级 NotificationType；因此当前不臆造 mandatory 类型。未来账号安全/风控通知若确认为 `MANDATORY`，必须由 NotificationType policy catalog 明确标记，不能归入 ACTIVITY/PUBLIC_EVENT，也不能受其关闭开关影响。
-- fan-out 每批先取得 receiverIds，再一次批量加载该批 Category preference、相关 provider identities 和 permissions，在内存中规划 Eligibility；禁止 1000 receivers 触发 1000 preference + 1000 identity 查询。
-- 当前规模第一版直接使用有索引的 MySQL 批量读取；现有按 userId Redis Setting cache 不能用于 fan-out N+1。只有测量证明数据库读取成为瓶颈后，才增加按 category/channel 可批量失效的 cache，并明确 update invalidation 和 TTL；当前不设计复杂 Redis Preference Cache。
-- 旧 `user_setting.notifyActivityRemind/notifyExamRemind` 的兼容映射仅影响对应服务号组合；历史导入来源为 `LEGACY_MIGRATION`，不表示微信授权。IN_APP/小程序保持各自默认或 override，不把旧一个布尔值解释为三个渠道的永久选择。逐用户 owner 与回填语义见数据库说明。
+notification_preference_v1 只保存 USER_OVERRIDE，唯一键为(user_id,category,channel)，无记录时站内true、微信false。GET返回完整27项，不创建记录、不访问旧owner、不导入旧字段。PATCH和batch-update共用一个事务owner：重复组合整体拒绝，enabled=null删除override；按稳定组合顺序锁行，未提交组合不被替换。故障503且零写入，不排队或双写旧设置。
+
+V98只新增首版偏好事实及投递监测归属列；旧notification_preference/owner/user_setting作为历史保留，退出通知读取和决策。新用户与已有账号没有不同开放门槛。个人偏好关闭不隐藏已有消息或改写已读；重新开启只影响后续规划，不补发历史。服务号历史偏好不抹除，也不能恢复该产品发送。
 
 ### 7.4 Delivery 状态与结果
 
@@ -382,14 +346,9 @@ Notification 的 source key 删除后将失去去重证据。因此清理不仅�
 
 ## 8. 数据演进边界
 
-产品侧确认没有重要历史 Delivery 需要强行保留。迁移目标是从新 producer 切换后开始记录真实 Delivery，而不是制造历史：
+首版直接采用统一偏好和 NotificationItem，不保留旧通知 HTTP/字段/列表 adapter 或双版本窗口。V98新增 notification_preference_v1 和 Delivery 的 notification_type/preference_category 监测归属；不回填旧历史、不修改已应用迁移，不授权删除或重建业务数据库。新写入用 V1 标记，V/R 不从旧结构豁免站内资格。
 
-1. 保留 V20 expand 结果；V21 已补 Category × Channel sparse preference、共同可见性查询所需索引和 `LEGACY/CANONICAL` 内部世代；V22 补偏好来源和逐用户 owner。旧 writer 仍可能存在期间默认归入 `LEGACY`；只有完成 D2 preflight 与 producer switch 后，新 writer 才显式写 `CANONICAL` 并在同一事务创建真实 `IN_APP` Delivery。
-2. 历史 Notification 不批量制造 fake Delivery；历史 `notify_plan.status=1`、`async_job.SUCCEEDED` 或旧日志都不能推导 `DELIVERED`，也不增加无证据的 LEGACY 状态。
-3. 在真实 DB 执行只读 preflight，分别统计历史 notification、notify_plan，以及 `notification.wechat-deliver` v1 的 PENDING/RUNNING/SUCCEEDED/DEAD/CANCELLED。若 pending/running/dead 均为 0，保留一个 release window 的兼容 reader 后即可删除，不建设复杂 drain/reconciliation 系统；若不为 0，再按实际行制定 drain/人工结论。
-4. 系统广播当前不新增产品实现。旧 sourceType=3 仅按 preflight 结果决定兼容保留/后置迁移；不能为了架构完整新增 broadcast 表/API/UI，也不能阻塞新的 System/Admin producer 以后接入 Notification → Delivery。
-5. Rollout 保持 `expand → compatible code → switch producer → inspect/drain old v1 jobs → later contract`。即使历史数据预计接近零，也必须完成 empty DB Flyway replay、当前 production-like 版本升级、唯一约束和 preflight 对账。
-6. contract migration 只能在新 producer 稳定、旧 v1 Job 已证实为零或有明确终局、nullable 历史行已分类后执行；rollback 只能回到仍能读取新 schema 的兼容应用，不能通过伪造 Delivery 或删除 UNKNOWN 证据实现。
+管理只读渠道状态与投递汇总复用同一目录/真实 Delivery，授权为精确 notice:read、同源 NOTICE_MONITOR 本业务 PLATFORM 或已就绪 ROOT owner 能力。统计按 Delivery.created_at 归属[from,until)，区间最多31天，不返回收件人、消息正文或密钥。未规划不虚构失败；UNKNOWN独立，DELIVERED仅映射ACCEPTED，不等于设备收件或已读。归属缺失、超过可可靠保留范围或依赖不可判定时503，不报假零；不提供发送、重试、广播或配置编辑。
 
 ## 9. Observability 接入
 
@@ -446,7 +405,7 @@ Activity V1 临近补发：ActivityReminderCatchUp 在关系变更事务内写 `
 | 主动地点/生命周期 | ActivityLifecycleService；ActivityReminderSubjectStatus.lockBusinessEventEligible | 有效地点之间及未知↔有效地点、取消、显式提前结束沿既有类型与事件版本去重。时间/地点快照不因随后结束而替换或撤销；取消/提前结束校验对应事实，不套 ACTIVE。 |
 | 外部发送复核 | ActivityDeliveryEligibility；NotificationDeliveryServiceImpl.execute | 新通知内部保存 reminderPlanId，公共 projection 不暴露。旧 plan:user key 读原 Plan；旧冻结 startTime 可验证当前 start occurrence，不能从 sendAt/文案猜。Plan 已取消、锚点变化、关系丢失、过节点或渠道失效时 SKIPPED，不删除 Notification。provider callback 在身份/模板渲染后、调用前再次复核，实际调用前才增加 attempt。 |
 | D1 / 旧消息 / UNKNOWN | 原 inbox reader、LegacyNotificationDeliveryJobHandler、Delivery 状态机 | 既有站内消息及 readAt 不撤销，不制造历史 Delivery，不补发；旧 v1 Job 缺发送历史仍 UNKNOWN/待人工处理。PROCESSING crash 保守 UNKNOWN，权威 -1 才持久重试；类型扩展不改变恢复规则。 |
-| 类别 / 偏好 / 跳转 / 能力 | NotifyType；NotificationPreferences；NotificationCapabilityQueries；NotificationCenterServiceImpl；NotificationSnapshotProjection；NotificationMapper | 新类型属于 ACTIVITY，沿六组合偏好、稳定 ACTIVITY_DETAIL、原列表/恢复/已读边界。完整 36 项，不把小程序或无专用模板类型报告为 available。 |
+| 类别 / 偏好 / 跳转 / 能力 | NotifyType；NotificationPreferences；NotificationCapabilityQueries；NotificationCenterServiceImpl；NotificationSnapshotProjection；NotificationMapper | 新类型属于 ACTIVITY，沿27组合偏好、稳定 ACTIVITY_DETAIL、原列表/恢复/已读边界。完整99项能力，不把小程序或无专用模板类型报告为 available。 |
 
 V33 是 expand：Timeline label 120、description 2000、time_description 500，Plan/Notification title 200 保持合法 Activity 标题；新增 nullable 扫描上界，不回填通知、不迁移旧开关、不改变业务关系。迁移前必须停止旧 fan-out/writer 并盘点旧任务；新 Mapper 依赖 V33，旧 JAR 不理解 V1 接收规则及 code 23，不能将恢复旧 JAR当作语义回滚。真实环境资格、旧 false 数据盘点及旧 Job 分布仍需部署前只读证据。
 
@@ -460,17 +419,17 @@ V33 是 expand：Timeline label 120、description 2000、time_description 500，
 
 ## 12. 通用创建、个人删除与内容生命周期
 
-跨端语义跟随 Contracts `notification-inbox-lifecycle-2026-10-29` 当前工作树；接收文件 SHA-256 与执行结果留在 `target/notification-foundation/`，不是新的长期协议。90 天是 breaking 可见性变化；所有受支持消费者完成窗口、404、缓存和迟到响应适配后才可对外切换，不从本地隔离验收推导发布许可。
+跨端语义跟随 Contracts 当前 notification paths/schema 及 notification-delivery 协调文档。首版直接采用90天站内生命周期和单一响应，不维护旧版本通知表示或导入旧消息。目标环境部署与设备收件需分别验证。
 
-- 新内部 producer 使用 `NotificationCreator.create(NotifyPayload)`，稳定 sourceKey、接收账号、类型和非空标题必填。结果为 CREATED / DUPLICATE / SKIPPED；非法输入及来源/冻结内容冲突抛异常并回滚。业务需要原子性时在原业务事务调用。`allowedChannels` 只收窄渠道，不能覆盖偏好、身份和实际 capability；`inAppOnly` 保留兼容。新入口明确生成 CANONICAL 渠道事实，旧 producer 经 `NotifyService` 的 legacy adapter 保留原分类、偏好与快照含义。重复不补建渠道、不改原内容、不复活收件箱。
+- 新内部 producer 使用 `NotificationCreator.create(NotifyPayload)`，稳定 sourceKey、接收账号、类型和非空标题必填。结果为 CREATED / DUPLICATE / SKIPPED；非法输入及来源/冻结内容冲突抛异常并回滚。业务需要原子性时在原业务事务调用。`allowedChannels` 只收窄渠道，不能覆盖偏好、身份和实际 capability。所有既有合法 producer 统一生成 V1 渠道事实。重复不补建渠道、不改原内容、不复活收件箱。
 - `NotifyServiceImpl` 保留通用计划/事件执行与历史 facade；`NotificationCreationService` 拥有受理、去重、持久化和渠道规划。`NotificationSource` 由 Activity/PublicEvent owner 提供分批接收者、提醒 payload 与业务内容字段。`NotificationDeliveryEligibility` 由业务 owner 实现；notify 的 registry 不依赖 Activity 实现。学习、积分继续使用各自业务封装和既有 Job，不强制经过 ReminderPlan。
-- DELETE 只对当前本人 V 内项设置 deleted_at，不设置 readAt；合法 ID 不存在/他人/R-only/已到期/重复删除均为 204 且无额外效果。列表、旧 adapter、R 恢复、summary、计数和已读 SQL 使用同一删除/到期条件。批量已读混入隐藏项整体失败；read-through/旧 read-all 跳过隐藏项。用户删除不取消外部发送。
-- 具有站内资格（LEGACY、已入箱或存在 IN_APP Delivery）的项，从原 createdAt 起满 90×24 小时即从 V/R 排除。R-only 不套用本轮站内期限。`NotificationObservation` 为同一次事务提供明确上海时区、秒精度观察边界，与 notification.created_at 精度一致；日期边界不按自然日推导。计数均读同一数据库投影，旧 Redis unread projection 不再被读取，纯时间流逝不依赖失效消息。
+- DELETE 只对当前本人 V 内项设置 deleted_at，不设置 readAt；合法 ID 不存在/他人/R-only/已到期/重复删除均为 204 且无额外效果。列表、R 恢复、summary、计数和已读 SQL 使用同一删除/到期条件。批量已读混入隐藏项整体失败；read-through 跳过隐藏项。用户删除不取消外部发送。
+- V1中具有站内资格（已入箱或存在 IN_APP Delivery）的项，从原 createdAt 起满 90×24 小时即从 V/R 排除。R-only 不套用本轮站内期限。`NotificationObservation` 为同一次事务提供明确上海时区、秒精度观察边界，与 notification.created_at 精度一致；日期边界不按自然日推导。计数均读同一数据库投影，旧 Redis unread projection 不再被读取，纯时间流逝不依赖失效消息。
 - 入箱序号和 global head 永不回退/重用；迟到入箱在同一用户锁下检查真实删除和期限。到期 PENDING Delivery 受控转 SKIPPED；provider claim 的条件更新也检查期限。PROCESSING 在途结果继续记录，UNKNOWN 不自动重发。旧活动 Job 的 owned handler 传递 execution context，每批和写入前检查 ownership。
-- `NotificationLifecycleService` 每分钟可重建扫描，每批最多 100 项，每轮最多 10 批/5 秒（单批开始前预算，不是抢占数据库调用），逐项短事务。先收尾到期待发送，再清理安全内容；不为清理另建 Job。未决 PROCESSING/UNKNOWN 阻止物理级联删除；超过 180 天且没有有效运行租约的 PROCESSING 收敛 UNKNOWN。180 天后去除站内正文、展示/目标/发送者快照和 UNKNOWN 模板正文，仅保留追查所需元数据；legacy 无 JSON 正文也适用。清理失败下轮继续，超过期限的内容始终不可读取。
-- `notification_source_receipt` 仅存 SHA-256 来源/身份/可选内容摘要、原 notificationId/创建时刻及处置时刻，不保存原 sourceKey、账号、业务目标或正文。创建与 receipt 同事务，来源行锁协调并发与内容清理。旧适配器校验身份、保留首次冻结内容；严格新入口还校验冻结内容与渠道限制。旧来源缺少原始事件时间及可信 replay cutoff，**摘要不能按 90 天盲删**；只要源仍允许重放就保留最小屏障。退役这些摘要须先由 source owner 建立并证明停止旧源受理的边界，不能把有限内容保留误当有限去重保证。它不是用户删除墓碑或内容归档。
+- `NotificationLifecycleService` 每分钟可重建扫描，每批最多 100 项，每轮最多 10 批/5 秒（单批开始前预算，不是抢占数据库调用），逐项短事务。先收尾到期待发送，再清理安全内容；不为清理另建 Job。未决 PROCESSING/UNKNOWN 阻止物理级联删除；超过 180 天且没有有效运行租约的 PROCESSING 收敛 UNKNOWN。180 天后去除站内正文、展示/目标/发送者快照和 UNKNOWN 模板正文，仅保留追查所需元数据；旧世代数据不进入本轮清理。清理失败下轮继续，超过期限的内容始终不可读取。
+- `notification_source_receipt` 仅存 SHA-256 来源/身份/可选内容摘要、原 notificationId/创建时刻及处置时刻，不保存原 sourceKey、账号、业务目标或正文。创建与 receipt 同事务，来源行锁协调并发与内容清理。统一入口校验身份、冻结内容与渠道限制。旧来源缺少原始事件时间及可信 replay cutoff，**摘要不能按 90 天盲删**；只要源仍允许重放就保留最小屏障。退役这些摘要须先由 source owner 建立并证明停止旧源受理的边界，不能把有限内容保留误当有限去重保证。它不是用户删除墓碑或内容归档。
 - `NotificationDeliveryResolutionService` 是内部恢复应用服务，不新增 HTTP/权限目录。复用 BusinessAuthorizationLease 的当前 ROOT、READ_COMMITTED 治理锁及提交前复核；必须提供受限证据引用。CONFIRMED_DELIVERED / CONFIRMED_FAILED 需权威证据；ACCEPT_UNKNOWN 只记录停止追查，不改 UNKNOWN、不发送。相同结论幂等、不同结论拒绝。接受 UNKNOWN 后至少保留 30 天处置窗口才允许内容清理，处置审计独立保留。Job cleanup 不先删除未收尾 Delivery、未完成 Plan 或旧 v1 的唯一恢复依据。
 
-- 历史来源未分类是启用阻断，不能按期限推定安全：NULL/纯空白 sourceKey 在候选 LIMIT 前排除，既不物理删除也不自动脱敏正文或 UNKNOWN 模板。直接清理 SQL 同样要求有效来源，以及摘要、notificationId、原 createdAt 一致且未处置的 receipt；来源证据与删除在同一事务提交。不能从账号、文案、时间或行摘要合成 sourceKey。该保护是待 source owner 给出可信归属/停止重放边界的临时例外，不是允许无限保留完整历史内容的正常策略；可见性仍满 90 天即关闭。UNKNOWN 的人工结论不能替代来源分类，未分类积压必须单独观测和处置。
+- 首版来源未分类项不能按期限推定可安全清理：NULL/纯空白 sourceKey 在候选 LIMIT 前排除，既不物理删除也不自动脱敏正文或 UNKNOWN 模板。直接清理 SQL 同样要求有效来源，以及摘要、notificationId、原 createdAt 一致且未处置的 receipt；来源证据与删除在同一事务提交。不能从账号、文案、时间或行摘要合成 sourceKey。该保护是待 source owner 给出可信归属/停止重放边界的临时例外，不是允许无限保留完整历史内容的正常策略；可见性仍满 90 天即关闭。UNKNOWN 的人工结论不能替代来源分类，未分类积压必须单独观测和处置。
 
 真实独占 MySQL/Redis/HTTP 与旧调用回归的证据边界由本次测试报告给出；微信 provider、真人认证、设备 UI 和已发布消费者兼容须独立验收。

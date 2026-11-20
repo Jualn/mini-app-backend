@@ -1,53 +1,38 @@
 package cn.jualn.miniapp.module.wx.notice;
 
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.model.NotificationCategory;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Explicit frozen keys, not Java properties. Missing historical facts stay missing. */
+/** Explicit safe frozen fields only. Private material, review notes and binding evidence are never template sources. */
 public final class WxNoticeFieldCatalog {
-    private WxNoticeFieldCatalog() { }
-    private static final Set<String> COMMON = Set.of("title", "content", "targetId", "targetType", "notificationId", "notifyTime", "scene");
-    private static final Map<String, Set<String>> LEGACY = Map.of(
-            "audit_result", Set.of("auditContent", "auditResult", "auditReason", "auditTime"),
-            "comment_reply", Set.of("postId", "postTitle", "replyUserName", "replyContent", "replyTime"),
-            "reply", Set.of("postId", "originalContent", "replyUserName", "replyContent", "replyTime"),
-            "activity_start", Set.of("activityId", "activityTitle", "startTime", "location"),
-            "activity_apply", Set.of("activityId", "activityTitle", "startTime", "location"),
-            "like", Set.of("postId", "postTitle"),
-            "exam_remind", Set.of(),
-            "system_notice", Set.of());
-    private static final Set<String> CANONICAL = Set.of(
-            "ACTIVITY_REGISTRATION_START_REMINDER", "ACTIVITY_REGISTRATION_DEADLINE_REMINDER", "ACTIVITY_START_REMINDER",
-            "ACTIVITY_CANCELLED", "ACTIVITY_TIME_CHANGED", "ACTIVITY_LOCATION_CHANGED", "ACTIVITY_ENDED_EARLY",
-            "PUBLIC_EVENT_START_REMINDER", "PUBLIC_EVENT_REGISTRATION_DEADLINE_REMINDER",
-            "PUBLIC_EVENT_CANCELLED", "PUBLIC_EVENT_TIME_CHANGED", "PUBLIC_EVENT_LOCATION_CHANGED", "POST_COMMENTED");
-    public static boolean knownType(String type) { return type != null && (CANONICAL.contains(type) || LEGACY.containsKey(type)); }
-    public static boolean allows(String type, String source) {
-        if (source == null) return false;
-        if (COMMON.contains(source)) return true;
-        if (LEGACY.containsKey(type)) return LEGACY.get(type).contains(source);
-        if (!CANONICAL.contains(type)) return false;
-        if (Set.of("subjectTitle", "changesText").contains(source)) return true;
-        return switch (type) {
-            case "POST_COMMENTED" -> Set.of("postId", "commentId", "originalContent", "postTitle", "replyUserName", "replyContent", "replyTime").contains(source);
-            case "ACTIVITY_START_REMINDER" -> Set.of("activityId", "activityTitle", "startTime", "location", "businessTime").contains(source);
-            case "ACTIVITY_REGISTRATION_START_REMINDER" -> Set.of("registrationStartTime", "businessTime", "location").contains(source);
-            case "ACTIVITY_REGISTRATION_DEADLINE_REMINDER", "PUBLIC_EVENT_REGISTRATION_DEADLINE_REMINDER" -> Set.of("registrationDeadlineTime", "businessTime", "location").contains(source);
-            case "PUBLIC_EVENT_START_REMINDER" -> Set.of("publicEventStartTime", "businessTime", "location").contains(source);
-            default -> false;
+    private WxNoticeFieldCatalog() {}
+    public static boolean knownType(String type){try{return NotificationCategory.of(NotifyType.valueOf(type))!=null;}catch(RuntimeException unknown){return false;}}
+    public static boolean allows(String type,String source){
+        if(!knownType(type)||source==null)return false;
+        if(Set.of("noticeTitle","noticeSummary","eventTime","notificationId").contains(source))return true;
+        var category=NotificationCategory.of(NotifyType.valueOf(type));
+        return switch(category){
+            case ACTIVITY,PUBLIC_EVENT -> Set.of("targetId","subjectTitle","changesText","businessTime","location","activityId","activityTitle","startTime","publicEventStartTime","registrationStartTime","registrationDeadlineTime").contains(source);
+            case COMMENT -> Set.of("targetId","postId","commentId","originalContent","postTitle","replyUserName","replyContent","replyTime","actorName").contains(source);
+            case REPLY -> Set.of("targetId","postId","originalContent","replyUserName","replyContent","replyTime","actorName","commentExcerpt").contains(source);
+            case LIKE -> Set.of("actorName","subjectTitle").contains(source);
+            case LEARNING_TASK -> Set.of("taskTitle","businessTime").contains(source);
+            case POINTS,AUDIT_RESULT,SYSTEM -> false;
         };
     }
-    public static Object read(Map<String, Object> frozen, String source) {
-        if ("subjectTitle".equals(source) || "changesText".equals(source)) {
-            Object raw = frozen.get("presentation");
-            if (!(raw instanceof Map<?, ?> presentation)) return null;
-            if ("subjectTitle".equals(source)) return presentation.get("subjectTitle");
-            Object changes = presentation.get("changes");
-            if (!(changes instanceof java.util.List<?> list)) return null;
-            return list.stream().filter(Map.class::isInstance).map(Map.class::cast)
-                    .map(c -> c.get("label") + ": " + c.get("before") + " → " + c.get("after"))
-                    .collect(java.util.stream.Collectors.joining("；"));
+    public static Object read(Map<String,Object> frozen,String source){
+        if(Set.of("subjectTitle","changesText","taskTitle","commentExcerpt").contains(source)){
+            if(!(frozen.get("presentation") instanceof Map<?,?> p))return null;
+            if("subjectTitle".equals(source))return p.get("subjectTitle");
+            if("taskTitle".equals(source)||"commentExcerpt".equals(source))return p.get("body");
+            if(!(p.get("changes") instanceof List<?> changes))return null;
+            return changes.stream().filter(Map.class::isInstance).map(Map.class::cast)
+                    .map(c->c.get("label")+": "+c.get("before")+" → "+c.get("after")).collect(java.util.stream.Collectors.joining("；"));
         }
+        if("actorName".equals(source))return frozen.get("actor") instanceof Map<?,?> actor?actor.get("nickname"):null;
         return frozen.get(source);
     }
 }

@@ -271,7 +271,7 @@ public class NotifyServiceImpl implements NotifyService {
                         .build();
                 transactionTemplate.executeWithoutResult(status -> {
                     if(context!=null) context.requireOwnership();
-                    creationService.acceptLegacy(payload);
+                    creationService.accept(payload);
                 });
             }
             if (userIds.size() < BATCH_SIZE) {
@@ -392,7 +392,7 @@ public class NotifyServiceImpl implements NotifyService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void processNotificationPayload(NotifyPayload payload) {
-        creationService.acceptLegacy(payload);
+        creationService.accept(payload);
     }
 
     private String planDedupeKey(Long planId) {

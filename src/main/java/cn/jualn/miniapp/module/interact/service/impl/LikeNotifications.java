@@ -13,7 +13,7 @@ import cn.jualn.miniapp.module.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.util.Set;
 
 
 /** Interact 内部点赞通知快照与稳定 sourceKey；仅由实际新增点赞触发。 */
@@ -88,7 +88,6 @@ public class LikeNotifications {
         notifyService.processNotificationPayload(cn.jualn.miniapp.module.notify.payload.NotifyPayload.builder()
                 .receiverId(recipient).senderId(actorId).type(type).title(title).content(context == null ? "" : context)
                 .targetType(notificationTarget).targetId(notificationTargetId).snapshot(snapshot)
-                .inAppOnly(articleId != null)
                 .sourceKey("like:" + targetType.name() + ":" + targetId + ":actor:" + actorId + ":recipient:" + recipient).build());
     }
 }

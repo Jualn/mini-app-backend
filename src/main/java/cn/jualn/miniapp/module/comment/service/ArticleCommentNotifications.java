@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.comment.service;
 
-import cn.jualn.miniapp.common.enums.*;
+import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.module.notify.bo.NotificationCenterBO;
 import cn.jualn.miniapp.module.notify.payload.NotifyPayload;
@@ -26,7 +26,7 @@ public class ArticleCommentNotifications {
         var snapshot = new NotificationCenterBO.Snapshot(new NotificationCenterBO.Presentation("有人回复了你", excerpt(content), excerpt(quote), null, null, articleTitle, excerpt(quote)),
                 actor, new NotificationCenterBO.Subject("COMMENT", Long.toString(repliedCommentId)), target(articleId, newCommentId));
         notifications.processNotificationPayload(NotifyPayload.builder().receiverId(recipient).senderId(actorId).type(NotifyType.COMMENT_REPLIED)
-                .title("有人回复了你").content(excerpt(content)).targetType(TargetType.ARTICLE).targetId(articleId).snapshot(snapshot).inAppOnly(true)
+                .title("有人回复了你").content(excerpt(content)).targetType(TargetType.ARTICLE).targetId(articleId).snapshot(snapshot)
                 .sourceKey("reply:" + newCommentId + ":receiver:" + recipient + ":approved").build());
     }
 

@@ -10,7 +10,6 @@ import cn.jualn.miniapp.module.setting.converter.SettingConverter;
 import cn.jualn.miniapp.module.setting.entity.UserSetting;
 import cn.jualn.miniapp.module.setting.mapper.UserSettingMapper;
 import cn.jualn.miniapp.module.setting.service.SettingService;
-import cn.jualn.miniapp.module.notify.service.preference.NotificationPreferenceBridgeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -27,7 +26,6 @@ public class SettingServiceImpl implements SettingService {
     private final UserSettingMapper userSettingMapper;
     private final RedisService redisService;
     private final SettingConverter settingConverter;
-    private final NotificationPreferenceBridgeService preferenceBridgeService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -59,12 +57,6 @@ public class SettingServiceImpl implements SettingService {
         UserSetting setting = settingConverter.toEntity(bo);
 
         setting.setUserId(userId);
-        if (preferenceBridgeService.isCanonicalOwner(userId)) {
-            setting.setNotifyActivityRemind(null);
-            setting.setNotifyExamRemind(null);
-            preferenceBridgeService.updateOfficialAccount(userId,
-                    bo.getNotifyActivityRemind(), bo.getNotifyExamRemind());
-        }
         userSettingMapper.updateById(setting);
         invalidateSettingAfterCommit(userId);
 
@@ -76,10 +68,10 @@ public class SettingServiceImpl implements SettingService {
         UserSettingBO cachedSetting = redisService.get(settingsCacheKey, UserSettingBO.class);
         if (cachedSetting != null) {
             log.debug("[SettingService.getSetting][从缓存加载] userId={}", userId);
-            return overlayCanonicalOfficialAccount(userId, cachedSetting);
+            return cachedSetting;
         }
 
-        return overlayCanonicalOfficialAccount(userId, loadOrCreateSetting(userId));
+        return loadOrCreateSetting(userId);
     }
 
     private UserSettingBO loadOrCreateSetting(Long userId) {
@@ -103,15 +95,6 @@ public class SettingServiceImpl implements SettingService {
         } catch (DuplicateKeyException e) {
             log.debug("[SettingService.ensureSettingExists][并发初始化] userId={}", userId);
         }
-    }
-
-    private UserSettingBO overlayCanonicalOfficialAccount(Long userId, UserSettingBO setting) {
-        if (setting == null || !preferenceBridgeService.isCanonicalOwner(userId)) return setting;
-        NotificationPreferenceBridgeService.OfficialAccountPreferences preferences =
-                preferenceBridgeService.getOfficialAccount(userId);
-        setting.setNotifyActivityRemind(preferences.activityEnabled());
-        setting.setNotifyExamRemind(preferences.publicEventEnabled());
-        return setting;
     }
 
     private void invalidateSettingAfterCommit(Long userId) {

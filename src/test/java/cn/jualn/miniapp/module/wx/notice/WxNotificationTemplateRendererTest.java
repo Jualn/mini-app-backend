@@ -50,19 +50,8 @@ class WxNotificationTemplateRendererTest {
     }
 
     private String render(Map<String, Object> payload, String formatter, Integer length, boolean required) {
-        var field = new WxMpNoticeTemplateProperties.Field();
-        field.setSource("value");
-        field.setFormatter(formatter);
-        field.setMaxLength(length);
-        field.setRequired(required);
-        if (!required) field.setDefaultValue("fallback");
-        var template = new WxMpNoticeTemplateProperties.Template();
-        template.setType("reply");
-        template.setFields(Map.of("thing1", field));
-        template.setTemplateId("fixture-template");
-        var properties = new WxMpNoticeTemplateProperties();
-        properties.setNoticeTemplates(Map.of("reply", template));
-        var registry = new WxNotificationTemplateRegistry(properties);
-        return renderer.renderData(registry.resolve("reply", "WECHAT_OFFICIAL_ACCOUNT"), payload).get("thing1");
+        var field = new WxEffectiveTemplate.Field("value",formatter,"Asia/Shanghai","truncate",required?null:"fallback",required,length,List.of());
+        var template = new WxEffectiveTemplate("fixture","SYSTEM","WECHAT_MINI_PROGRAM","ma-primary","MINI_PROGRAM_SUBSCRIBE","fixture",1,1,"synthetic",true,true,"fixture",Map.of("thing1",field),"INBOX",null,"formal","fixture");
+        return renderer.renderData(template,payload).get("thing1");
     }
 }

@@ -1,5 +1,11 @@
 # 数据库演进入口
 
+## 通知首版 V98
+
+`V98__add_notification_first_release.sql` 新建27组合的稀疏偏好事实 `notification_preference_v1`，不导入旧字段、旧owner或旧偏好；旧表保留。Delivery新增通知类型和接收偏好类别用于去个人化监测，未知历史保持NULL并使涉及的汇总返回503，不猜测回填。新写入Notification使用V1标记，旧行不进入首版V/R；无通知历史迁移、删除或重建授权。
+
+按目标环境既有迁移流程应用V98并使用配套首版Provider与消费者；不能运行旧通知writer/设置adapter。迁移本身不发送通知，不更改用户选择或已读。独占MySQL验证和V1–V98重建不表示业务库已执行，验证命令见[通知首版](../../../../governance/commands.md#通知首版验证)。
+
 ## 旧权限目录退役 V95
 
 `V95__retire_legacy_permission_definitions.sql` 移除 13 项旧权限或无管理实现的占位权限，以及异步恢复操作员。迁移校验 V94 目录摘要，若发现其他角色仍引用退役权限，或存在异步恢复角色的历史 Assignment，则停止。部署须配套 `rbac-v1-unified-final-r9` 和 `unified-duty-v1-final-r10` 的 Provider，迁移期间停止旧 Provider 提供授权读取。已参与学习任务的例外撤销保留登记并标记为延期，独立授权和任务范围的发布条件见 Contracts 的 RBAC V1 文档。

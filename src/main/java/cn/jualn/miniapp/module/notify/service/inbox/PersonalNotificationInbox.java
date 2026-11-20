@@ -111,19 +111,11 @@ public class PersonalNotificationInbox {
     }
     @org.springframework.beans.factory.annotation.Autowired private java.util.List<cn.jualn.miniapp.module.notify.service.NotificationContentAccess> contentAccess;
 
-    private String categoryOf(Integer type) {
-        if (typeCodes(NotificationCategory.ACTIVITY).contains(type)) return NotificationCategory.ACTIVITY.name();
-        if (typeCodes(NotificationCategory.PUBLIC_EVENT).contains(type)) return NotificationCategory.PUBLIC_EVENT.name();
-        return null;
+    private String categoryOf(Integer code) {
+        var category = NotificationCategory.of(NotifyType.fromCode(code));
+        return category == null ? null : category.name();
     }
-
-    private List<Integer> typeCodes(NotificationCategory category) {
-        if (category == null) return null;
-        return switch (category) {
-            case ACTIVITY -> List.of(4, 8, 9, 12, 13, 14, 15, 23);
-            case PUBLIC_EVENT -> List.of(5, 10, 11, 16, 17, 18);
-        };
-    }
+    private List<Integer> typeCodes(NotificationCategory category) { return category == null ? null : category.codes(); }
 
     private long requireUserId() {
         Long userId = UserContext.getUserId();

@@ -49,12 +49,10 @@ public class NotificationCreationService implements cn.jualn.miniapp.module.noti
     private final io.micrometer.core.instrument.MeterRegistry meters;
     private final cn.jualn.miniapp.module.notify.service.inbox.NotificationInboxService inboxService;
     private final NotificationDeliveryService deliveryService;
-    private final SettingService settingService;
     private final RedisService redisService;
     private final SubjectExistenceService targetValidator;
     private final ObjectMapper objectMapper;
     private final NotificationPreferenceMapper preferenceMapper;
-    private final NotificationPreferenceOwnerMapper preferenceOwnerMapper;
     private final UserNotificationIdentityService userIdentities;
     private final List<cn.jualn.miniapp.module.notify.service.NotificationSource> sources;
 
@@ -71,13 +69,11 @@ public class NotificationCreationService implements cn.jualn.miniapp.module.noti
             throw new IllegalArgumentException("Notification identity, recipient, type and title are required");
         }
         PlanningSnapshot planning=planningSnapshot(List.of(payload.getReceiverId()));
-        if(categoryOf(payload.getType())!=null && !planning.canonicalOwners().contains(payload.getReceiverId()))
-            throw new IllegalStateException("Notification preference ownership is not ready");
         return processNotificationPayload(payload, planning, true);
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public void acceptLegacy(NotifyPayload payload) {
+    public void accept(NotifyPayload payload) {
         if (payload == null) return;
         processNotificationPayload(payload, planningSnapshot(java.util.Collections.singletonList(payload.getReceiverId())));
     }
@@ -89,7 +85,7 @@ public class NotificationCreationService implements cn.jualn.miniapp.module.noti
     }
 
     private void processNotificationPayload(NotifyPayload payload, PlanningSnapshot planning) {
-        processNotificationPayload(payload, planning, false);
+        processNotificationPayload(payload, planning, true);
     }
 
     private Result processNotificationPayload(NotifyPayload payload, PlanningSnapshot planning, boolean strict) {
@@ -98,13 +94,14 @@ public class NotificationCreationService implements cn.jualn.miniapp.module.noti
             return new Result(Outcome.SKIPPED, null);
         }
 
+        if (NotificationCategory.of(payload.getType()) == null) return new Result(Outcome.SKIPPED, null);
         String frozen = writeFrozenContent(payload);
         if(strict && frozen.getBytes(java.nio.charset.StandardCharsets.UTF_8).length>65536)
             throw new IllegalArgumentException("Notification snapshot exceeds 64 KiB");
         String source = payload.getSourceKey() == null ? null : digest(payload.getSourceKey());
         String identity = digest(payload.getReceiverId() + ":" + payload.getSenderId() + ":" + payload.getType()
                 + ":" + payload.getTargetType() + ":" + payload.getTargetId());
-        String content = strict ? digest(frozen + ":" + payload.isInAppOnly() + ":" + (payload.getAllowedChannels()==null ? "default" : payload.getAllowedChannels().stream().map(Enum::name).sorted().toList())) : null;
+        String content = strict ? digest(contentForIdentity(frozen) + ":" + (payload.getAllowedChannels()==null ? "default" : payload.getAllowedChannels().stream().map(Enum::name).sorted().toList())) : null;
         if (source != null) {
             notificationMapper.claimSource(source, identity, content, cn.jualn.miniapp.module.notify.service.NotificationObservation.now());
             var receipt = notificationMapper.lockSource(source);
@@ -113,11 +110,6 @@ public class NotificationCreationService implements cn.jualn.miniapp.module.noti
                         || strict && receipt.getContentDigest() != null && !content.equals(receipt.getContentDigest()))
                     throw new IllegalStateException("Notification source identity conflicts with its original fact");
                 if (receipt.getNotificationId() != null && receipt.getNotificationId() != 0) {
-                    if(strict && receipt.getContentDigest()==null) {
-                        Notification original=notificationMapper.selectBySourceForUpdate(payload.getSourceKey());
-                        if(original==null || !java.util.Objects.equals(original.getContentPayload(),frozen))
-                            throw new IllegalStateException("Historical content cannot be proven equivalent");
-                    }
                     afterCommit(()->meters.counter("jualn.notification.creation","result","dedupe_suppressed").increment());
                     return new Result(Outcome.DUPLICATE, receipt.getNotificationId());
                 }
@@ -146,8 +138,8 @@ public class NotificationCreationService implements cn.jualn.miniapp.module.noti
             return new Result(Outcome.SKIPPED, null);
         }
 
-        NotificationCategory category = categoryOf(payload.getType());
-        boolean canonical = strict || category != null && planning.canonicalOwners().contains(payload.getReceiverId());
+        NotificationCategory category = NotificationCategory.of(payload.getType());
+        if (category == null) return new Result(Outcome.SKIPPED, null);
         Notification notification = Notification.builder()
                 // notification.created_at is second precision; avoid MySQL rounding into the future.
                 .createdAt(LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")).truncatedTo(java.time.temporal.ChronoUnit.SECONDS))
@@ -161,7 +153,7 @@ public class NotificationCreationService implements cn.jualn.miniapp.module.noti
                 .targetType(payload.getTargetType() != null ? payload.getTargetType().getCode() : null)
                 .targetId(payload.getTargetId())
                 .sourceKey(payload.getSourceKey())
-                .inboxGeneration(canonical ? "CANONICAL" : "LEGACY")
+                .inboxGeneration("V1")
                 .isRead(0)
                 .build();
 
@@ -173,60 +165,32 @@ public class NotificationCreationService implements cn.jualn.miniapp.module.noti
         }
         if (source != null) notificationMapper.finishSource(source, notification.getId(), notification.getCreatedAt());
         afterCommit(() -> meters.counter("jualn.notification.creation", "result", "created").increment());
-        if (canonical) {
-            Set<NotificationChannel> enabled = new HashSet<>(planning.enabledChannels().getOrDefault(
-                    new PreferenceKey(payload.getReceiverId(), category), Set.of(NotificationChannel.IN_APP)));
-            if (payload.isInAppOnly()) enabled.retainAll(Set.of(NotificationChannel.IN_APP));
-            if (payload.getAllowedChannels()!=null) enabled.retainAll(payload.getAllowedChannels());
-            if (!planning.officialAccountUsers().contains(payload.getReceiverId())) {
-                enabled.remove(NotificationChannel.WECHAT_OFFICIAL_ACCOUNT);
-            }
-            boolean visible = deliveryService.planCanonicalDeliveries(notification, payload.getType(), enabled);
-            if (visible) afterCommit(() -> redisService.delete(RedisKeyConstant.userUnreadCount(payload.getReceiverId())));
-            return new Result(Outcome.CREATED, notification.getId());
-        }
-        inboxService.enter(notification);
-        afterCommit(() -> redisService.delete(RedisKeyConstant.userUnreadCount(payload.getReceiverId())));
-
-        if (payload.isInAppOnly()) return new Result(Outcome.CREATED, notification.getId());
-
-        if (!isNotifyEnabled(payload.getReceiverId(), payload.getType())) {
-            log.debug("[Notify] 用户已关闭此类通知，跳过外部推送，userId={}, type={}",
-                    payload.getReceiverId(), payload.getType());
-            return new Result(Outcome.CREATED, notification.getId());
-        }
-
-        deliveryService.planWeChatDelivery(notification, payload.getType(), payload.getAllowedChannels());
-
-        log.debug("[Notify] 个人通知处理完成，userId={}, type={}",
-                payload.getReceiverId(), payload.getType());
+        Set<NotificationChannel> enabled = new HashSet<>(planning.enabledChannels().getOrDefault(
+                new PreferenceKey(payload.getReceiverId(), category), Set.of(NotificationChannel.IN_APP)));
+        if (payload.getAllowedChannels() != null) enabled.retainAll(payload.getAllowedChannels());
+        enabled.remove(NotificationChannel.WECHAT_OFFICIAL_ACCOUNT); // First-release product boundary, not a configurable gate.
+        if (!planning.miniProgramUsers().contains(payload.getReceiverId())) enabled.remove(NotificationChannel.WECHAT_MINI_PROGRAM);
+        boolean visible = deliveryService.planCanonicalDeliveries(notification, payload.getType(), enabled);
+        if (visible) afterCommit(() -> redisService.delete(RedisKeyConstant.userUnreadCount(payload.getReceiverId())));
         return new Result(Outcome.CREATED, notification.getId());
-    }
-
-    private boolean isNotifyEnabled(Long userId, NotifyType type) {
-        if(type==NotifyType.POST_CONTENT_HANDLED || type==NotifyType.POST_REPORT_RESOLVED) type=NotifyType.SYSTEM;
-        if (type == NotifyType.POST_COMMENTED || type == NotifyType.COMMENT_REPLIED) {
-            type = type.legacyRepresentation();
-        }
-        if (type == null || type.getCode() > 7) return false;
-        UserSettingBO setting = settingService.getSettingByUserId(userId);
-
-        return switch (type.getCode()) {
-            case 1 -> Boolean.TRUE.equals(setting.getNotifyComment());
-            case 2 -> Boolean.TRUE.equals(setting.getNotifyReply());
-            case 3 -> Boolean.TRUE.equals(setting.getNotifyLike());
-            case 4 -> Boolean.TRUE.equals(setting.getNotifyActivityRemind());
-            case 5 -> Boolean.TRUE.equals(setting.getNotifyExamRemind());
-            case 6 -> Boolean.TRUE.equals(setting.getNotifyAuditResult());
-            case 7 -> Boolean.TRUE.equals(setting.getNotifySystem());
-            default -> false;
-        };
     }
 
     private String writeFrozenContent(NotifyPayload payload) {
         Map<String, Object> content = new LinkedHashMap<>();
         content.put("title", payload.getTitle());
         content.put("content", payload.getContent());
+        content.put("noticeTitle", payload.getType().getDesc());
+        var category = NotificationCategory.of(payload.getType());
+        String summary = category == NotificationCategory.POINTS ? "积分结果已更新，请进入小程序查看。"
+                : category == NotificationCategory.AUDIT_RESULT ? "审核与处理结果已更新，请进入小程序查看。"
+                : category == NotificationCategory.LEARNING_TASK ? "学习任务有新进展，请进入小程序查看。" : payload.getContent();
+        content.put("noticeSummary", summary);
+        content.put("eventTime", cn.jualn.miniapp.module.notify.service.NotificationObservation.now());
+        if (payload.getRecipientPersonId() != null) {
+            content.put("recipientPersonId", payload.getRecipientPersonId());
+            content.put("recipientBindingId", payload.getRecipientBindingId());
+        }
+        if (payload.getBusinessTime() != null) content.put("businessTime", payload.getBusinessTime());
         if (payload.getReminderPlanId() != null) content.put("reminderPlanId", payload.getReminderPlanId());
         content.put("targetId", payload.getTargetId());
         content.put("targetType", payload.getTargetType() == null ? null : payload.getTargetType().name());
@@ -267,11 +231,10 @@ public class NotificationCreationService implements cn.jualn.miniapp.module.noti
     private PlanningSnapshot planningSnapshot(Collection<Long> rawUserIds) {
         List<Long> userIds = rawUserIds == null ? List.of() : rawUserIds.stream()
                 .filter(java.util.Objects::nonNull).distinct().toList();
-        if (userIds.isEmpty()) return new PlanningSnapshot(Set.of(), Map.of(), Set.of());
-        Set<Long> owners = new HashSet<>(preferenceOwnerMapper.selectCanonicalUserIds(userIds));
-        Set<Long> officialAccountUsers = userIdentities.officialAccountUsers(userIds);
+        if (userIds.isEmpty()) return new PlanningSnapshot(Map.of(), Set.of());
+        Set<Long> miniProgramUsers = userIdentities.miniProgramUsers(userIds);
         Map<PreferenceKey, Set<NotificationChannel>> enabled = new HashMap<>();
-        for (Long owner : owners) {
+        for (Long owner : userIds) {
             for (NotificationCategory category : NotificationCategory.values()) {
                 enabled.put(new PreferenceKey(owner, category), new HashSet<>(Set.of(NotificationChannel.IN_APP)));
             }
@@ -283,21 +246,9 @@ public class NotificationCreationService implements cn.jualn.miniapp.module.noti
                     new PreferenceKey(preference.getUserId(), category), ignored -> new HashSet<>());
             if (Boolean.TRUE.equals(preference.getEnabled())) channels.add(channel); else channels.remove(channel);
         }
-        return new PlanningSnapshot(Set.copyOf(owners), enabled, Set.copyOf(officialAccountUsers));
+        return new PlanningSnapshot(enabled, Set.copyOf(miniProgramUsers));
     }
 
-    private NotificationCategory categoryOf(NotifyType type) {
-        if (type == null) return null;
-        return switch (type) {
-            case ACTIVITY_START_REMINDER, ACTIVITY_REGISTRATION_START_REMINDER, ACTIVITY_REGISTRATION_DEADLINE_REMINDER,
-                    ACTIVITY_CANCELLED, ACTIVITY_TIME_CHANGED, ACTIVITY_LOCATION_CHANGED,
-                    ACTIVITY_ENDED_EARLY -> NotificationCategory.ACTIVITY;
-            case PUBLIC_EVENT_START_REMINDER, PUBLIC_EVENT_REGISTRATION_DEADLINE_REMINDER,
-                    PUBLIC_EVENT_CANCELLED, PUBLIC_EVENT_TIME_CHANGED,
-                    PUBLIC_EVENT_LOCATION_CHANGED -> NotificationCategory.PUBLIC_EVENT;
-            default -> null;
-        };
-    }
     private void afterCommit(Runnable action) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) throw new IllegalStateException("Notification transaction required");
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -306,6 +257,10 @@ public class NotificationCreationService implements cn.jualn.miniapp.module.noti
     }
     private boolean shouldValidateTarget(NotifyPayload payload) {
         return payload.getTargetType() != null && payload.getTargetId() != null;
+    }
+    private String contentForIdentity(String frozen) {
+        try {var body=(com.fasterxml.jackson.databind.node.ObjectNode)objectMapper.readTree(frozen);body.remove("eventTime");return body.toString();}
+        catch(com.fasterxml.jackson.core.JsonProcessingException invalid){throw new IllegalStateException("Invalid notification snapshot");}
     }
     public static String identity(Notification row) {
         return digest(row.getUserId() + ":" + row.getSenderId() + ":" + NotifyType.fromCode(row.getType())
@@ -317,6 +272,5 @@ public class NotificationCreationService implements cn.jualn.miniapp.module.noti
         catch (java.security.NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
     }
     private record PreferenceKey(Long userId, NotificationCategory category) { }
-    private record PlanningSnapshot(Set<Long> canonicalOwners,
-        Map<PreferenceKey, Set<NotificationChannel>> enabledChannels, Set<Long> officialAccountUsers) { }
+    private record PlanningSnapshot(Map<PreferenceKey, Set<NotificationChannel>> enabledChannels, Set<Long> miniProgramUsers) { }
 }

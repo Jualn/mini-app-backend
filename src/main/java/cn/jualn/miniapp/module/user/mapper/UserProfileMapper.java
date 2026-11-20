@@ -47,6 +47,10 @@ public interface UserProfileMapper extends BaseMapper<UserProfile> {
     @Select("SELECT mp_openid FROM user_profile WHERE id = #{id} AND deleted_at IS NULL")
     String selectMpOpenIdById(Long id);
 
+    @Select({"<script>SELECT id FROM user_profile WHERE deleted_at IS NULL AND openid IS NOT NULL AND TRIM(openid) != '' AND id IN",
+            "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach></script>"})
+    List<Long> selectMiniProgramUserIds(@Param("ids") Collection<Long> ids);
+
     List<Long> selectOfficialAccountUserIds(@Param("ids") Collection<Long> ids);
 
     @Select("SELECT id FROM user_profile WHERE mp_openid = #{mpOpenid} AND deleted_at IS NULL ORDER BY id LIMIT 2")

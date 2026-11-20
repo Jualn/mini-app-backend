@@ -26,7 +26,7 @@ public final class WxTemplatePreview {
                 .orElseGet(WxNotificationTemplateProperties::new);
         var json=new ObjectMapper();
         Map<String,Object> frozen=json.readValue(Path.of(args[1]).toFile(),new TypeReference<>(){});
-        var registry=new WxNotificationTemplateRegistry(new WxMpNoticeTemplateProperties(),definitions);
+        var registry=new WxNotificationTemplateRegistry(definitions,null);
         var preview=new WxNotificationTemplateRenderer().preview(registry,args[2],frozen);
         // Native Windows stdout may default to a legacy charset; preserve preview Unicode explicitly.
         System.out.write(json.writerWithDefaultPrettyPrinter().writeValueAsString(preview)

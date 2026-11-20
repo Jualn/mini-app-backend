@@ -19,7 +19,7 @@ import java.util.Map;
 @Setter
 public class UpdateNotificationPreferencesRequest {
     @NotEmpty
-    @Size(max = 6)
+    @Size(max = 27)
     @Valid
     private List<@NotNull @Valid Change> changes;
     @Getter(lombok.AccessLevel.NONE)

@@ -18,6 +18,10 @@ public class UserNotificationIdentityService {
         return new Identity(StringUtils.hasText(users.selectMiniOpenid(userId)),
                 StringUtils.hasText(users.selectMpOpenIdById(userId)));
     }
+    public Set<Long> miniProgramUsers(Collection<Long> ids) {
+        if (ids.isEmpty()) return Set.of();
+        return new HashSet<>(users.selectMiniProgramUserIds(ids));
+    }
     public Set<Long> officialAccountUsers(Collection<Long> userIds) {
         if (userIds.isEmpty()) return Set.of();
         var ids = users.selectOfficialAccountUserIds(userIds);

@@ -189,18 +189,15 @@ spring:
 wx:
   notification:
     environment: ${WX_NOTIFICATION_ENVIRONMENT:local}
-    mini-program:
-      enabled: ${WX_NOTIFICATION_MINI_PROGRAM_ENABLED:false}
-    official-account:
-      enabled: ${WX_NOTIFICATION_OFFICIAL_ACCOUNT_ENABLED:false}
     definitions:
       mini-post-comment:
         channel: WECHAT_MINI_PROGRAM
         account-ref: ma-primary
         product: MINI_PROGRAM_SUBSCRIBE
+        title: 新的评论提醒
+        subscription-kind: ONE_TIME
         template-id: BG9O2XEYbm3G6ulpVMmB91jHBNLScKjs6Vq620uvAHQ
         version: 1
-        enabled: true
         evidence-ref: docs/wechat-integration.md#167-帖子一级评论模板
         mini-program-state: ${WX_NOTIFICATION_MINI_PROGRAM_STATE:formal}
         fields:
@@ -215,154 +212,9 @@ wx:
         account-ref: ma-primary
         definition-ref: mini-post-comment
         version: 1
-        enabled: true
         jump-target: POST_DETAIL
         fields:
           thing15: {source: originalContent, formatter: text, overflow: truncate, default-value: 查看帖子详情}
           thing5: {source: replyUserName, formatter: text, overflow: truncate, default-value: 同学}
           thing2: {source: replyContent, formatter: text, overflow: truncate, default-value: 查看评论详情}
           time3: {source: replyTime, formatter: datetime, zone: Asia/Shanghai}
-  mp:
-    notice-templates:
-      audit-result:
-        type: audit_result
-        version: 1
-        name: 审核结果通知
-        template-id: R7Eowu1hJGBxAAK3el4WK9iU6QYv9PuHp5vVQ9d_bi4
-        enabled: true
-        subscribe-visible: true
-        page-path: /pages/message/message
-
-        fields:
-          thing5:
-            name: 审核内容
-            source: auditContent
-            required: true
-            max-length: 20
-            formatter: text
-
-          phrase1:
-            name: 审核结果
-            source: auditResult
-            required: true
-            formatter: text
-
-          thing16:
-            name: 未通过原因
-            source: auditReason
-            required: true
-            max-length: 20
-            formatter: text
-
-          date4:
-            name: 审核时间
-            source: auditTime
-            required: true
-            formatter: datetime
-
-      comment-reply:
-        type: comment_reply
-        version: 1
-        name: 评论回复通知
-        template-id: zzmihiosaF4UVKQxeY_wakMcfQPpMnP_j1lLqMEzVug
-        enabled: true
-        subscribe-visible: true
-        page-path: /subpkg_community/pages/detail/detail?postId={postId}
-
-        fields:
-          thing6:
-            name: 帖子内容
-            source: postTitle
-            required: true
-            max-length: 20
-            formatter: text
-
-          thing5:
-            name: 评论用户
-            source: replyUserName
-            required: false
-            default-value: 同学
-            max-length: 20
-            formatter: text
-
-          thing2:
-            name: 评论内容
-            source: replyContent
-            required: true
-            max-length: 20
-            formatter: text
-
-          time3:
-            name: 评论时间
-            source: replyTime
-            required: true
-            formatter: datetime
-
-      activity-start:
-        type: activity_start
-        version: 1
-        name: 活动开始提醒
-        template-id: aqm21k-qtN07pIGKqyXyHNeIMjyWQA07BDcu2i-f_bM
-        enabled: true
-        subscribe-visible: true
-        page-path: /subpkg_activity/pages/detail/detail?activityId={activityId}
-
-        fields:
-          thing1:
-            name: 活动名称
-            source: activityTitle
-            required: true
-            max-length: 20
-            formatter: text
-
-          date2:
-            name: 活动时间
-            source: startTime
-            required: true
-            formatter: datetime
-
-          thing8:
-            name: 活动地点
-            source: location
-            required: false
-            default-value: 详见活动页
-            max-length: 20
-            formatter: text
-
-      reply:
-        type: reply
-        version: 1
-        name: 新的回复提醒
-        template-id: 02lmG8krB2briz6jtYUkKo1AtKjwkDrWo5vAj19s0ZQ
-        enabled: true
-        subscribe-visible: true
-        page-path: /pages/index/index
-
-        fields:
-          thing8:
-            name: 原文内容
-            source: originalContent
-            required: true
-            max-length: 20
-            formatter: text
-
-          thing12:
-            name: 回复者
-            source: replyUserName
-            required: false
-            default-value: 同学
-            max-length: 20
-            formatter: text
-
-          thing2:
-            name: 回复内容
-            source: replyContent
-            required: true
-            max-length: 20
-            formatter: text
-
-          date3:
-            name: 回复时间
-            source: replyTime
-            required: true
-            formatter: datetime

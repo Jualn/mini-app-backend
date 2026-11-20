@@ -48,6 +48,8 @@ public class CanonicalNotificationController {
     private final NotificationPersonalConverter personalConverter;
     private final NotificationCenterService centerService;
     private final NotificationCenterConverter centerConverter;
+    private final cn.jualn.miniapp.module.notify.service.capability.NotificationCatalogQueries catalog;
+    private final cn.jualn.miniapp.module.notify.converter.NotificationCatalogConverter catalogConverter;
 
     @GetMapping("/notification-preferences")
     public ResponseEntity<NotificationPreferencesVO> getPreferences() {
@@ -71,17 +73,26 @@ public class CanonicalNotificationController {
         return noStore(personalConverter.capabilities(capabilities.getCapabilities()));
     }
 
+    @GetMapping("/notification-subscription-options")
+    public ResponseEntity<cn.jualn.miniapp.module.notify.vo.NotificationCatalogVO.Options> subscriptionOptions(
+            @RequestParam(required=false) cn.jualn.miniapp.module.notify.model.NotificationCategory category,
+            @RequestParam java.util.Map<String,String> parameters) {
+        validateParameters(parameters,java.util.Set.of("category"));
+        return noStore(catalogConverter.options(catalog.options(category)));
+    }
+
     @GetMapping("/notifications")
-    public ResponseEntity<?> list(@Valid CanonicalNotificationQuery query) {
-        if (query.getCategory() != null && query.getBoxCategory() != null
-                || query.getBoxCategory() != null && !"structured".equals(query.getRepresentation())) {
-            throw ContractProblemException.validation(new ContractProblemException.Violation(
-                    "query", "boxCategory", "INVALID", "boxCategory 仅用于 structured 且不能与 category 同时使用"));
-        }
-        if ("structured".equals(query.getRepresentation())) {
-            return noStore(centerConverter.page(centerService.list(centerConverter.query(query))));
-        }
-        return noStore(personalConverter.page(notificationService.list(personalConverter.query(query))));
+    public ResponseEntity<cn.jualn.miniapp.module.notify.vo.NotificationListVO> list(@Valid CanonicalNotificationQuery query,
+            @RequestParam java.util.Map<String,String> parameters) {
+        validateParameters(parameters,java.util.Set.of("category","boxCategory","cursor","pageSize","isRead"));
+        if(query.getCategory()!=null&&query.getBoxCategory()!=null)throw ContractProblemException.validation(
+                new ContractProblemException.Violation("query","boxCategory","INVALID","不能同时提交两种类别"));
+        return noStore(centerConverter.page(centerService.list(centerConverter.query(query))));
+    }
+
+    public static void validateParameters(java.util.Map<String,String> parameters,java.util.Set<String> allowed) {
+        for(String key:parameters.keySet())if(!allowed.contains(key))throw ContractProblemException.validation(
+                new ContractProblemException.Violation("query",key,"UNKNOWN_PROPERTY","不支持的参数"));
     }
 
     @GetMapping("/notifications/summary")
@@ -130,12 +141,6 @@ public class CanonicalNotificationController {
             @Valid @RequestBody MarkNotificationReadRequest request) {
         rejectUnknownReadFields(request);
         notificationService.markRead(notificationId);
-        return ResponseEntity.noContent().build();
-    }
-
-    @PostMapping("/notifications:mark-all-read")
-    public ResponseEntity<Void> markAllRead() {
-        notificationService.markAllRead();
         return ResponseEntity.noContent().build();
     }
 

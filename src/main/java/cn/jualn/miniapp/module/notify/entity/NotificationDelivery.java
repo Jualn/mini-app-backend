@@ -21,6 +21,8 @@ public class NotificationDelivery {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long notificationId;
+    private Integer notificationType;
+    private String preferenceCategory;
     private String channel;
     private String status;
     /** NULL only for pre-V34 intents: never backfilled from current configuration. */

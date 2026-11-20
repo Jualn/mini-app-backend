@@ -2,8 +2,8 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.jualn.miniapp.module.notify.mapper.NotificationMapper">
     <sql id="lifecycleAccess">
-        n.deleted_at IS NULL
-        AND (NOT (n.inbox_generation = 'LEGACY' OR n.inbox_seq IS NOT NULL OR EXISTS
+        n.inbox_generation = 'V1' AND n.deleted_at IS NULL
+        AND (NOT (n.inbox_seq IS NOT NULL OR EXISTS
           (SELECT 1 FROM notification_delivery nd WHERE nd.notification_id=n.id AND nd.channel='IN_APP'))
           OR n.created_at &gt; DATE_SUB(#{observedAt}, INTERVAL 90 DAY))
     </sql>
@@ -13,6 +13,7 @@
     <sql id="canonicalVisibility">
         n.user_id = #{userId}
         AND n.inbox_seq IS NOT NULL
+        AND EXISTS (SELECT 1 FROM notification_delivery i WHERE i.notification_id=n.id AND i.channel='IN_APP' AND i.status='DELIVERED')
         AND <include refid="lifecycleAccess"/>
     </sql>
 
@@ -201,7 +202,7 @@
         <include refid="observed"/>
         SELECT EXISTS(SELECT 1 FROM notification n WHERE n.id=#{id}
           AND n.created_at &lt;= DATE_SUB(#{observedAt}, INTERVAL 90 DAY)
-          AND (n.inbox_generation='LEGACY' OR n.inbox_seq IS NOT NULL OR EXISTS
+          AND (n.inbox_seq IS NOT NULL OR EXISTS
             (SELECT 1 FROM notification_delivery d WHERE d.notification_id=n.id AND d.channel='IN_APP')))
     </select>
     <select id="canEnterInbox" resultType="boolean">

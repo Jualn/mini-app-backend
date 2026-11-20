@@ -56,8 +56,9 @@ public class NotifyPayload {
      */
     @com.fasterxml.jackson.annotation.JsonProperty("wxData")
     private NoticeData contentData;
-    /** Article interaction V1 has only local inbox delivery. */
-    private boolean inAppOnly;
+    /** Internal binding evidence, never exposed as template fields or a public response. */
+    private String recipientPersonId;
+    private String recipientBindingId;
     /** Optional upper bound only; never grants a channel or overrides user preferences/capability. */
     private java.util.Set<cn.jualn.miniapp.module.notify.model.NotificationChannel> allowedChannels;
 }

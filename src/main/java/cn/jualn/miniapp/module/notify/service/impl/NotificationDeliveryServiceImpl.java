@@ -1,7 +1,9 @@
 package cn.jualn.miniapp.module.notify.service.impl;
 import cn.jualn.miniapp.module.notify.service.inbox.NotificationInboxService;
 
-import cn.jualn.miniapp.module.notify.channel.*;
+import cn.jualn.miniapp.module.notify.channel.NotificationChannelAdapter;
+import cn.jualn.miniapp.module.notify.channel.NotificationChannels;
+import cn.jualn.miniapp.module.notify.channel.NotificationSendResult;
 
 import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.common.exception.BusinessException;
@@ -47,7 +49,6 @@ public class NotificationDeliveryServiceImpl implements NotificationDeliveryServ
     private final JobService jobService;
     private final ObjectMapper objectMapper;
     private final NotificationChannels channels;
-    private final SettingService settingService;
     private final NotificationPreferenceMapper preferenceMapper;
     private final TransactionTemplate transactionTemplate;
     private final cn.jualn.miniapp.module.notify.service.NotificationEligibility activityEligibility;
@@ -61,7 +62,8 @@ public class NotificationDeliveryServiceImpl implements NotificationDeliveryServ
         if (enabledChannels.contains(NotificationChannel.IN_APP)) {
             inboxService.enter(notification);
             deliveryMapper.insert(NotificationDelivery.builder()
-                    .notificationId(notification.getId())
+                    .notificationId(notification.getId()).notificationType(notification.getType())
+                    .preferenceCategory(NotificationCategory.of(NotifyType.fromCode(notification.getType())) == null ? null : NotificationCategory.of(NotifyType.fromCode(notification.getType())).name())
                     .channel(NotificationChannel.IN_APP.name())
                     .status("DELIVERED")
                     .attemptCount(0)
@@ -92,7 +94,8 @@ public class NotificationDeliveryServiceImpl implements NotificationDeliveryServ
 
     private void createExternalDelivery(Notification notification, NotifyType type, String channel) {
         NotificationDelivery delivery = NotificationDelivery.builder()
-                .notificationId(notification.getId())
+                .notificationId(notification.getId()).notificationType(notification.getType())
+                    .preferenceCategory(NotificationCategory.of(NotifyType.fromCode(notification.getType())) == null ? null : NotificationCategory.of(NotifyType.fromCode(notification.getType())).name())
                 .channel(channel)
                 .status("PENDING")
                 .attemptCount(0)
@@ -140,6 +143,11 @@ public class NotificationDeliveryServiceImpl implements NotificationDeliveryServ
         if (adapter == null) {
             finishWithOwnership(context, "SKIPPED", () -> deliveryMapper.markTerminal(deliveryId, "SKIPPED", "validation",
                     "channel_unavailable", "Delivery channel has no implemented provider adapter"));
+            return;
+        }
+        if (!adapter.isEnabled()) {
+            finishWithOwnership(context, "SKIPPED", () -> deliveryMapper.markTerminal(deliveryId, "SKIPPED", "validation",
+                    "channel_unavailable", "Notification channel is disabled"));
             return;
         }
         if (delivery.getTemplateSnapshotVersion() == null && delivery.getTemplateSnapshot() == null) {
@@ -322,39 +330,10 @@ public class NotificationDeliveryServiceImpl implements NotificationDeliveryServ
     }
 
     private boolean isNotifyEnabled(Notification notification, NotifyType type, String channel) {
-        if (notification == null || notification.getUserId() == null || type == null) return false;
-        if ("CANONICAL".equals(notification.getInboxGeneration())) {
-            NotificationCategory category = categoryOf(type);
-            return category != null && Boolean.TRUE.equals(preferenceMapper.selectEnabled(
-                    notification.getUserId(), category.name(), channel));
-        }
-        if (!WECHAT_CHANNEL.equals(channel) && !NotificationChannel.WECHAT_MINI_PROGRAM.name().equals(channel)) return false;
-        UserSettingBO setting = settingService.getSettingByUserId(notification.getUserId());
-        if (setting == null || type == null) return false;
-        if (type == NotifyType.POST_COMMENTED || type == NotifyType.COMMENT_REPLIED) { type = type.legacyRepresentation(); }
-        return switch (type.getCode()) {
-            case 1 -> Boolean.TRUE.equals(setting.getNotifyComment());
-            case 2 -> Boolean.TRUE.equals(setting.getNotifyReply());
-            case 3 -> Boolean.TRUE.equals(setting.getNotifyLike());
-            case 4 -> Boolean.TRUE.equals(setting.getNotifyActivityRemind());
-            case 5 -> Boolean.TRUE.equals(setting.getNotifyExamRemind());
-            case 6 -> Boolean.TRUE.equals(setting.getNotifyAuditResult());
-            case 7 -> Boolean.TRUE.equals(setting.getNotifySystem());
-            default -> false;
-        };
+        if (notification == null || notification.getUserId() == null) return false;
+        NotificationCategory category = NotificationCategory.of(type);
+        if (category == null || NotificationChannel.WECHAT_OFFICIAL_ACCOUNT.name().equals(channel)) return false;
+        Boolean override = preferenceMapper.selectEnabled(notification.getUserId(), category.name(), channel);
+        return override != null ? override : NotificationChannel.IN_APP.name().equals(channel);
     }
-
-    private NotificationCategory categoryOf(NotifyType type) {
-        if (type == null) return null;
-        return switch (type) {
-            case ACTIVITY_START_REMINDER, ACTIVITY_REGISTRATION_START_REMINDER, ACTIVITY_REGISTRATION_DEADLINE_REMINDER,
-                    ACTIVITY_CANCELLED, ACTIVITY_TIME_CHANGED, ACTIVITY_LOCATION_CHANGED,
-                    ACTIVITY_ENDED_EARLY -> NotificationCategory.ACTIVITY;
-            case PUBLIC_EVENT_START_REMINDER, PUBLIC_EVENT_REGISTRATION_DEADLINE_REMINDER,
-                    PUBLIC_EVENT_CANCELLED, PUBLIC_EVENT_TIME_CHANGED,
-                    PUBLIC_EVENT_LOCATION_CHANGED -> NotificationCategory.PUBLIC_EVENT;
-            default -> null;
-        };
-    }
-
 }

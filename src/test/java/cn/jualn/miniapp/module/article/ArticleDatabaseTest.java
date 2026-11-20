@@ -303,7 +303,7 @@ class ArticleDatabaseTest {
   verifyNoInteractions(notifications);
   UserContext.setUserId(43L); var reply=comments.create(article.id(),new ArticleCommentCreateBO("回复",root.id(),root.id()));
   var capture=org.mockito.ArgumentCaptor.forClass(NotifyPayload.class); verify(notifications).processNotificationPayload(capture.capture());
-  assertEquals(42L,capture.getValue().getReceiverId()); assertTrue(capture.getValue().isInAppOnly()); assertEquals("COMMENT",capture.getValue().getSnapshot().subject().type());
+  assertEquals(42L,capture.getValue().getReceiverId()); assertEquals(cn.jualn.miniapp.module.notify.enums.NotifyType.COMMENT_REPLIED,capture.getValue().getType()); assertEquals("COMMENT",capture.getValue().getSnapshot().subject().type());
   assertEquals("ARTICLE_DETAIL",capture.getValue().getSnapshot().target().type());
   interactionLikes.like(TargetType.ARTICLE,article.id()); interactionLikes.like(TargetType.ARTICLE,article.id()); assertEquals(1,articles.statistics(article.id()).likeCount());
   assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM like_record WHERE target_type=8",Integer.class));

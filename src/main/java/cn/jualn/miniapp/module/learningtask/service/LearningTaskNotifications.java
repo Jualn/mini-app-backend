@@ -59,7 +59,8 @@ public class LearningTaskNotifications {
                     new NotificationCenterBO.Target("LEARNING_TASK_DETAIL",null,null,null,null,null,Long.toString(notice.taskId()),Long.toString(notice.assignmentId())));
             notifications.processNotificationPayload(NotifyPayload.builder().receiverId(notice.userId()).type(type)
                     .title(type.getDesc()).content(notice.title()).targetId(notice.taskId()).sourceKey("learning-task:"+notice.occurrence())
-                    .snapshot(snapshot).inAppOnly(true).build());
+                    .snapshot(snapshot).recipientPersonId(notice.subject()==null?null:notice.subject().personId()).recipientBindingId(notice.bindingId())
+                    .businessTime(type==NotifyType.LEARNING_TASK_SUPPLEMENT_DEADLINE_REMINDER?notice.supplementDeadline():notice.afterDeadline()).build());
         }
     }
     @Transactional(propagation=Propagation.MANDATORY)

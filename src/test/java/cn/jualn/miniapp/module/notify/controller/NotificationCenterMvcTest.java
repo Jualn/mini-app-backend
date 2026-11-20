@@ -36,7 +36,7 @@ class NotificationCenterMvcTest {
     private final PersonalNotificationInbox legacy = mock(PersonalNotificationInbox.class);
     private final NotificationCenterService center = mock(NotificationCenterService.class);
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new CanonicalNotificationController(legacy,mock(NotificationPreferences.class),mock(NotificationCapabilityQueries.class),new NotificationPersonalConverter(), center,
-            Mappers.getMapper(NotificationCenterConverter.class)))
+            Mappers.getMapper(NotificationCenterConverter.class),org.mockito.Mockito.mock(cn.jualn.miniapp.module.notify.service.capability.NotificationCatalogQueries.class),org.mapstruct.factory.Mappers.getMapper(cn.jualn.miniapp.module.notify.converter.NotificationCatalogConverter.class)))
             .setControllerAdvice(new GlobalExceptionHandler())
             .setMessageConverters(new MappingJackson2HttpMessageConverter(
                     new JacksonConfig().objectMapper(new Jackson2ObjectMapperBuilder()))).build();
@@ -47,9 +47,9 @@ class NotificationCenterMvcTest {
     }
     @Test void optInStructuredPreservesNullReadAtAndOmitsUnknownOptionalValues() throws Exception {
         when(center.list(any())).thenReturn(new NotificationCenterBO.Page(List.of(item()), null, false, "opaque-head"));
-        mvc.perform(get("/v1/users/me/notifications").param("representation", "structured").param("boxCategory", "INTERACTION"))
+        mvc.perform(get("/v1/users/me/notifications").param("boxCategory", "INTERACTION"))
                 .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
-                .andExpect(jsonPath("$.representation").value("structured"))
+                .andExpect(jsonPath("$.representation").doesNotExist())
                 .andExpect(jsonPath("$.items[0].id").value("7"))
                 .andExpect(jsonPath("$.items[0].readAt").hasJsonPath())
                 .andExpect(jsonPath("$.items[0].target.type").value("POST_DETAIL"))
@@ -63,7 +63,7 @@ class NotificationCenterMvcTest {
                 new NotificationCenterBO.Actor("9", "actor", null), null, null, null, "2026-10-07T12:00:00+08:00");
         when(center.list(any())).thenReturn(new NotificationCenterBO.Page(List.of(row), null, false, "head"));
         when(center.get("7")).thenReturn(row);
-        mvc.perform(get("/v1/users/me/notifications").param("representation", "structured"))
+        mvc.perform(get("/v1/users/me/notifications"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].presentation.subjectTitle").value("post title"))
                 .andExpect(jsonPath("$.items[0].presentation.quote").value("original comment"))
                 .andExpect(jsonPath("$.items[0].presentation.context").value("old context"))
@@ -77,13 +77,8 @@ class NotificationCenterMvcTest {
                 .andExpect(jsonPath("$.presentation.quote").doesNotExist()).andExpect(jsonPath("$.actor").doesNotExist());
     }
 
-    @Test void defaultLegacyShapeRemainsUnchanged() throws Exception {
-        when(legacy.list(any())).thenReturn(new NotificationInboxBO.Page(List.of(
-                new NotificationInboxBO.Item(7L,1,null,"t","c",null,false,java.time.LocalDateTime.of(2026,9,30,12,0))), null));
-        mvc.perform(get("/v1/users/me/notifications")).andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].notificationId").value("7"))
-                .andExpect(jsonPath("$.items[0].isRead").value(false))
-                .andExpect(jsonPath("$.representation").doesNotExist());
+    @Test void oldRepresentationIsRejected() throws Exception {
+        mvc.perform(get("/v1/users/me/notifications").param("representation","legacy")).andExpect(status().isBadRequest());
     }
     @Test void summaryRecoveryAndReadResultsUseContractRoutesAndNumericCounts() throws Exception {
         when(center.summary(null)).thenReturn(new NotificationCenterBO.Summary(3, "head", 0, null));
@@ -107,7 +102,7 @@ class NotificationCenterMvcTest {
             mvc.perform(get("/v1/users/me/notifications").param("representation", representation).param("boxCategory", "ACTIVITY"))
                     .andExpect(status().isBadRequest()).andExpect(jsonPath("$.type").value("/problems/validation-error"));
         }
-        mvc.perform(get("/v1/users/me/notifications").param("representation", "structured")
+        mvc.perform(get("/v1/users/me/notifications")
                 .param("boxCategory", "ACTIVITY").param("category", "ACTIVITY")).andExpect(status().isBadRequest());
         mvc.perform(post("/v1/users/me/notifications:batch-read").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"notificationIds\":[]}")).andExpect(status().isBadRequest());

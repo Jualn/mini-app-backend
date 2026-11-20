@@ -121,10 +121,7 @@ public class NotificationCenterServiceImpl implements NotificationCenterService 
 
     private List<Integer> types(NotificationCenterBO.Query query) {
         if (query.category() != null) {
-            return switch (query.category()) {
-                case ACTIVITY -> List.of(4, 8, 9, 12, 13, 14, 15, 23);
-                case PUBLIC_EVENT -> List.of(5, 10, 11, 16, 17, 18);
-            };
+            return query.category().codes();
         }
         if ("INTERACTION".equals(query.boxCategory())) {
             return List.of(1, 2, 3, 19, 20, 21, 22);

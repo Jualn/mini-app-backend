@@ -94,6 +94,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
                             return true;
                         }
                         String path = req.getRequestURI().substring(req.getContextPath().length());
+                        if (path.startsWith("/v1/users/me/notification") || path.equals("/v1/admin/notification-channel-status")
+                                || path.equals("/v1/admin/notification-delivery-summary"))
+                            res.setHeader("Cache-Control", "no-store");
                         if (path.matches("/v1/(admin/)?media/files/[^/]+/content"))
                             res.setHeader("Cache-Control", "no-store");
                         if (path.matches("/v1/media/files/[1-9][0-9]*/content") && (req.getMethod().equals("GET") || req.getMethod().equals("HEAD"))) {

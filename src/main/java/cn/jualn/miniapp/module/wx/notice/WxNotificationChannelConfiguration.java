@@ -9,10 +9,10 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration(proxyBeanMethods=false)
 public class WxNotificationChannelConfiguration {
-    @Bean NotificationChannelAdapter officialAccountNotificationChannel(WxMpNoticeSendService sender,ObjectMapper json) {
-        return new WxNotificationChannelAdapter(WxMpNoticeSendService.CHANNEL,sender,sender::isDeliveryAvailable,json);
+    @Bean NotificationChannelAdapter officialAccountNotificationChannel(WxMpNoticeSendService sender,ObjectMapper json,WxNotificationTemplateRegistry registry) {
+        return new WxNotificationChannelAdapter(WxMpNoticeSendService.CHANNEL,sender,sender::isDeliveryAvailable,json,registry);
     }
-    @Bean NotificationChannelAdapter miniProgramNotificationChannel(WxMiniNoticeSendService sender,ObjectMapper json) {
-        return new WxNotificationChannelAdapter(WxMiniNoticeSendService.CHANNEL,sender,sender::isTemplateConfigured,json);
+    @Bean NotificationChannelAdapter miniProgramNotificationChannel(WxMiniNoticeSendService sender,ObjectMapper json,WxNotificationTemplateRegistry registry) {
+        return new WxNotificationChannelAdapter(WxMiniNoticeSendService.CHANNEL,sender,sender::isTemplateConfigured,json,registry);
     }
 }

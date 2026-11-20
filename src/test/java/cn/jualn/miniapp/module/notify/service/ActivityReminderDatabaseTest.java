@@ -2,7 +2,7 @@ package cn.jualn.miniapp.module.notify.service;
 import cn.jualn.miniapp.module.notify.service.inbox.NotificationSnapshotProjection;
 import cn.jualn.miniapp.module.notify.service.inbox.NotificationInboxService;
 
-import cn.jualn.miniapp.module.activity.service.ActivityDeliveryEligibility;
+import cn.jualn.miniapp.module.activity.service.*;
 import cn.jualn.miniapp.common.enums.*;
 import cn.jualn.miniapp.config.MybatisPlusConfig;
 import cn.jualn.miniapp.infrastructure.async.job.*;
@@ -10,10 +10,9 @@ import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.module.subject.service.SubjectExistenceService;
 import cn.jualn.miniapp.module.activity.entity.Activity;
 import cn.jualn.miniapp.module.activity.mapper.*;
-import cn.jualn.miniapp.module.activity.service.*;
 import cn.jualn.miniapp.module.publicevent.service.PublicEventSubscriptionService;
 import cn.jualn.miniapp.module.notify.converter.NotifyConverter;
-import cn.jualn.miniapp.module.notify.entity.*;
+
 import cn.jualn.miniapp.module.notify.mapper.*;
 import cn.jualn.miniapp.module.notify.reminder.*;
 import cn.jualn.miniapp.module.notify.service.impl.*;
@@ -83,7 +82,7 @@ class ActivityReminderDatabaseTest {
         reconcile=proxied(new ReminderReconcileService(plans,jobs));
         var inbox=proxied(new NotificationInboxService(notifications)); var meters=new SimpleMeterRegistry();
         provider=mock(WxMpNoticeSendService.class);
-        delivery=new NotificationDeliveryServiceImpl(sql.getMapper(NotificationDeliveryMapper.class),notifications,meters,inbox,jobs,json,cn.jualn.miniapp.module.notify.TestNotificationChannels.create(provider,mock(cn.jualn.miniapp.module.wx.service.WxMiniNoticeSendService.class),json),mock(SettingService.class),sql.getMapper(NotificationPreferenceMapper.class),tx,new cn.jualn.miniapp.module.notify.service.NotificationEligibility(java.util.List.of(new ActivityDeliveryEligibility(status)),plans));
+        delivery=new NotificationDeliveryServiceImpl(sql.getMapper(NotificationDeliveryMapper.class),notifications,meters,inbox,jobs,json,cn.jualn.miniapp.module.notify.TestNotificationChannels.create(provider,mock(cn.jualn.miniapp.module.wx.service.WxMiniNoticeSendService.class),json),sql.getMapper(NotificationPreferenceMapper.class),tx,new cn.jualn.miniapp.module.notify.service.NotificationEligibility(java.util.List.of(new ActivityDeliveryEligibility(status)),plans));
         var validator=mock(SubjectExistenceService.class); when(validator.exists(eq(TargetType.ACTIVITY),anyLong())).thenReturn(true);
         notify=new NotifyServiceImpl(notifications,
                     meters,
@@ -98,12 +97,10 @@ class ActivityReminderDatabaseTest {
                 meters,
                 inbox,
                 delivery,
-                mock(SettingService.class),
                 mock(RedisService.class),
                 validator,
                 json,
                 sql.getMapper(NotificationPreferenceMapper.class),
-                sql.getMapper(NotificationPreferenceOwnerMapper.class),
                 new cn.jualn.miniapp.module.user.service.UserNotificationIdentityService(sql.getMapper(UserProfileMapper.class)),
                 java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollment),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(mock(PublicEventSubscriptionService.class)))),
                     List.of(status),

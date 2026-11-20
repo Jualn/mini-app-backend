@@ -11,7 +11,10 @@ import cn.jualn.miniapp.third.wx.dto.MiniSubscribeMessageResponse;
 import cn.jualn.miniapp.common.exception.ExternalServiceException;
 import cn.jualn.miniapp.third.wx.notice.WxNoticeSendResult;
 import org.springframework.web.reactive.function.client.WebClientException;
-import cn.jualn.miniapp.module.wx.notice.*;
+import cn.jualn.miniapp.module.wx.notice.WxDeliveryTemplateSnapshot;
+import cn.jualn.miniapp.module.wx.notice.WxNoticeDeliveryAdapter;
+import cn.jualn.miniapp.module.wx.notice.WxNotificationTemplateRegistry;
+import cn.jualn.miniapp.module.wx.notice.WxNotificationTemplateRenderer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -38,7 +41,7 @@ public class WxMiniNoticeSendService implements WxNoticeDeliveryAdapter {
 
     public boolean isTemplateConfigured(NotifyType type) {
         if (!isChannelEnabled() || type == null || properties.getMa() == null
-                || !StringUtils.hasText(properties.getMa().getAppId())) return false;
+                || (!StringUtils.hasText(properties.getMa().getAppId()) || !StringUtils.hasText(properties.getMa().getAppSecret()))) return false;
         var template = templates.resolve(type.name(), CHANNEL);
         return template != null && template.enabled();
     }
