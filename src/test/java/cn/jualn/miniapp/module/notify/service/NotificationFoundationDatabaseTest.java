@@ -310,7 +310,7 @@ class NotificationFoundationDatabaseTest {
         verifyNoInteractions(context.getBean(WxClient.class));
         UserContext.setUserId(3L);assertThrows(ContractProblemException.class,()->center.get(id.toString()));
     }
-    @Test void monitoringReadsRealDeliveryAggregatesAndRejectsUnattributableHistory() throws Exception {
+    @Test void monitoringReadsRealDeliveryAggregatesAndRejectsUnattributableV1() throws Exception {
         set(NotificationCategory.COMMENT,NotificationChannel.WECHAT_MINI_PROGRAM,true);
         creator.create(payload(NotifyType.POST_COMMENTED,"monitor:comment"));
         creator.create(payload(NotifyType.SYSTEM,"monitor:system"));
@@ -325,6 +325,23 @@ class NotificationFoundationDatabaseTest {
         var evidence=new LinkedHashMap<String,Object>();var converter=Mappers.getMapper(NotificationCatalogConverter.class);evidence.put("status",converter.status(service.status(9L)));evidence.put("summary",converter.summary(result));
         json.writeValue(out.resolve("monitoring.json").toFile(),evidence);
         db.update("UPDATE notification_delivery SET preference_category=NULL WHERE channel='WECHAT_MINI_PROGRAM'");
+        assertThrows(ContractProblemException.class,()->service.summary(9L,from,until,null,null));
+    }
+
+    @Test void monitoringIgnoresUnmigratedOldGenerationsWithoutChangingTheirFacts(){
+        var current=creator.create(payload(NotifyType.SYSTEM,"monitor:v1"));
+        for(var generation:List.of("LEGACY","CANONICAL")){
+            var old=creator.create(payload(NotifyType.SYSTEM,"monitor:old:"+generation));
+            db.update("UPDATE notification SET inbox_generation=? WHERE id=?",generation,old.notificationId());
+            db.update("UPDATE notification_delivery SET notification_type=NULL,preference_category=NULL WHERE notification_id=?",old.notificationId());
+        }
+        var service=context.getBean(NotificationMonitoringService.class);
+        var from=OffsetDateTime.now().minusHours(1);var until=from.plusHours(2);
+        assertEquals(1,service.summary(9L,from,until,null,null).items().stream().mapToLong(NotificationCatalogBO.SummaryItem::count).sum());
+        assertEquals(1,service.summary(9L,from,until,NotificationChannel.IN_APP,NotificationCategory.SYSTEM).items().stream().mapToLong(NotificationCatalogBO.SummaryItem::count).sum());
+        assertTrue(service.summary(9L,from,until,NotificationChannel.WECHAT_MINI_PROGRAM,null).items().isEmpty());
+        assertEquals(2,db.queryForObject("SELECT COUNT(*) FROM notification_delivery WHERE notification_type IS NULL AND preference_category IS NULL",Integer.class));
+        db.update("UPDATE notification_delivery SET preference_category=NULL WHERE notification_id=?",current.notificationId());
         assertThrows(ContractProblemException.class,()->service.summary(9L,from,until,null,null));
     }
 

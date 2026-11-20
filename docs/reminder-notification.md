@@ -348,7 +348,7 @@ Notification 的 source key 删除后将失去去重证据。因此清理不仅�
 
 首版直接采用统一偏好和 NotificationItem，不保留旧通知 HTTP/字段/列表 adapter 或双版本窗口。V98新增 notification_preference_v1 和 Delivery 的 notification_type/preference_category 监测归属；不回填旧历史、不修改已应用迁移，不授权删除或重建业务数据库。新写入用 V1 标记，V/R 不从旧结构豁免站内资格。
 
-管理只读渠道状态与投递汇总复用同一目录/真实 Delivery，授权为精确 notice:read、同源 NOTICE_MONITOR 本业务 PLATFORM 或已就绪 ROOT owner 能力。统计按 Delivery.created_at 归属[from,until)，区间最多31天，不返回收件人、消息正文或密钥。未规划不虚构失败；UNKNOWN独立，DELIVERED仅映射ACCEPTED，不等于设备收件或已读。归属缺失、超过可可靠保留范围或依赖不可判定时503，不报假零；不提供发送、重试、广播或配置编辑。
+管理只读渠道状态与投递汇总复用同一目录/真实 Delivery，授权为精确 notice:read、同源 NOTICE_MONITOR 本业务 PLATFORM 或已就绪 ROOT owner 能力。仅统计所属 Notification 为 V1 的投递；旧世代记录不导入、不参与汇总，也不因缺少首版归属列阻断查询。统计按 Delivery.created_at 归属[from,until)，区间最多31天，不返回收件人、消息正文或密钥。未规划不虚构失败；UNKNOWN独立，DELIVERED仅映射ACCEPTED，不等于设备收件或已读。V1归属缺失、超过可可靠保留范围或依赖不可判定时503，不报假零；不提供发送、重试、广播或配置编辑。
 
 ## 9. Observability 接入
 
