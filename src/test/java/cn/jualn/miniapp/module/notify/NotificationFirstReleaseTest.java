@@ -62,7 +62,11 @@ class NotificationFirstReleaseTest {
         // Retired deployment flags do not disable a valid template.
         env.setProperty("WX_NOTIFICATION_MINI_PROGRAM_ENABLED","false");env.setProperty("WX_NOTIFICATION_OFFICIAL_ACCOUNT_ENABLED","true");
         new org.springframework.boot.env.YamlPropertySourceLoader().load("base",new org.springframework.core.io.ClassPathResource("application.yaml")).forEach(s->env.getPropertySources().addLast(s));
-        return org.springframework.boot.context.properties.bind.Binder.get(env).bind("wx.notification",org.springframework.boot.context.properties.bind.Bindable.of(WxNotificationTemplateProperties.class)).get();
+        var properties=org.springframework.boot.context.properties.bind.Binder.get(env).bind("wx.notification",org.springframework.boot.context.properties.bind.Bindable.of(WxNotificationTemplateProperties.class)).get();
+        // Keep the foundation fault-injection fixture isolated; deployment templates have their own suite.
+        properties.getBindings().entrySet().removeIf(e->!e.getKey().equals("mini-post-comment"));
+        properties.getDefinitions().entrySet().removeIf(e->!e.getKey().equals("mini-post-comment"));
+        return properties;
     }
     WxNotificationTemplateRegistry registry(WxNotificationTemplateProperties p){return new WxNotificationTemplateRegistry(p,accounts);}
     NotificationChannels channels(WxNotificationTemplateProperties p){

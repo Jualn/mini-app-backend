@@ -185,7 +185,9 @@ public class NotificationCreationService implements cn.jualn.miniapp.module.noti
                 : category == NotificationCategory.AUDIT_RESULT ? "审核与处理结果已更新，请进入小程序查看。"
                 : category == NotificationCategory.LEARNING_TASK ? "学习任务有新进展，请进入小程序查看。" : payload.getContent();
         content.put("noticeSummary", summary);
-        content.put("eventTime", cn.jualn.miniapp.module.notify.service.NotificationObservation.now());
+        content.put("eventTime", payload.getOccurredAt() == null ? cn.jualn.miniapp.module.notify.service.NotificationObservation.now() : payload.getOccurredAt());
+        if (payload.isMentorAnswer()) content.put("mentorAnswer", true);
+        if (payload.getRegistrationDeadlineTime() != null) content.put("registrationDeadlineTime", payload.getRegistrationDeadlineTime());
         if (payload.getRecipientPersonId() != null) {
             content.put("recipientPersonId", payload.getRecipientPersonId());
             content.put("recipientBindingId", payload.getRecipientBindingId());

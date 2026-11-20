@@ -32,7 +32,8 @@ import static cn.jualn.miniapp.module.points.PointsProblems.unavailable;
 @Service
 public class PointsResultNotifications {
     public static final String JOB="points.result-notification";
-    public record Result(long applicationId,Long userId,String type,String occurrence,String personId,String bindingId,String recipientStatus) {
+    public record Result(long applicationId,Long userId,String type,String occurrence,String personId,String bindingId,String recipientStatus,java.time.LocalDateTime reviewedAt) {
+        public Result(long applicationId,Long userId,String type,String occurrence,String personId,String bindingId,String recipientStatus) {this(applicationId,userId,type,occurrence,personId,bindingId,recipientStatus,null);}
         public Result(long applicationId,long userId,String type,String occurrence) {this(applicationId,userId,type,occurrence,null,null,null);}
     }
     @org.springframework.beans.factory.annotation.Autowired
@@ -65,7 +66,7 @@ public class PointsResultNotifications {
         var binding=persons.deliveryBinding(app.personId());
         if(binding==null || "VERIFICATION_REQUIRED".equals(binding.status())) throw unavailable(Dependency.NOTIFICATION_ACCEPTANCE);
         String recipient=!"ACTIVE".equals(binding.status())?"PERSON_UNAVAILABLE":binding.userId()==null?"NO_BINDING":"BOUND";
-        var payload=new Result(app.applicationId(),binding.userId(),type,occurrence,app.personId(),binding.bindingId(),recipient);
+        var payload=new Result(app.applicationId(),binding.userId(),type,occurrence,app.personId(),binding.bindingId(),recipient,app.reviewedAt());
         try { jobs.create(new JobDefinition(JOB,2,ObservabilityContext.ensureOperationId(),occurrence,"point-application",
                 Long.toString(app.applicationId()),payload,null,6)); }
         catch(org.springframework.dao.DataAccessException failure) { var problem=unavailable(Dependency.NOTIFICATION_ACCEPTANCE);problem.initCause(failure);throw problem; }
@@ -99,7 +100,10 @@ public class PointsResultNotifications {
                 null,new NotificationCenterBO.Subject("POINT_APPLICATION",Long.toString(result.applicationId())),null);
         notifications.processNotificationPayload(NotifyPayload.builder().receiverId(result.userId()).type(type)
                 .title(type.getDesc()).content("请查看积分申请与积分记录。").sourceKey("points:"+result.occurrence())
-                .snapshot(snapshot).recipientPersonId(result.personId()).recipientBindingId(result.bindingId()).build());
+                .snapshot(snapshot).contentData((type==NotifyType.POINT_APPLICATION_APPROVED || type==NotifyType.POINT_APPLICATION_REJECTED) && result.reviewedAt()!=null
+                        ? new cn.jualn.miniapp.module.notify.payload.data.AuditResultNoticeData("积分申请",type==NotifyType.POINT_APPLICATION_APPROVED?"已通过":"未通过","",
+                                result.reviewedAt().atZone(java.time.ZoneOffset.UTC).withZoneSameInstant(java.time.ZoneId.of("Asia/Shanghai")).toLocalDateTime()) : null)
+                .recipientPersonId(result.personId()).recipientBindingId(result.bindingId()).build());
         resolve(result,"INBOX_ACCEPTED");
     }
     private void resolve(Result result,String outcome) {

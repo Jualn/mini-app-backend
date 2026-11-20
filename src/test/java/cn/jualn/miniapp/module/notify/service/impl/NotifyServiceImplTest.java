@@ -135,7 +135,7 @@ class NotifyServiceImplTest {
                     meters,
                     notifyPlanMapper,
                     userService,
-                    java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollmentService),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(examSubService)),
+                    java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollmentService,org.mockito.Mockito.mock(cn.jualn.miniapp.module.timeline.service.TimelineService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(examSubService)),
                     redisService,
                     notifyConverter,
                     jobService,
@@ -149,7 +149,7 @@ class NotifyServiceImplTest {
                 new ObjectMapper().findAndRegisterModules(),
                 preferenceMapper,
                 new cn.jualn.miniapp.module.user.service.UserNotificationIdentityService(userProfileMapper),
-                java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollmentService),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(examSubService))),
+                java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollmentService,org.mockito.Mockito.mock(cn.jualn.miniapp.module.timeline.service.TimelineService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(examSubService))),
                     statuses,
                     reminderReconcileService);
     }

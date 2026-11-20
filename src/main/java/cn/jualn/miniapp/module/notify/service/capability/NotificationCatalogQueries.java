@@ -21,16 +21,19 @@ public class NotificationCatalogQueries {
         if(UserContext.getUserId()==null)throw new BusinessException(ResultCode.UNAUTHORIZED);
         try {
             var byId=new TreeMap<String,java.util.List<cn.jualn.miniapp.module.notify.enums.NotifyType>>();
+            var metadataById=new TreeMap<String,cn.jualn.miniapp.module.notify.channel.NotificationTemplateStatus>();
             for(var type:NotificationCategory.types()){
                 if(category!=null && NotificationCategory.of(type)!=category)continue;
-                var item=channels.status("WECHAT_MINI_PROGRAM",type);
-                if("READY".equals(item.status()))byId.computeIfAbsent(item.templateId(),ignored->new ArrayList<>()).add(type);
+                for(var item:channels.subscriptionTemplates("WECHAT_MINI_PROGRAM",type)) if("READY".equals(item.status())) {
+                    byId.computeIfAbsent(item.templateId(),ignored->new ArrayList<>()).add(type);
+                    metadataById.put(item.templateId(),item);
+                }
             }
             var items=new ArrayList<NotificationCatalogBO.Option>();
             byId.forEach((id,types)->{
-                var metadata=channels.status("WECHAT_MINI_PROGRAM",types.get(0));
+                var metadata=metadataById.get(id);
                 items.add(new NotificationCatalogBO.Option(id,metadata.title(),metadata.subscriptionKind(),
-                        types.stream().map(t->NotificationCategory.of(t).name()).distinct().sorted().toList(),types.stream().map(Enum::name).sorted().toList()));
+                        types.stream().map(t->NotificationCategory.of(t).name()).distinct().sorted().toList(),types.stream().map(Enum::name).distinct().sorted().toList()));
             });
             return new NotificationCatalogBO.Options(now(),channels.configurationRevision(),1,List.copyOf(items));
         }catch(org.springframework.dao.DataAccessException unavailable){throw unavailable();}

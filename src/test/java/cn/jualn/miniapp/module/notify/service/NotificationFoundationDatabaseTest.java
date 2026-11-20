@@ -87,6 +87,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -237,6 +238,41 @@ class NotificationFoundationDatabaseTest {
         assertNull(db.queryForObject("SELECT read_at FROM notification WHERE id=?",java.sql.Timestamp.class,result.notificationId()));
         assertEquals(NotificationCreator.Outcome.DUPLICATE,creator.create(payload(NotifyType.POST_COMMENTED,"comment:19:receiver:2:approved")).outcome());
         assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM notification WHERE source_key='comment:19:receiver:2:approved'",Integer.class));
+    }
+    @Test void allNineTemplatesPersistFrozenJobsAndSendWithTheOriginalNotificationId(){
+        for(var category:NotificationCategory.values())set(category,NotificationChannel.WECHAT_MINI_PROGRAM,true);
+        var types=List.of(NotifyType.POST_COMMENTED,NotifyType.POST_COMMENTED,NotifyType.COMMENT_REPLIED,
+                NotifyType.ACTIVITY_CANCELLED,NotifyType.ACTIVITY_TIME_CHANGED,NotifyType.ACTIVITY_START_REMINDER,
+                NotifyType.ACTIVITY_REGISTRATION_START_REMINDER,NotifyType.ACTIVITY_REGISTRATION_DEADLINE_REMINDER,
+                NotifyType.LEARNING_TASK_REVIEW_APPROVED);
+        var accepted=new MiniSubscribeMessageResponse();accepted.setErrcode(0);
+        when(context.getBean(WxClient.class).sendMiniSubscribeMessage(any())).thenReturn(accepted);
+        var templateIds=new HashSet<String>();
+        for(int index=0;index<types.size();index++){
+            var type=types.get(index);
+            var target=new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Target("ACTIVITY_DETAIL",null,null,"42",null);
+            var presentation=new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Presentation(type.getDesc(),"活动安排", "天气原因",null,
+                    List.of(new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Change("地点","一楼","二楼")),"校园活动",null);
+            var payload=NotifyPayload.builder().receiverId(2L).senderId(3L).type(type).title(type.getDesc()).content("安全摘要")
+                    .sourceKey("template-batch:"+index).targetId(42L).mentorAnswer(index==1)
+                    .snapshot(new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot(presentation,null,null,target))
+                    .contentData(()->Map.ofEntries(Map.entry("originalContent","原文"),Map.entry("replyUserName","同学"),Map.entry("replyContent","回复内容"),
+                            Map.entry("replyTime","2026-11-21T10:00:00"),Map.entry("startTime","2026-11-22T10:00:00"),
+                            Map.entry("registrationStartTime","2026-11-21T12:00:00"),Map.entry("registrationDeadlineTime","2026-11-21T20:00:00"),
+                            Map.entry("auditResult","已通过"),Map.entry("auditTime","2026-11-21T09:00:00"))).build();
+            long notificationId=creator.create(payload).notificationId();
+            long deliveryId=db.queryForObject("SELECT id FROM notification_delivery WHERE notification_id=? AND channel='WECHAT_MINI_PROGRAM'",Long.class,notificationId);
+            var snapshot=db.queryForObject("SELECT template_snapshot FROM notification_delivery WHERE id=?",String.class,deliveryId);
+            assertNotNull(snapshot);
+            delivery.execute(deliveryId);
+            assertEquals("DELIVERED",db.queryForObject("SELECT status FROM notification_delivery WHERE id=?",String.class,deliveryId));
+            assertNull(db.queryForObject("SELECT read_at FROM notification WHERE id=?",java.sql.Timestamp.class,notificationId));
+        }
+        var requests=org.mockito.ArgumentCaptor.forClass(MiniSubscribeMessageRequest.class);
+        verify(context.getBean(WxClient.class),times(9)).sendMiniSubscribeMessage(requests.capture());
+        for(var request:requests.getAllValues())templateIds.add(request.templateId());
+        assertEquals(9,templateIds.size());
+        assertEquals(9,db.queryForObject("SELECT COUNT(*) FROM async_job WHERE job_type='notification.wechat-deliver'",Integer.class));
     }
     @Test void noInAppPreferenceDoesNotEnterInboxAndReenableDoesNotReplay(){
         set(NotificationCategory.SYSTEM,NotificationChannel.IN_APP,false);

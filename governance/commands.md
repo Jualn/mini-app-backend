@@ -628,7 +628,7 @@ $env:JAVA_HOME='D:\Jualn\Java\jdk-17.0.18+8'
 
 ```powershell
 $env:JAVA_TOOL_OPTIONS='-Dnotification.v1.jdbcUrl=jdbc:mysql://127.0.0.1:<owned-port>/notification_v1_test_<suffix> -Dnotification.v1.serverUuid=<verified-uuid>'
-.\tools\validate-event-information.ps1 -Maven '.\mvnw.cmd' -JavaHome '<Java17Home>' -TestNames NotificationFirstReleaseTest,NotificationFoundationDatabaseTest,NotificationDeliveryServiceImplTest,WxNotificationTemplateTest,WxNotificationTemplateRegistryTest,WxNotificationTemplateRendererTest,WxNotificationChannelTest,WxMpNoticeSendServiceTest,WxNoticeBudgetTest,WxNoticeSendResultTest,CanonicalNotificationControllerTest,NotificationCenterMvcTest,CommentNotificationSnapshotTest,NotificationContentCompatibilityTest
+.\tools\validate-event-information.ps1 -Maven '.\mvnw.cmd' -JavaHome '<Java17Home>' -TestNames WxNotificationDeploymentTemplatesTest,NotificationFirstReleaseTest,NotificationFoundationDatabaseTest,NotificationDeliveryServiceImplTest,WxNotificationTemplateTest,WxNotificationTemplateRegistryTest,WxNotificationTemplateRendererTest,WxNotificationChannelTest,WxMpNoticeSendServiceTest,WxNoticeBudgetTest,WxNoticeSendResultTest,CanonicalNotificationControllerTest,NotificationCenterMvcTest,CommentNotificationSnapshotTest,NotificationContentCompatibilityTest
 Remove-Item Env:JAVA_TOOL_OPTIONS
 ```
 

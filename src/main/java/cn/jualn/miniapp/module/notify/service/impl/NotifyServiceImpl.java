@@ -87,8 +87,8 @@ public class NotifyServiceImpl implements NotifyService {
                 .scope(0).scene(rule.ruleKey()).sendAt(rule.sendAt()).status(1)
                 .recipientUpperUserId(payload.userId()).completedAt(now).build();
         notifyPlanMapper.insert(plan);
-        var notification = buildNotifyPayload(payload.userId(), plan);
-        if (notification != null) creationService.acceptBatch(List.of(notification));
+        var notifications = buildNotifyPayloads(List.of(payload.userId()), plan);
+        if (!notifications.isEmpty()) creationService.acceptBatch(notifications);
     }
 
     @Override
@@ -235,7 +235,7 @@ public class NotifyServiceImpl implements NotifyService {
         }
         BusinessNotificationJobPayload payload = new BusinessNotificationJobPayload(
                 targetType.getCode(), targetId, eventIdentity, notificationType.getCode(),
-                recipientScope, title, content, snapshot);
+                recipientScope, title, content, snapshot, cn.jualn.miniapp.module.notify.service.NotificationObservation.now());
         jobService.create(new JobDefinition("business-notification.fanout", 1,
                 ObservabilityContext.ensureOperationId(), eventIdentity, targetType.name(),
                 String.valueOf(targetId), payload, LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")), 6));
@@ -349,8 +349,7 @@ public class NotifyServiceImpl implements NotifyService {
                         || !java.util.Objects.equals(reminderIntent(currentPlan), intent)) return false;
                 Set<Long> currentRecipients = new HashSet<>(queryUserIds(currentPlan, batchLastId,
                         userIds.get(userIds.size() - 1)));
-                List<NotifyPayload> payloads = userIds.stream().filter(currentRecipients::contains)
-                        .map(uid -> buildNotifyPayload(uid, currentPlan)).filter(java.util.Objects::nonNull).toList();
+                List<NotifyPayload> payloads = buildNotifyPayloads(userIds.stream().filter(currentRecipients::contains).toList(), currentPlan);
                 creationService.acceptBatch(payloads);
                 return true;
             });
@@ -428,17 +427,18 @@ public class NotifyServiceImpl implements NotifyService {
         return source(plan.getSourceType()).recipients(plan.getSourceId(),plan.getRecipientScope(),lastId,upperBound,BATCH_SIZE);
     }
 
-    private NotifyPayload buildNotifyPayload(Long user, NotifyPlan plan) {
-        if (Integer.valueOf(3).equals(plan.getSourceType())) return NotifyPayload.builder()
+    private List<NotifyPayload> buildNotifyPayloads(List<Long> users, NotifyPlan plan) {
+        if (Integer.valueOf(3).equals(plan.getSourceType())) return users.stream().map(user -> NotifyPayload.builder()
             .receiverId(user).type(NotifyType.fromCode(plan.getNotifyType())).title(plan.getTitle()).content(plan.getContent())
-            .sourceKey("plan:"+plan.getId()+":user:"+user).build();
-        // Historical compatibility deduplication belongs to notification persistence, not Activity.
+            .sourceKey("plan:"+plan.getId()+":user:"+user).build()).toList();
+        // Preserve the existing historical start-occurrence barrier while reading new business facts once per batch.
+        List<Long> eligible = users;
         if (Integer.valueOf(1).equals(plan.getSourceType()) && Integer.valueOf(8).equals(plan.getNotifyType())
-                && plan.getSubjectStartsAt() != null && plan.getSubjectStartsAt().getNano() == 0
-                && notificationMapper.selectHistoricalStartOccurrence(user, TargetType.ACTIVITY.getCode(),
+                && plan.getSubjectStartsAt() != null && plan.getSubjectStartsAt().getNano() == 0)
+            eligible = users.stream().filter(user -> notificationMapper.selectHistoricalStartOccurrence(user, TargetType.ACTIVITY.getCode(),
                     plan.getSourceId(), plan.getSubjectStartsAt().format(
-                        java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))) != null) return null;
-        return source(plan.getSourceType()).reminder(user,
+                        java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))) == null).toList();
+        return source(plan.getSourceType()).reminders(eligible,
                 cn.jualn.miniapp.module.notify.service.ReminderPlanSnapshot.of(plan));
     }
 
@@ -481,7 +481,7 @@ public class NotifyServiceImpl implements NotifyService {
             List<NotifyPayload> payloads = recipients.stream().map(userId -> NotifyPayload.builder()
                     .receiverId(userId).senderId(null).type(notificationType)
                     .title(event.title()).content(event.content()).targetType(targetType).targetId(event.targetId())
-                    .sourceKey(event.eventIdentity() + ":user:" + userId).snapshot(event.snapshot()).build()).toList();
+                    .sourceKey(event.eventIdentity() + ":user:" + userId).snapshot(event.snapshot()).occurredAt(event.occurredAt()).build()).toList();
             meters.counter("jualn.notification.recipients", "type", "business_change").increment(recipients.size());
             {
                 long batchLast = lastId;

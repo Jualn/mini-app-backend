@@ -391,7 +391,7 @@ Admin QR Login v2 使用 `WxClient.generateMiniProgramCode`：使用 ma 凭据�
 
 Definition 配置 channel/accountRef/product/templateId/title/subscriptionKind/version/fields/miniProgramState；当前账号为 ma-primary，产品为 MINI_PROGRAM_SUBSCRIBE，凭据复用 wx.ma。title 是真实微信模板标题；用户确认当前模板均一次性，subscriptionKind 默认 ONE_TIME，明确长期模板使用 LONG_TERM，未知种类不得出现在订阅目录。miniProgramState 为 developer/trial/formal，默认 formal。Binding 配置 notificationType/channel/accountRef/definitionRef/version/fields/jumpTarget；一个类型与渠道只能有一个有效绑定。
 
-字段来源由 `WxNoticeFieldCatalog` 白名单维护，不支持任意属性路径、表达式或脚本。33 种既有合法类型均支持冻结的 noticeTitle、noticeSummary、eventTime；互动和提醒还提供其受控摘要/时间，学习任务提供安全任务标题和业务截止。积分、审核及处理结果只允许通用安全摘要，不允许材料、审查备注、举报细节、签名 URL 或 Person 绑定证据作为模板字段。业务 owner 冻结事实，发送不回查业务主体补字段。
+字段来源由 `WxNoticeFieldCatalog` 白名单维护，不支持任意属性路径、表达式或脚本。33 种既有合法类型均支持冻结的 noticeTitle、noticeSummary、eventTime；互动和提醒还提供其受控摘要/时间，学习任务提供安全任务标题和业务截止。积分、审核及处理结果使用通用安全摘要；明确审核通过/驳回另允许受控结果和真实审核时间，不允许材料、审查备注、举报细节、签名 URL 或 Person 绑定证据作为模板字段。业务 owner 冻结事实，发送不回查业务主体补字段。
 
 无效模板、映射、目标或种类只使对应类型 INVALID；其他类型与站内渠道照常工作。缺模板为 NOT_CONFIGURED，服务号为 DISABLED，管理端只返回受控 issues。真实模板ID冲突的标题/种类不能自行猜测合并，相关项判为无效。同一真实 ID 的合法复用按 ID 去重并合并覆盖类型/类别。
 
@@ -415,9 +415,27 @@ INBOX/SEMANTIC_TARGET 使用同一 notificationId 的消息恢复入口；只有
 
 ### 16.7 帖子一级评论模板
 
-`application.yaml` 的 mini-post-comment 绑定 POST_COMMENTED。真实模板标题为“新的评论提醒”，一次性；ID 以配置为准。一级评论首次公开后通知帖子作者，排除自己评论自己，二级回复不借此模板发送。thing15=原帖正文摘要 originalContent，thing5=replyUserName，thing2=replyContent，time3=评论 createdAt 对应 replyTime；文本采用20个 Unicode 字符摘要，时间按 Asia/Shanghai 渲染，缺文本时使用配置中的明确查看提示。跳转 POST_DETAIL，保留 postId 和同一 notificationId。
+`application.yaml` 的 mini-post-comment 绑定 POST_COMMENTED。真实模板标题为“新的评论提醒”，一次性；ID 以配置为准。一级评论首次公开后通知帖子作者，排除自己评论自己，二级回复不借此模板发送；导师正式回答使用独立的提问回复模板。thing15=原帖正文摘要 originalContent，thing5=replyUserName，thing2=replyContent，time3=评论 createdAt 对应 replyTime；文本采用20个 Unicode 字符摘要，时间按 Asia/Shanghai 渲染，缺文本时使用配置中的明确查看提示。跳转 POST_DETAIL，保留 postId 和同一 notificationId。
 
-个人接收选择使用 COMMENT × Channel 统一偏好，不读取或导入旧 notifyComment。测试账户先保存 COMMENT × WECHAT_MINI_PROGRAM=true 并在同 AppID 小程序原生订阅；用该账户发帖、另一账户发表一级评论。无需通知总开关；本地开发版跳转可设置 WX_NOTIFICATION_MINI_PROGRAM_STATE=developer，正式默认 formal。其他模板无配置时仍不发送，不复活旧 SKIPPED/FAILED/UNKNOWN 或补发历史。
+个人接收选择使用 COMMENT × Channel 统一偏好，不读取或导入旧 notifyComment。测试账户先保存 COMMENT × WECHAT_MINI_PROGRAM=true 并在同 AppID 小程序原生订阅；用该账户发帖、另一账户发表一级评论。无需通知总开关；本地开发版跳转可设置 WX_NOTIFICATION_MINI_PROGRAM_STATE=developer，正式默认 formal。未绑定类型仍不发送，不复活旧 SKIPPED/FAILED/UNKNOWN 或补发历史。
+
+### 16.8 模板使用位置
+
+九个模板均为一次性；ID及字段映射统一放在[application.yaml](../src/main/resources/application.yaml)的 `wx.notification`，这里仅记录使用位置。下列路径均追加原 `notificationId`。
+
+| 模板 | 使用场景 / 代码位置 | 小程序落点 |
+|---|---|---|
+| 新的评论提醒 | 帖子普通一级评论首次公开；[CommentAuditCallback](../src/main/java/cn/jualn/miniapp/module/comment/service/impl/CommentAuditCallback.java) | `/subpkg_community/pages/detail/detail?postId=…` |
+| 提问回复通知 | 仅导师正式回答通过发布校验后；同上，冻结 `mentorAnswer=true`；普通评论不借用 | 同上 |
+| 新的回复提醒 | 评论的具体回复对象；[CommentAuditCallback](../src/main/java/cn/jualn/miniapp/module/comment/service/impl/CommentAuditCallback.java)、[ArticleCommentNotifications](../src/main/java/cn/jualn/miniapp/module/comment/service/ArticleCommentNotifications.java) | 帖子/活动/公共事项详情；文章回复从 `/pages/message/message` 恢复 |
+| 活动取消通知 | 活动取消；[ActivityLifecycleService](../src/main/java/cn/jualn/miniapp/module/activity/service/ActivityLifecycleService.java)，有原因时冻结真实原因，无原因明确显示未提供 | `/subpkg_activity/pages/detail/detail?activityId=…` |
+| 活动变更通知 | 活动时间、地点实际变更；同上；不含任意编辑或提前结束 | 同上 |
+| 活动开始提醒 | 活动开始前提醒；[ActivityNotificationSource](../src/main/java/cn/jualn/miniapp/module/activity/service/ActivityNotificationSource.java) | 同上 |
+| 活动报名通知 | 报名开始前提醒；同上，同时冻结开始和截止时间；不是报名成功通知 | 同上 |
+| 报名截止通知 | 活动/公共事项报名截止前提醒；上述 Source 与 [PublicEventNotificationSource](../src/main/java/cn/jualn/miniapp/module/publicevent/service/PublicEventNotificationSource.java) | 对应活动或 `/subpkg_public_event/pages/detail/detail?publicEventId=…` |
+| 审核结果通知 | 学习成果审核通过/驳回、积分申请批准/驳回；[LearningTaskNotifications](../src/main/java/cn/jualn/miniapp/module/learningtask/service/LearningTaskNotifications.java)、[PointsResultNotifications](../src/main/java/cn/jualn/miniapp/module/points/service/PointsResultNotifications.java)。只发安全通用摘要及真实结果/时间，不含审核备注；不代发举报结案、内容处置、积分冲正。通用 AUDIT_RESULT 已映射，现有资料回调仍不新增通知 | `/pages/message/message`，使用同一ID恢复 |
+
+普通评论和导师回答仍共用 `POST_COMMENTED` / COMMENT 偏好，Registry 仅按业务冻结的正式回答标记选择独立绑定，目录返回两个真实模板；不增加公开类型或通用条件引擎。
 
 ## 17. 服务号首版停用
 

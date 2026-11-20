@@ -146,7 +146,7 @@ public class ActivityLifecycleService {
                     "activity:" + activityId + ":cancel:v" + changed.getContractVersion(),
                     NotifyType.ACTIVITY_CANCELLED, "SUBSCRIBERS_OR_REGISTERED_USERS", "活动已取消",
                     "活动「" + changed.getTitle() + "」已取消",
-                    subjectSnapshot(changed, "活动已取消", "活动「" + changed.getTitle() + "」已取消"));
+                    cancellationSnapshot(changed, "活动「" + changed.getTitle() + "」已取消", null));
         } else if ("end".equals(action)) {
             notifyService.enqueueBusinessNotification(TargetType.ACTIVITY, activityId,
                     "activity:" + activityId + ":end:v" + changed.getContractVersion(),
@@ -177,7 +177,7 @@ public class ActivityLifecycleService {
         notifyService.enqueueBusinessNotification(TargetType.ACTIVITY, activityId,
                 "activity:" + activityId + ":cancel:v" + nextVersion(current), NotifyType.ACTIVITY_CANCELLED,
                 "SUBSCRIBERS_OR_REGISTERED_USERS", "活动已取消", noticeContent,
-                subjectSnapshot(current, "活动已取消", noticeContent));
+                cancellationSnapshot(current, noticeContent, reason.trim()));
         afterCommit(() -> redisService.delete(RedisKeyConstant.activityDetail(activityId)));
         log.info("[管理端活动] 管理员 {} 取消活动 {}", operatorId, activityId);
     }
@@ -375,6 +375,12 @@ public class ActivityLifecycleService {
     private String initialFormVersionFor(Activity activity) {
         return activity != null && participationPolicy.platform(activity.getRegistrationMode())
                 ? "activity-" + activity.getId() + "-form-v1" : null;
+    }
+
+    private NotificationCenterBO.Snapshot cancellationSnapshot(Activity activity, String body, String reason) {
+        var snapshot = subjectSnapshot(activity, "活动已取消", body);
+        return new NotificationCenterBO.Snapshot(new NotificationCenterBO.Presentation("活动已取消", body, reason,
+                null, null, activity.getTitle(), null), snapshot.actor(), snapshot.subject(), snapshot.target());
     }
 
     private NotificationCenterBO.Snapshot subjectSnapshot(Activity activity, String title, String body) {

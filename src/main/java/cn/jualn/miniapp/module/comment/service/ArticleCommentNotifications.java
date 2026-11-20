@@ -26,7 +26,9 @@ public class ArticleCommentNotifications {
         var snapshot = new NotificationCenterBO.Snapshot(new NotificationCenterBO.Presentation("有人回复了你", excerpt(content), excerpt(quote), null, null, articleTitle, excerpt(quote)),
                 actor, new NotificationCenterBO.Subject("COMMENT", Long.toString(repliedCommentId)), target(articleId, newCommentId));
         notifications.processNotificationPayload(NotifyPayload.builder().receiverId(recipient).senderId(actorId).type(NotifyType.COMMENT_REPLIED)
-                .title("有人回复了你").content(excerpt(content)).targetType(TargetType.ARTICLE).targetId(articleId).snapshot(snapshot)
+                .title("有人回复了你").content(excerpt(content))
+                .contentData(new cn.jualn.miniapp.module.notify.payload.data.ReplyNoticeData(excerpt(quote),excerpt(content),actor==null?"":actor.nickname(),java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))))
+                .targetType(TargetType.ARTICLE).targetId(articleId).snapshot(snapshot)
                 .sourceKey("reply:" + newCommentId + ":receiver:" + recipient + ":approved").build());
     }
 

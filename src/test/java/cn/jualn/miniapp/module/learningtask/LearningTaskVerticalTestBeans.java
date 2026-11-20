@@ -104,7 +104,7 @@ class LearningTaskVerticalTestBeans {
                     new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
                     mock(cn.jualn.miniapp.module.notify.mapper.NotifyPlanMapper.class),
                     users,
-                    java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(mock(cn.jualn.miniapp.module.activity.service.ActivityEnrollmentService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(mock(cn.jualn.miniapp.module.publicevent.service.PublicEventSubscriptionService.class))),
+                    java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(mock(cn.jualn.miniapp.module.activity.service.ActivityEnrollmentService.class),mock(cn.jualn.miniapp.module.timeline.service.TimelineService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(mock(cn.jualn.miniapp.module.publicevent.service.PublicEventSubscriptionService.class))),
                     mock(cn.jualn.miniapp.infrastructure.cache.RedisService.class),
                     mock(cn.jualn.miniapp.module.notify.converter.NotifyConverter.class),
                     jobs,
@@ -118,7 +118,7 @@ class LearningTaskVerticalTestBeans {
                 json,
                 mock(cn.jualn.miniapp.module.notify.mapper.NotificationPreferenceMapper.class),
                 new cn.jualn.miniapp.module.user.service.UserNotificationIdentityService(profiles),
-                java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(mock(cn.jualn.miniapp.module.activity.service.ActivityEnrollmentService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(mock(cn.jualn.miniapp.module.publicevent.service.PublicEventSubscriptionService.class)))),
+                java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(mock(cn.jualn.miniapp.module.activity.service.ActivityEnrollmentService.class),mock(cn.jualn.miniapp.module.timeline.service.TimelineService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(mock(cn.jualn.miniapp.module.publicevent.service.PublicEventSubscriptionService.class)))),
                     java.util.List.of(),
                     mock(cn.jualn.miniapp.module.notify.reminder.ReminderReconcileService.class));
     }

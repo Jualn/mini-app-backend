@@ -10,6 +10,7 @@ public interface NotificationChannelAdapter {
     boolean isEnabled();
     String configurationRevision();
     NotificationTemplateStatus templateStatus(NotifyType type);
+    default java.util.List<NotificationTemplateStatus> subscriptionTemplates(NotifyType type) { return java.util.List.of(templateStatus(type)); }
     boolean isTemplateConfigured(NotifyType type);
     boolean isDeliveryAvailable(NotifyType type);
     JsonNode prepare(NotifyType type, Map<String,Object> frozenContent);

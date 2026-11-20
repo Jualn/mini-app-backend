@@ -59,7 +59,9 @@ public class LearningTaskNotifications {
                     new NotificationCenterBO.Target("LEARNING_TASK_DETAIL",null,null,null,null,null,Long.toString(notice.taskId()),Long.toString(notice.assignmentId())));
             notifications.processNotificationPayload(NotifyPayload.builder().receiverId(notice.userId()).type(type)
                     .title(type.getDesc()).content(notice.title()).targetId(notice.taskId()).sourceKey("learning-task:"+notice.occurrence())
-                    .snapshot(snapshot).recipientPersonId(notice.subject()==null?null:notice.subject().personId()).recipientBindingId(notice.bindingId())
+                    .snapshot(snapshot).contentData(type==NotifyType.LEARNING_TASK_REVIEW_APPROVED || type==NotifyType.LEARNING_TASK_REVIEW_REJECTED
+                            ? new cn.jualn.miniapp.module.notify.payload.data.AuditResultNoticeData("学习任务",type==NotifyType.LEARNING_TASK_REVIEW_APPROVED?"已通过":"未通过","",LocalDateTime.now(clock.withZone(ZoneId.of("Asia/Shanghai")))) : null)
+                    .recipientPersonId(notice.subject()==null?null:notice.subject().personId()).recipientBindingId(notice.bindingId())
                     .businessTime(type==NotifyType.LEARNING_TASK_SUPPLEMENT_DEADLINE_REMINDER?notice.supplementDeadline():notice.afterDeadline()).build());
         }
     }

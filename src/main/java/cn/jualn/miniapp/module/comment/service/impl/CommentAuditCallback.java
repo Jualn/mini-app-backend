@@ -116,7 +116,7 @@ public class CommentAuditCallback implements AuditResultCallback {
             parent = community.get(comment.getParentId());
         }
 
-        sendCommentNotification(comment, parent, comment.getUserId());
+        sendCommentNotification(comment, parent, comment.getUserId(), formal);
 
         log.info("[CommentService.activateCommentAfterAuditPass][完成] commentId={}", commentId);
     }
@@ -126,15 +126,15 @@ public class CommentAuditCallback implements AuditResultCallback {
             subjects.require(type).commentApproved(targetId);
     }
 
-    private void sendCommentNotification(Comment comment, Comment parent, Long senderId) {
+    private void sendCommentNotification(Comment comment, Comment parent, Long senderId, boolean formal) {
         if (parent != null) {
             sendReplyNotification(comment, parent, senderId);
         } else {
-            sendTopLevelCommentNotification(comment, senderId);
+            sendTopLevelCommentNotification(comment, senderId, formal);
         }
     }
 
-    private void sendTopLevelCommentNotification(Comment comment, Long senderId) {
+    private void sendTopLevelCommentNotification(Comment comment, Long senderId, boolean formal) {
         TargetType targetType = TargetType.fromCode(comment.getTargetType());
         ContentSummary content = getContentSummary(targetType, comment.getTargetId());
 
@@ -149,6 +149,7 @@ public class CommentAuditCallback implements AuditResultCallback {
                 .receiverId(content.getOwnerId())
                 .senderId(senderId)
                 .type(targetType == TargetType.POST ? NotifyType.POST_COMMENTED : NotifyType.COMMENTED_ME)
+                .mentorAnswer(formal)
                 .title("有人评论了你")
                 .content(truncate(comment.getContent(), 50))
                 .targetType(targetType)

@@ -337,7 +337,7 @@ class NotificationCenterDatabaseTest {
                     new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
                     plans,
                     mock(cn.jualn.miniapp.module.user.service.UserService.class),
-                    java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollment),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(mock(cn.jualn.miniapp.module.publicevent.service.PublicEventSubscriptionService.class))),
+                    java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollment,org.mockito.Mockito.mock(cn.jualn.miniapp.module.timeline.service.TimelineService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(mock(cn.jualn.miniapp.module.publicevent.service.PublicEventSubscriptionService.class))),
                     redis,
                     Mappers.getMapper(NotifyConverter.class),
                     mock(cn.jualn.miniapp.infrastructure.async.job.JobService.class),
@@ -351,7 +351,7 @@ class NotificationCenterDatabaseTest {
                 json,
                 mock(cn.jualn.miniapp.module.notify.mapper.NotificationPreferenceMapper.class),
                 new cn.jualn.miniapp.module.user.service.UserNotificationIdentityService(mock(cn.jualn.miniapp.module.user.mapper.UserProfileMapper.class)),
-                java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollment),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(mock(cn.jualn.miniapp.module.publicevent.service.PublicEventSubscriptionService.class)))),
+                java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollment,org.mockito.Mockito.mock(cn.jualn.miniapp.module.timeline.service.TimelineService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(mock(cn.jualn.miniapp.module.publicevent.service.PublicEventSubscriptionService.class)))),
                     List.of(status),
                     mock(cn.jualn.miniapp.module.notify.reminder.ReminderReconcileService.class));
         }

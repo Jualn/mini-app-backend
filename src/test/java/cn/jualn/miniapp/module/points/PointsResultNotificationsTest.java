@@ -32,11 +32,30 @@ class PointsResultNotificationsTest {
         assertEquals("points.result-notification", intent.getValue().jobType());
         assertEquals("application:101:REJECTED", intent.getValue().dedupeKey());
         assertEquals(new PointsResultNotifications.Result(101, 17L, "POINT_APPLICATION_REJECTED",
-                "application:101:REJECTED",null,"current-binding","BOUND"), intent.getValue().payload());
+                "application:101:REJECTED",null,"current-binding","BOUND",app.reviewedAt()), intent.getValue().payload());
         doThrow(new DataAccessResourceFailureException("synthetic failure")).when(jobs).create(any());
         assertEquals("NOTIFICATION_ACCEPTANCE",
                 assertThrows(ContractProblemException.class, () -> service.accept(app, null)).getMessage());
     }
+    @Test void reviewTemplateKeepsTheOriginalDecisionTimeAndNeverFreezesPrivateNotes() {
+        var notices=mock(NotifyService.class);
+        var service=new PointsResultNotifications(mock(JobService.class),notices,mock(TransactionalAuthorization.class),mock(UserCurrentLoginAccess.class));
+        var persons=mock(cn.jualn.miniapp.module.person.service.access.PersonBusinessScopes.class);
+        var points=mock(cn.jualn.miniapp.module.points.mapper.PointsMapper.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"persons",persons);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"points",points);
+        when(persons.deliveryBinding("person")).thenReturn(new cn.jualn.miniapp.module.person.service.access.PersonBusinessScopes.DeliveryBinding("ACTIVE",17L,"binding"));
+        var time=LocalDateTime.of(2026,11,20,18,30);
+        var result=new PointsResultNotifications.Result(101,17L,"POINT_APPLICATION_REJECTED","application:101:REJECTED","person","binding","BOUND",time);
+        service.deliver(result,mock(cn.jualn.miniapp.infrastructure.async.job.JobExecutionContext.class));
+        var capture=ArgumentCaptor.forClass(cn.jualn.miniapp.module.notify.payload.NotifyPayload.class);
+        verify(notices).processNotificationPayload(capture.capture());
+        var frozen=capture.getValue().getContentData().toMap();
+        assertEquals("未通过",frozen.get("auditResult"));
+        assertEquals(LocalDateTime.of(2026,11,21,2,30),frozen.get("auditTime"));
+        assertEquals("",frozen.get("auditReason"));
+    }
+
     @Test void bindingChangesSkipWithEvidenceAndUncertainFactsRetry() {
         var jobs=mock(JobService.class);var inbox=mock(NotifyService.class);
         var service=new PointsResultNotifications(jobs,inbox,mock(TransactionalAuthorization.class),mock(UserCurrentLoginAccess.class));

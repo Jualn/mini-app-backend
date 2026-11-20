@@ -58,7 +58,7 @@ class ReminderFanOutBoundaryTest {
             return null;
         }).when(acceptance).acceptBatch(anyList());
         var service = new NotifyServiceImpl(notifications,new SimpleMeterRegistry(),plans,null,
-                List.of(new ActivityNotificationSource(enrollment)),null,null,null,tx,acceptance,
+                List.of(new ActivityNotificationSource(enrollment,org.mockito.Mockito.mock(cn.jualn.miniapp.module.timeline.service.TimelineService.class))),null,null,null,tx,acceptance,
                 List.of(status),null);
         service.broadcastPlanFanOut(20L);
         verify(acceptance).acceptBatch(anyList());

@@ -33,10 +33,10 @@ public class WxNotificationTemplateRegistry {
         for (var entry : properties.getBindings().entrySet()) {
             var binding=entry.getValue();
             if(binding==null || binding.getNotificationType()==null || binding.getChannel()==null) continue;
-            String key=binding.getNotificationType()+":"+binding.getChannel();
+            String key=key(binding.getNotificationType(),binding.getChannel(),binding.getScenario());
             var definition=properties.getDefinitions().get(binding.getDefinitionRef());
             var issues=issues(binding,definition);
-            if(states.containsKey(key)) {issues=List.of("MAPPING_INVALID");templates.values().removeIf(t->key.equals(t.notificationType()+":"+t.channel()));}
+            if(states.containsKey(key)) {issues=List.of("MAPPING_INVALID");templates.values().removeIf(t->key.equals(key(t.notificationType(),t.channel(),properties.getBindings().get(t.bindingRef()).getScenario())));}
             if(!issues.isEmpty()) {states.put(key,new NotificationTemplateStatus("INVALID",issues,null,null,null));continue;}
             var fields=new LinkedHashMap<String,WxEffectiveTemplate.Field>();
             binding.getFields().forEach((name,mapping)->{
@@ -61,11 +61,12 @@ public class WxNotificationTemplateRegistry {
         }
         states.replaceAll((key,state)->conflicts.contains(state.templateId())
                 ?new NotificationTemplateStatus("INVALID",List.of("TEMPLATE_INVALID"),null,null,null):state);
-        templates.values().removeIf(t->!"READY".equals(states.get(t.notificationType()+":"+t.channel()).status()));
+        templates.values().removeIf(t->!"READY".equals(states.get(key(t.notificationType(),t.channel(),properties.getBindings().get(t.bindingRef()).getScenario())).status()));
         String app=accounts==null || accounts.getMa()==null ? "" : String.valueOf(accounts.getMa().getAppId());
         revision=WxNotificationTemplateRenderer.configurationDigest(Map.of("catalog",properties,"account",app));
     }
     private List<String> issues(WxNotificationTemplateProperties.Binding binding,WxNotificationTemplateProperties.Definition definition) {
+        if(!"DEFAULT".equals(binding.getScenario()) && !("POST_COMMENTED".equals(binding.getNotificationType()) && "MENTOR_QA_ANSWER".equals(binding.getScenario()))) return List.of("MAPPING_INVALID");
         if(definition==null || !StringUtils.hasText(definition.getTemplateId()) || !StringUtils.hasText(definition.getTitle()) || definition.getVersion()<1)
             return List.of("TEMPLATE_INVALID");
         if(!Set.of("ONE_TIME","LONG_TERM").contains(String.valueOf(definition.getSubscriptionKind()))) return List.of("SUBSCRIPTION_KIND_UNKNOWN");
@@ -96,9 +97,19 @@ public class WxNotificationTemplateRegistry {
     public boolean isChannelEnabled(String channel){return "WECHAT_MINI_PROGRAM".equals(channel);}
     public NotificationTemplateStatus status(String type,String channel) {
         if("WECHAT_OFFICIAL_ACCOUNT".equals(channel)) return NotificationTemplateStatus.disabled();
-        return states.getOrDefault(type+":"+channel,NotificationTemplateStatus.missing());
+        return states.getOrDefault(key(type,channel,"DEFAULT"),NotificationTemplateStatus.missing());
     }
-    public WxEffectiveTemplate resolve(String type,String channel){return templates.values().stream().filter(t->t.notificationType().equals(type)&&t.channel().equals(channel)).findFirst().orElse(null);}
+    private static String key(String type,String channel,String scenario){return type+":"+channel+":"+scenario;}
+    public WxEffectiveTemplate resolve(String type,String channel){return resolve(type,channel,Map.of());}
+    public WxEffectiveTemplate resolve(String type,String channel,Map<String,Object> frozen){
+        String scenario="POST_COMMENTED".equals(type) && Boolean.TRUE.equals(frozen.get("mentorAnswer")) ? "MENTOR_QA_ANSWER" : "DEFAULT";
+        return templates.values().stream().filter(t->t.notificationType().equals(type)&&t.channel().equals(channel)
+                && scenario.equals(properties.getBindings().get(t.bindingRef()).getScenario())).findFirst().orElse(null);
+    }
+    public List<NotificationTemplateStatus> subscriptionTemplates(String type,String channel){
+        return states.entrySet().stream().filter(e->e.getKey().startsWith(type+":"+channel+":"))
+                .map(Map.Entry::getValue).filter(s->"READY".equals(s.status())).toList();
+    }
     public String bindingRef(String type,String channel){var template=resolve(type,channel);return template==null?null:template.bindingRef();}
     public WxEffectiveTemplate effective(String ref){var template=templates.get(ref);if(template==null)throw new BusinessException(ResultCode.WX_NOTICE_TEMPLATE_UNAVAILABLE);return template;}
     public List<WxMpNoticeTemplateView> listSubscribeVisibleTemplates(){return List.of();}

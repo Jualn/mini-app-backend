@@ -88,7 +88,7 @@ class ActivityReminderDatabaseTest {
                     meters,
                     plans,
                     mock(UserService.class),
-                    java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollment),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(mock(PublicEventSubscriptionService.class))),
+                    java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollment,org.mockito.Mockito.mock(cn.jualn.miniapp.module.timeline.service.TimelineService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(mock(PublicEventSubscriptionService.class))),
                     mock(RedisService.class),
                     mock(NotifyConverter.class),
                     jobs,
@@ -102,7 +102,7 @@ class ActivityReminderDatabaseTest {
                 json,
                 sql.getMapper(NotificationPreferenceMapper.class),
                 new cn.jualn.miniapp.module.user.service.UserNotificationIdentityService(sql.getMapper(UserProfileMapper.class)),
-                java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollment),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(mock(PublicEventSubscriptionService.class)))),
+                java.util.List.of(new cn.jualn.miniapp.module.activity.service.ActivityNotificationSource(enrollment,org.mockito.Mockito.mock(cn.jualn.miniapp.module.timeline.service.TimelineService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventNotificationSource(mock(PublicEventSubscriptionService.class)))),
                     List.of(status),
                     reconcile);
         clear();

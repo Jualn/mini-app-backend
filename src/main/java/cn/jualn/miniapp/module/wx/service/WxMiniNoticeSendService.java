@@ -57,7 +57,9 @@ public class WxMiniNoticeSendService implements WxNoticeDeliveryAdapter {
 
     public WxDeliveryTemplateSnapshot prepareDelivery(NotifyType type, Map<String, Object> frozen) {
         if (!isTemplateConfigured(type)) throw unavailable();
-        var snapshot = renderer.renderTemplate(templates.environment(), templates.resolve(type.name(), CHANNEL), frozen);
+        var template = templates.resolve(type.name(), CHANNEL, frozen);
+        if (template == null) throw unavailable();
+        var snapshot = renderer.renderTemplate(templates.environment(), template, frozen);
         return snapshot.withAccounts(properties.getMa().getAppId(), null);
     }
 

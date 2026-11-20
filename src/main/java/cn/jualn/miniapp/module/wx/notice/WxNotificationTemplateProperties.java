@@ -37,6 +37,8 @@ public class WxNotificationTemplateProperties {
     }
     @Data public static class Binding {
         private String notificationType;
+        /** Bounded POST_COMMENTED subscenario; not an expression or client-controlled selector. */
+        private String scenario = "DEFAULT";
         private String channel;
         private String accountRef;
         private String definitionRef;

@@ -27,6 +27,9 @@ public final class WxNotificationChannelAdapter implements NotificationChannelAd
             return new NotificationTemplateStatus("INVALID",java.util.List.of("ACCOUNT_MISMATCH"),null,null,null);
         return status;
     }
+    @Override public java.util.List<NotificationTemplateStatus> subscriptionTemplates(NotifyType type){
+        return provider.isDeliveryAvailable(type)?registry.subscriptionTemplates(type.name(),channel):java.util.List.of();
+    }
     @Override public String channel() {return channel;}
     @Override public boolean isEnabled() {return provider.isChannelEnabled();}
     @Override public boolean isTemplateConfigured(NotifyType type) {return configured.test(type);}

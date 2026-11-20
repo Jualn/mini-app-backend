@@ -50,6 +50,10 @@ public class NotifyPayload {
     /** Exact business anchor frozen by the reminder producer, never reconstructed by a renderer. */
     private java.time.LocalDateTime businessTime;
     private String businessLocation;
+    private java.time.LocalDateTime registrationDeadlineTime;
+    private java.time.LocalDateTime occurredAt;
+    /** True only after the mentor answer publication guard has accepted the answer. */
+    private boolean mentorAnswer;
     private cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot snapshot;
     /**
      * 通知内容事实；持久 JSON 沿用 wxData 字段名，以读取既有载荷

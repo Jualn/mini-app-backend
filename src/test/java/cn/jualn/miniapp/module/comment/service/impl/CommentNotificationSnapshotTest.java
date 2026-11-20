@@ -30,8 +30,9 @@ class CommentNotificationSnapshotTest {
     private final UserService users = mock(UserService.class);
     private final NotifyService notifications = mock(NotifyService.class);
     private final cn.jualn.miniapp.module.comment.mapper.CommunityCommentMapper community = mock(cn.jualn.miniapp.module.comment.mapper.CommunityCommentMapper.class);
+    private final cn.jualn.miniapp.module.comment.service.CommentTargetAccess targetAccess=mock(cn.jualn.miniapp.module.comment.service.CommentTargetAccess.class);
     private CommentAuditCallback callback() {
-        return new CommentAuditCallback(comments, mock(cn.jualn.miniapp.module.audit.service.AuditLogService.class), notifications, users, new cn.jualn.miniapp.module.interact.service.InteractionSubjects(java.util.List.of(new cn.jualn.miniapp.module.post.service.PostInteractionSubject(posts,mock(cn.jualn.miniapp.infrastructure.cache.RedisService.class)),new cn.jualn.miniapp.module.activity.service.ActivityInteractionSubject(mock(cn.jualn.miniapp.module.activity.mapper.ActivityMapper.class),mock(cn.jualn.miniapp.infrastructure.cache.RedisService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventInteractionSubject(mock(cn.jualn.miniapp.module.publicevent.mapper.PublicEventMapper.class)))), mock(cn.jualn.miniapp.module.comment.service.CommentTargetAccess.class), community);
+        return new CommentAuditCallback(comments, mock(cn.jualn.miniapp.module.audit.service.AuditLogService.class), notifications, users, new cn.jualn.miniapp.module.interact.service.InteractionSubjects(java.util.List.of(new cn.jualn.miniapp.module.post.service.PostInteractionSubject(posts,mock(cn.jualn.miniapp.infrastructure.cache.RedisService.class)),new cn.jualn.miniapp.module.activity.service.ActivityInteractionSubject(mock(cn.jualn.miniapp.module.activity.mapper.ActivityMapper.class),mock(cn.jualn.miniapp.infrastructure.cache.RedisService.class)),new cn.jualn.miniapp.module.publicevent.service.PublicEventInteractionSubject(mock(cn.jualn.miniapp.module.publicevent.mapper.PublicEventMapper.class)))), targetAccess, community);
     }
     private Comment comment(Long parent) {
         var row = Comment.builder().id(19L).parentId(parent).userId(7L).targetType(TargetType.POST.getCode()).targetId(42L)
@@ -72,11 +73,42 @@ class CommentNotificationSnapshotTest {
         assertEquals("frozen post title", frozen.presentation().subjectTitle());
         assertEquals("frozen post title", frozen.presentation().context());
         assertEquals(cn.jualn.miniapp.module.notify.enums.NotifyType.POST_COMMENTED, captured.getValue().getType());
+        assertFalse(captured.getValue().isMentorAnswer());
         var data = captured.getValue().getContentData().toMap();
         assertEquals("frozen post body", data.get("originalContent"));
         assertEquals("actor", data.get("replyUserName"));
         assertEquals(java.time.LocalDateTime.of(2026,11,19,10,20), data.get("replyTime"));
         assertNull(frozen.presentation().quote()); assertNotNull(frozen.actor()); assertNull(frozen.actor().avatarUrl());
+    }
+
+    @Test void mentorAnswerScenarioRequiresSuccessfulFormalPublication() {
+        comment(null);
+        when(targetAccess.isQaPostComment(19L)).thenReturn(true);
+        var mentor=mock(cn.jualn.miniapp.module.comment.service.MentorAnswers.class);
+        @SuppressWarnings("unchecked") var provider=(org.springframework.beans.factory.ObjectProvider<cn.jualn.miniapp.module.comment.service.MentorAnswers>)mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(provider.getObject()).thenReturn(mentor);
+        var callback=callback();
+        org.springframework.test.util.ReflectionTestUtils.setField(callback,"mentorAnswers",provider);
+        when(mentor.publish(19L)).thenReturn(true);
+        callback.activateCommentAfterAuditPass(19L);
+        var payload=ArgumentCaptor.forClass(NotifyPayload.class);
+        verify(notifications).processNotificationPayload(payload.capture());
+        assertTrue(payload.getValue().isMentorAnswer());
+        verify(mentor).guardPublication(19L);
+        verify(mentor).publish(19L);
+    }
+
+    @Test void rejectedFormalPublicationCannotCreateAnAnswerNotification() {
+        comment(null);
+        when(targetAccess.isQaPostComment(19L)).thenReturn(true);
+        var mentor=mock(cn.jualn.miniapp.module.comment.service.MentorAnswers.class);
+        @SuppressWarnings("unchecked") var provider=(org.springframework.beans.factory.ObjectProvider<cn.jualn.miniapp.module.comment.service.MentorAnswers>)mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(provider.getObject()).thenReturn(mentor);
+        var callback=callback();
+        org.springframework.test.util.ReflectionTestUtils.setField(callback,"mentorAnswers",provider);
+        callback.activateCommentAfterAuditPass(19L);
+        verifyNoInteractions(notifications);
+        verify(mentor).guardPublication(19L);
     }
 
     @Test void commentingOnOwnPostDoesNotCreateNotification() {
