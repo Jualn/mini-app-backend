@@ -2,6 +2,9 @@ package cn.jualn.miniapp.module.notify.controller;
 import cn.jualn.miniapp.module.notify.service.inbox.PersonalNotificationInbox;
 import cn.jualn.miniapp.module.notify.service.preference.NotificationPreferences;
 import cn.jualn.miniapp.module.notify.service.capability.NotificationCapabilityQueries;
+import cn.jualn.miniapp.module.notify.service.capability.NotificationCatalogQueries;
+import cn.jualn.miniapp.module.notify.bo.NotificationCatalogBO;
+import cn.jualn.miniapp.module.notify.model.NotificationSubscriptionScene;
 import cn.jualn.miniapp.module.notify.converter.NotificationPersonalConverter;
 import cn.jualn.miniapp.module.notify.bo.NotificationInboxBO;
 import cn.jualn.miniapp.module.notify.bo.NotificationPreferencesBO;
@@ -32,11 +35,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class CanonicalNotificationControllerTest {
+    private final NotificationCatalogQueries catalog = mock(NotificationCatalogQueries.class);
     private final PersonalNotificationInbox service = mock(PersonalNotificationInbox.class);
     private final NotificationPreferences preferences = mock(NotificationPreferences.class);
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new CanonicalNotificationController(service,preferences,mock(NotificationCapabilityQueries.class),new NotificationPersonalConverter(),
             mock(cn.jualn.miniapp.module.notify.service.inbox.NotificationCenterService.class),
-            org.mapstruct.factory.Mappers.getMapper(cn.jualn.miniapp.module.notify.converter.NotificationCenterConverter.class),org.mockito.Mockito.mock(cn.jualn.miniapp.module.notify.service.capability.NotificationCatalogQueries.class),org.mapstruct.factory.Mappers.getMapper(cn.jualn.miniapp.module.notify.converter.NotificationCatalogConverter.class)))
+            org.mapstruct.factory.Mappers.getMapper(cn.jualn.miniapp.module.notify.converter.NotificationCenterConverter.class),catalog,org.mapstruct.factory.Mappers.getMapper(cn.jualn.miniapp.module.notify.converter.NotificationCatalogConverter.class)))
             .setMessageConverters(new MappingJackson2HttpMessageConverter(
                     new JacksonConfig().objectMapper(new Jackson2ObjectMapperBuilder())))
             .build();
@@ -70,4 +74,19 @@ class CanonicalNotificationControllerTest {
 
         verify(preferences).updatePreferences(any(NotificationPreferencesBO.Patch.class));
     }
+    @Test
+    void sceneQueryReusesTheCatalogAndEchoesItsBoundContextWithoutCaching() throws Exception {
+        when(catalog.options(null,NotificationSubscriptionScene.ACTIVITY_REGISTER,42L)).thenReturn(
+                new NotificationCatalogBO.Options(java.time.OffsetDateTime.parse("2026-11-21T10:00:00+08:00"),
+                        "fixture-scenes-v1",3,List.of(),"ACTIVITY_REGISTER","42"));
+        mvc.perform(get("/v1/users/me/notification-subscription-options")
+                        .param("sceneCode","ACTIVITY_REGISTER").param("resourceId","42"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control","no-store"))
+                .andExpect(jsonPath("$.sceneCode").value("ACTIVITY_REGISTER"))
+                .andExpect(jsonPath("$.resourceId").value("42"))
+                .andExpect(jsonPath("$.maxTemplatesPerRequest").value(3));
+        verify(catalog).options(null,NotificationSubscriptionScene.ACTIVITY_REGISTER,42L);
+    }
+
 }

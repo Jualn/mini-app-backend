@@ -1,6 +1,7 @@
 package cn.jualn.miniapp.module.notify.controller;
 
 import cn.jualn.miniapp.common.exception.ContractProblemException;
+import cn.jualn.miniapp.module.notify.model.NotificationSubscriptionScene;
 import cn.jualn.miniapp.module.notify.dto.request.CanonicalNotificationQuery;
 import cn.jualn.miniapp.module.notify.dto.request.MarkNotificationReadRequest;
 import cn.jualn.miniapp.module.notify.dto.request.UpdateNotificationPreferencesRequest;
@@ -77,8 +78,19 @@ public class CanonicalNotificationController {
     public ResponseEntity<cn.jualn.miniapp.module.notify.vo.NotificationCatalogVO.Options> subscriptionOptions(
             @RequestParam(required=false) cn.jualn.miniapp.module.notify.model.NotificationCategory category,
             @RequestParam java.util.Map<String,String> parameters) {
-        validateParameters(parameters,java.util.Set.of("category"));
-        return noStore(catalogConverter.options(catalog.options(category)));
+        validateParameters(parameters,java.util.Set.of("category","sceneCode","resourceId"));
+        NotificationSubscriptionScene scene = null;
+        Long resourceId = null;
+        try {
+            if (parameters.containsKey("sceneCode")) scene = NotificationSubscriptionScene.valueOf(parameters.get("sceneCode"));
+            if (parameters.containsKey("resourceId")) {
+                if (!parameters.get("resourceId").matches("[1-9][0-9]{0,18}")) throw new IllegalArgumentException();
+                resourceId = Long.valueOf(parameters.get("resourceId"));
+            }
+        } catch (IllegalArgumentException invalid) {
+            throw ContractProblemException.validation(new ContractProblemException.Violation("query","sceneCode","INVALID","订阅场景或资源无效"));
+        }
+        return noStore(catalogConverter.options(catalog.options(category,scene,resourceId)));
     }
 
     @GetMapping("/notifications")

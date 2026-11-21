@@ -3,7 +3,12 @@ package cn.jualn.miniapp.module.notify.vo;
 public final class NotificationCatalogVO {
     private NotificationCatalogVO() {}
 
-    public record Options(java.time.OffsetDateTime evaluatedAt,String configurationRevision,int maxTemplatesPerRequest,java.util.List<Option> items) {}
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    public record Options(java.time.OffsetDateTime evaluatedAt,String configurationRevision,int maxTemplatesPerRequest,java.util.List<Option> items,String sceneCode,String resourceId) {
+        public Options(java.time.OffsetDateTime evaluatedAt,String configurationRevision,int maxTemplatesPerRequest,java.util.List<Option> items) {
+            this(evaluatedAt,configurationRevision,maxTemplatesPerRequest,items,null,null);
+        }
+    }
     public record Option(String templateId,String title,String subscriptionKind,java.util.List<String> categories,java.util.List<String> notificationTypes) {}
     public record Status(java.time.OffsetDateTime evaluatedAt,String configurationRevision,java.util.List<StatusItem> items) {}
     @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)

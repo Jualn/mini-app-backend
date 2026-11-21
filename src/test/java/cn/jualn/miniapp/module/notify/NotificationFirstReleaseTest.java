@@ -108,7 +108,7 @@ class NotificationFirstReleaseTest {
     @Test void directoryUsesRealNativeTitleAndDeduplicatesWithinCategoryFilter()throws Exception{
         var p=configuration();add(p,NotifyType.SYSTEM,"synthetic-shared","状态更新");add(p,NotifyType.AUDIT_RESULT,"synthetic-shared","状态更新");
         var queries=new NotificationCatalogQueries(channels(p));var options=queries.options(null);
-        assertEquals(2,options.items().size());assertEquals(1,options.maxTemplatesPerRequest());
+        assertEquals(2,options.items().size());assertEquals(3,options.maxTemplatesPerRequest());
         var real=options.items().stream().filter(i->i.templateId().startsWith("BG9O")).findFirst().orElseThrow();
         assertEquals("新的评论提醒",real.title());assertEquals("ONE_TIME",real.subscriptionKind());assertEquals(List.of("COMMENT"),real.categories());
         var shared=options.items().stream().filter(i->i.templateId().equals("synthetic-shared")).findFirst().orElseThrow();assertEquals(2,shared.notificationTypes().size());
