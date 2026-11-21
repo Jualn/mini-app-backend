@@ -1090,7 +1090,7 @@ class ManagedPersonDatabaseHttpTest {
         @Override @Bean SqlSessionFactory sqlSessionFactory(DataSource source) throws Exception {
             var factory = new MybatisSqlSessionFactoryBean(); factory.setDataSource(source);
             var config = new MybatisConfiguration(); config.setMapUnderscoreToCamelCase(true); config.setCacheEnabled(false); factory.setConfiguration(config);
-            factory.setMapperLocations(new ClassPathResource("mapper/DutyCandidateMapper.xml"),new ClassPathResource("mapper/PersonMapper.xml"), new ClassPathResource("mapper/ManagedPersonMapper.xml"), new ClassPathResource("mapper/MentorAnswerEvidence.xml"), new ClassPathResource("mapper/MentorQuestionMapper.xml"), new ClassPathResource("mapper/QualificationMapper.xml"), new ClassPathResource("mapper/RbacMapper.xml"), new ClassPathResource("mapper/RbacOfflineMapper.xml"), new ClassPathResource("mapper/UnifiedMapper.xml"), new ClassPathResource("mapper/PersonBusinessMapper.xml"));
+            factory.setMapperLocations(new ClassPathResource("mapper/MentorWorkflowMapper.xml"),new ClassPathResource("mapper/DutyCandidateMapper.xml"),new ClassPathResource("mapper/PersonMapper.xml"), new ClassPathResource("mapper/ManagedPersonMapper.xml"), new ClassPathResource("mapper/MentorAnswerEvidence.xml"), new ClassPathResource("mapper/MentorQuestionMapper.xml"), new ClassPathResource("mapper/QualificationMapper.xml"), new ClassPathResource("mapper/RbacMapper.xml"), new ClassPathResource("mapper/RbacOfflineMapper.xml"), new ClassPathResource("mapper/UnifiedMapper.xml"), new ClassPathResource("mapper/PersonBusinessMapper.xml"));
             return factory.getObject();
         }
     }

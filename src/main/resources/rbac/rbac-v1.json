@@ -1,5 +1,5 @@
 {
-  "catalogVersion": "rbac-v1-unified-final-r10",
+  "catalogVersion": "rbac-v1-unified-final-r11",
   "description": "正式后台授权仅ASSIGNMENT；静态状态为登记/验收快照，不证明目标数据库发布。Provider支持、运行Role/Permission ENABLED/READY及真实来源共同决定可用性，不批量启用。已退役或没有管理实现的权限和角色退出当前目录；历史授权与审计事实受迁移保护。",
   "namespaces": [
     "AUTHORIZATION",
@@ -778,6 +778,61 @@
       "readiness": "NOT_READY",
       "grantable": false,
       "unavailableReason": "PROVIDER_NOT_VERIFIED"
+    },
+    {
+      "code": "mentor:read",
+      "description": "查看导师；仅导师业务范围，包含完成操作所需的受限读取，不开放通用人员或账号管理",
+      "namespaces": [
+        "MENTOR"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "mentor:create",
+      "description": "新增导师；仅导师业务范围，包含完成操作所需的受限读取，不开放通用人员或账号管理",
+      "namespaces": [
+        "MENTOR"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "mentor:profile-maintain",
+      "description": "修改导师资料；仅导师业务范围，包含完成操作所需的受限读取，不开放通用人员或账号管理",
+      "namespaces": [
+        "MENTOR"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "mentor:qualification-decide",
+      "description": "核准与撤销导师资格；仅导师业务范围，包含完成操作所需的受限读取，不开放通用人员或账号管理",
+      "namespaces": [
+        "MENTOR"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "mentor:binding-manage",
+      "description": "关联与更换导师账号；仅导师业务范围，包含完成操作所需的受限读取，不开放通用人员或账号管理",
+      "namespaces": [
+        "MENTOR"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
     }
   ],
   "roles": [
@@ -1254,6 +1309,76 @@
       "readiness": "NOT_READY",
       "grantable": false,
       "unavailableReason": "PROVIDER_NOT_VERIFIED"
+    },
+    {
+      "code": "MENTOR_READER_V1",
+      "name": "查看导师",
+      "namespaces": [
+        "MENTOR"
+      ],
+      "permissionCodes": [
+        "mentor:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "MENTOR_CREATOR_V1",
+      "name": "新增导师",
+      "namespaces": [
+        "MENTOR"
+      ],
+      "permissionCodes": [
+        "mentor:create"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "MENTOR_PROFILE_EDITOR_V1",
+      "name": "修改导师资料",
+      "namespaces": [
+        "MENTOR"
+      ],
+      "permissionCodes": [
+        "mentor:profile-maintain"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "MENTOR_QUALIFICATION_MANAGER_V1",
+      "name": "核准与撤销导师资格",
+      "namespaces": [
+        "MENTOR"
+      ],
+      "permissionCodes": [
+        "mentor:qualification-decide"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "MENTOR_BINDING_MANAGER_V1",
+      "name": "关联与更换导师账号",
+      "namespaces": [
+        "MENTOR"
+      ],
+      "permissionCodes": [
+        "mentor:binding-manage"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
     }
   ],
   "authorizationPolicy": {

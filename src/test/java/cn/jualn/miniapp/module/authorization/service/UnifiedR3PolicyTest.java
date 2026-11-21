@@ -12,7 +12,7 @@ import static cn.jualn.miniapp.module.authorization.model.RbacModels.*;
 class UnifiedR3PolicyTest {
     @Test void everyRegisteredTemplateHasAnOwnerButMissingRuntimeDefinitionsRemainClosed() {
         var catalog=new RbacCatalog();var duties=new UnifiedDutyCatalog(catalog);
-        assertEquals(36,duties.templates().size());assertTrue(duties.templates().stream().allMatch(t->duties.supported(t.dutyCode())));
+        assertEquals(42,duties.templates().size());assertTrue(duties.templates().stream().allMatch(t->duties.supported(t.dutyCode())));
         for(var t:duties.templates()) if(PlatformDutyPolicy.supports(t.dutyCode())) {
             var valid=new UnifiedModels.Selection(t.dutyCode(),new UnifiedModels.Target("PLATFORM",null,null),"2027-01-01T00:00:00Z",null);
             assertTrue(PlatformDutyPolicy.matches(t,valid),t.dutyCode());

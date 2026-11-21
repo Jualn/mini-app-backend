@@ -8,5 +8,9 @@ import java.time.LocalDateTime;
 public interface PersonAuthentication {
     long actor();
 
+    default void verifyActor(long actor) {
+        if (actor() != actor) throw cn.jualn.miniapp.module.person.PersonProblems.denied();
+    }
+
     void require(long actor, String namespace, String permission, LocalDateTime at);
 }

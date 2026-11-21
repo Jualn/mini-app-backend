@@ -28,6 +28,11 @@ public final class PlatformDutyPolicy {
             Map.entry("OFFICIAL_CONTENT_PUBLISH", new Rule("CONTENT_PUBLISHER", "OFFICIAL_CONTENT", Set.of("media:read", "official-content:publish", "official-content:read", "official-content:unpublish"))),
             Map.entry("ACTIVITY_MANAGE", new Rule("EVENT_OPERATOR", "ACTIVITY", Set.of("activity:edit", "activity:lifecycle", "activity:publish", "activity:read", "activity:unpublish", "media:read", "media:write"))),
             Map.entry("PUBLIC_EVENT_MANAGE", new Rule("EVENT_OPERATOR", "PUBLIC_EVENT", Set.of("media:read", "media:write", "public-event:edit", "public-event:lifecycle", "public-event:publish", "public-event:read", "public-event:unpublish"))),
+            Map.entry("MENTOR_READ", new Rule("MENTOR_READER_V1", "MENTOR", Set.of("mentor:read"))),
+            Map.entry("MENTOR_CREATE", new Rule("MENTOR_CREATOR_V1", "MENTOR", Set.of("mentor:create"))),
+            Map.entry("MENTOR_PROFILE_MAINTAIN", new Rule("MENTOR_PROFILE_EDITOR_V1", "MENTOR", Set.of("mentor:profile-maintain"))),
+            Map.entry("MENTOR_QUALIFICATION_MANAGE", new Rule("MENTOR_QUALIFICATION_MANAGER_V1", "MENTOR", Set.of("mentor:qualification-decide"))),
+            Map.entry("MENTOR_BINDING_MANAGE", new Rule("MENTOR_BINDING_MANAGER_V1", "MENTOR", Set.of("mentor:binding-manage"))),
             Map.entry("MENTOR_MANAGE", new Rule("MENTOR_REGISTRAR", "MENTOR", Set.of("mentor:qualification-manage"))),
             Map.entry("ACTIVITY_REGISTRATION_DISPOSE", new Rule("REGISTRATION_DISPOSER_V1", "ACTIVITY", Set.of("activity:registration:read", "activity:registration:dispose"))),
             Map.entry("ACTIVITY_REGISTRATION_READ", new Rule("REGISTRATION_READER", "ACTIVITY", Set.of("activity:registration:read"))),
@@ -52,6 +57,7 @@ public final class PlatformDutyPolicy {
         return rule != null && rule.role().equals(template.roleCode()) && rule.namespace().equals(template.namespace())
                 && rule.permissions().equals(Set.copyOf(template.permissions())) && target != null && template.targetTypes().contains(target.type())
                 && ("PLATFORM".equals(target.type()) && target.personId() == null && target.organizationId() == null
+                    || template.dutyCode().startsWith("MENTOR_") && !Set.of("MENTOR_MANAGE", "MENTOR_CREATE").contains(template.dutyCode()) && "PERSON".equals(target.type()) && target.personId() != null && target.organizationId() == null
                     || Set.of("POST_MODERATE","POST_SAFETY_REVIEW","REPORT_HANDLE").contains(template.dutyCode()) && "ORGANIZATION".equals(target.type()) && target.personId()==null && target.organizationId()!=null)
                 && selection.audienceTargets() == null;
     }

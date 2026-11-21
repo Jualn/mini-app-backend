@@ -25,6 +25,8 @@ Java 17 下执行 `.\mvnw.cmd -B -ntp '-Dtest=ArchitectureBoundaryTest,BoundaryG
 
 `InteractionProjectionDatabaseTest` 复用下文 ActivityReminderDatabaseTest 的独占 MySQL 8.4 / V84 专用 schema；另传 `-Dboundary.test.serverUuid=<已核对的独占实例 UUID>`。测试实际装配主体能力与 Mapper，核对计数/存在性投影及调用方事务回滚。不能指向业务库；它不替代提醒、内容安全审核及完整应用 HTTP 专项。
 
+现有 `tools/validate-event-information.ps1` 也可用于隔离编译已选测试：`-TestNames` 指定需要编译的测试及其夹具，`-TestSelector` 可进一步选择方法（如 `UnifiedFinalDatabaseTest#businessAuthorization*`），`-SystemProperties` 传递专项测试要求的 JDBC URL、实例 UUID 等非秘密参数。身份和密码仍按专项约定通过环境变量提供；该工具不改变数据库所有权、全新 schema 或实例身份前提，也不代表默认全量测试通过。
+
 ## 风险与授权
 
 - C0：Git/版本等检查；Maven 解析依赖可能写入本地缓存。

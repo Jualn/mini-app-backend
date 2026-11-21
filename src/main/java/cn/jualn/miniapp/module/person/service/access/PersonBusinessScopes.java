@@ -310,6 +310,10 @@ public class PersonBusinessScopes {
         return managed.people();
     }
 
+    public void requireMentor(String person) {
+        if (mapper.mentorExists(person) != 1) throw missing();
+    }
+
     public void requirePerson(String person) {
         var p = managed.profile(person);
         if (p == null) throw missing();

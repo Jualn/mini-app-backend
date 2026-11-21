@@ -59,8 +59,8 @@ public class PersonnelJournal {
                            long version,Object before,T after,String reason,String reference,String method,String source,
                            Long sourceVersion,Long approver,LocalDateTime at,int status,String location,
                            String localOrg,Object localBefore,Object localAfter) {
-        key(key);var e=new PersonRows.Event();e.setId(eventId);e.setAggregateType(aggregate);e.setAggregateId(after instanceof cn.jualn.miniapp.module.person.bo.QualificationBO.Application application?application.applicationId():target);
-        if("PERSON".equals(aggregate) || "MENTOR".equals(aggregate)) e.setPersonId(target);
+        key(key);var e=new PersonRows.Event();e.setId(eventId);e.setAggregateType(aggregate);e.setAggregateId(after instanceof cn.jualn.miniapp.module.person.bo.QualificationBO.Application application?application.applicationId():after instanceof cn.jualn.miniapp.module.person.bo.QualificationBO.Mentor mentor?mentor.personId():target);
+        if("PERSON".equals(aggregate) || "MENTOR".equals(aggregate)) e.setPersonId(e.getAggregateId());
         e.setAggregateVersion(version);e.setOperation(operation);e.setBeforeJson(before==null?null:encode(before));e.setAfterJson(encode(after));
         if(command instanceof cn.jualn.miniapp.module.person.bo.QualificationBO.QualificationChange change) e.setOperation(change.action());
         e.setOperatorUserId(actor);e.setRecordedAt(at);e.setReason(reason);e.setVerificationReference(reference);

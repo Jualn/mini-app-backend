@@ -36,7 +36,8 @@
  <select id="mentors" resultType="cn.jualn.miniapp.module.person.entity.QualificationRows$Mentor" flushCache="true" useCache="false">SELECT <include refid="mentorColumns"/> FROM mentor_profile m JOIN person_profile p ON p.id=m.person_id ORDER BY m.person_id</select>
  <sql id="mentorStatus">CASE WHEN m.qualification_id IS NULL THEN 'NOT_GRANTED' WHEN m.qualification_state='REVOKED' THEN 'REVOKED'
  WHEN m.valid_from&gt;#{at} THEN 'NOT_YET_VALID' WHEN m.valid_until IS NOT NULL AND m.valid_until&lt;=#{at} THEN 'EXPIRED' ELSE 'ACTIVE' END</sql>
- <sql id="mentorFilter">WHERE TRUE
+ <sql id="mentorVisible"><if test="visible != null"><choose><when test="!visible.isEmpty()">AND m.person_id IN <foreach collection="visible" item="v" open="(" separator="," close=")">#{v}</foreach></when><otherwise>AND 1=0</otherwise></choose></if></sql>
+<sql id="mentorFilter">WHERE TRUE <include refid="mentorVisible"/>
  <if test="q != null">AND (LOCATE(#{q},p.real_name)&gt;0 OR LOCATE(#{q},m.position)&gt;0 OR LOCATE(#{q},m.affiliation)&gt;0)</if>
  <if test="status != null">AND (<include refid="mentorStatus"/>)=#{status}</if>
  <if test="bindingState != null">AND (CASE WHEN EXISTS(SELECT 1 FROM person_account_binding b WHERE b.person_id=m.person_id AND b.status='ACTIVE') THEN 'BOUND' ELSE 'UNBOUND' END)=#{bindingState}</if>
@@ -55,9 +56,10 @@
  LEFT JOIN person_foundation_event e ON e.id=m.last_event_id
  LEFT JOIN person_command_receipt r ON r.id=e.receipt_id
  LEFT JOIN person_foundation_event q ON q.id=m.qualification_id
- WHERE (<include refid="mentorInvalid"/>)
+ WHERE (<include refid="mentorInvalid"/>) <include refid="mentorVisible"/>
  </select>
- <insert id="insertMentor">INSERT INTO mentor_profile(person_id,position,affiliation,revision,qualification_id,qualification_state,valid_from,valid_until,verified_at,verified_by,verification_reference,last_event_id) VALUES(#{personId},#{position},#{affiliation},#{revision},#{qualificationId},#{qualificationState},#{validFrom},#{validUntil},#{verifiedAt},#{verifiedBy},#{verificationReference},#{lastEventId})</insert>
+ <select id="createdMentors" resultType="string">SELECT DISTINCT aggregate_id FROM person_foundation_event WHERE aggregate_type='MENTOR' AND aggregate_version=1 AND operator_user_id=#{actor}</select>
+<insert id="insertMentor">INSERT INTO mentor_profile(person_id,position,affiliation,revision,qualification_id,qualification_state,valid_from,valid_until,verified_at,verified_by,verification_reference,last_event_id) VALUES(#{personId},#{position},#{affiliation},#{revision},#{qualificationId},#{qualificationState},#{validFrom},#{validUntil},#{verifiedAt},#{verifiedBy},#{verificationReference},#{lastEventId})</insert>
  <update id="saveMentor">UPDATE mentor_profile SET position=#{position},affiliation=#{affiliation},revision=#{revision},qualification_id=#{qualificationId},qualification_state=#{qualificationState},valid_from=#{validFrom},valid_until=#{validUntil},verified_at=#{verifiedAt},verified_by=#{verifiedBy},verification_reference=#{verificationReference},last_event_id=#{lastEventId} WHERE person_id=#{personId} AND revision=#{revision}-1</update>
  <sql id="eventColumns">id,aggregate_type,aggregate_id,aggregate_version,operation,before_json,after_json,operator_user_id,recorded_at,reason,verification_reference,source,corrects_event_id,receipt_id,trace_id,verification_method,source_reference,source_version,source_approver</sql>
  <select id="history" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$Event" flushCache="true" useCache="false">SELECT <include refid="eventColumns"/> FROM person_foundation_event WHERE aggregate_type=#{type} AND aggregate_id=#{id} ORDER BY recorded_at DESC,id DESC LIMIT #{limit} OFFSET #{offset}</select>

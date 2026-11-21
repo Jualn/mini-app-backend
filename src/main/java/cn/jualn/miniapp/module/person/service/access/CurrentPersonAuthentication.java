@@ -37,6 +37,10 @@ public class CurrentPersonAuthentication implements PersonAuthentication {
         }
     }
 
+    @Override public void verifyActor(long actor) {
+        if (session(true) != actor) throw denied();
+    }
+
     public void require(long actor, String namespace, String permission, LocalDateTime at) {
         try {
             // Revalidate real session at the final write boundary as well.

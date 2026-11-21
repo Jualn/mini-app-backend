@@ -12,6 +12,7 @@ import cn.jualn.miniapp.module.person.service.access.PersonBusinessScopes.Scope;
     List<String> rosterDependencies(@Param("organization") String organization,@Param("at") LocalDateTime at);
     List<cn.jualn.miniapp.module.person.entity.PersonRows.Event> rosterHistory(@Param("organization") String organization,@Param("limit") int limit,@Param("offset") long offset);
     long rosterHistoryCount(String organization);
+    long mentorExists(String person);
     List<String> activeOrganizations();
     List<String> allOrganizations();
     cn.jualn.miniapp.module.person.service.access.PersonBusinessScopes.Roster roster(String organization);

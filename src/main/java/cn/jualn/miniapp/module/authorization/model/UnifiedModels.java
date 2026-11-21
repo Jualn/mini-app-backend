@@ -65,16 +65,17 @@ public final class UnifiedModels {
         @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
         public static Intent parse(JsonNode n) {
             String kind = text(n, "kind");
-            if ("GRANT".equals(kind)) {
-                closed(n, "kind", "granteeUserId", "items", "authorityId", "reason");
-                return new Intent(kind, text(n, "granteeUserId"), selections(n.get("items"), true), text(n, "authorityId"), null, null, UnifiedModels.reason(n));
+            if ("GRANT".equals(kind) || "REPLACE".equals(kind)) {
+                if ("REPLACE".equals(kind)) closed(n, "kind", "granteeUserId", "items", "authorityId", "sourceId", "reason");
+                else closed(n, "kind", "granteeUserId", "items", "authorityId", "reason");
+                return new Intent(kind, text(n, "granteeUserId"), selections(n.get("items"), true), text(n, "authorityId"), null, "REPLACE".equals(kind) ? text(n, "sourceId") : null, optionalReason(n, "REPLACE".equals(kind) ? "调整业务权限" : "分配业务权限"));
             }
             if (!"REVOKE".equals(kind)) throw RbacProblems.invalid("kind");
             closed(n, "kind", "sourceType", "sourceId", "reason");
             String type = text(n, "sourceType");
-            if (!Set.of("ASSIGNMENT", "SCOPE", "DELEGATION_AUTHORITY").contains(type))
+            if (!Set.of("ASSIGNMENT", "SCOPE", "AUTHORIZATION", "DELEGATION_AUTHORITY").contains(type))
                 throw RbacProblems.invalid("sourceType");
-            return new Intent(kind, null, null, null, type, text(n, "sourceId"), UnifiedModels.reason(n));
+            return new Intent(kind, null, null, null, type, text(n, "sourceId"), optionalReason(n, "撤销业务授权"));
         }
     }
 
@@ -208,6 +209,10 @@ public final class UnifiedModels {
         n.fieldNames().forEachRemaining(k -> {
             if (!keys.contains(k)) throw RbacProblems.invalid(k);
         });
+    }
+
+    static String optionalReason(JsonNode n, String fallback) {
+        return n.has("reason") ? text(n, "reason") : fallback;
     }
 
     static String text(JsonNode n, String key) {

@@ -22,7 +22,7 @@ public final class QualificationVO {
     public record HeaderColumns(String importId,String version,int sheetIndex,int headerRow,List<QualificationBO.HeaderColumn> columns) {}
     public record Application(String applicationId,String applicantUserId,String status,Instant submittedAt,String version,String verificationMethod,Instant decidedAt,String personId,String bindingId) {}
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Mentor(String personId,String realName,String position,String affiliation,String personStatus,String bindingState,String accountAvailability,String qualificationStatus,String qualificationId,Instant validFrom,Instant validUntil,Instant verifiedAt,String verifiedByUserId,String verificationReference,String version,Instant evaluatedAt) {}
+    public record Mentor(String personId,String realName,String position,String affiliation,String personStatus,String bindingState,String accountAvailability,String qualificationStatus,String qualificationId,Instant validFrom,Instant validUntil,Instant verifiedAt,String verifiedByUserId,String verificationReference,String version,Instant evaluatedAt,List<String> allowedOperations) {}
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record CertifiedMentor(String userId,String realName,String position,String affiliation,boolean certified,Instant evaluatedAt,Instant validUntil,String personId,String bindingId,String qualificationId) {}
     @JsonInclude(JsonInclude.Include.NON_NULL)

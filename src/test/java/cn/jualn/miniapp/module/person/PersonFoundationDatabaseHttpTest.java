@@ -672,6 +672,7 @@ class PersonFoundationDatabaseHttpTest {
     static class TestCatalog extends PersonCatalog { volatile boolean confirmed;@Override public boolean confirmed(String stage) { return confirmed; } }
     static class TestAuthentication implements PersonAuthentication {
         Set<String> denied=ConcurrentHashMap.newKeySet();volatile Runnable onRequire;
+        @Override public void verifyActor(long actor) { /* Explicit synthetic service-call identity adapter. */ }
         public long actor() {
             var request=RequestContextHolder.getRequestAttributes();if(request instanceof ServletRequestAttributes r) {
                 var value=r.getRequest().getHeader("X-Person-Test-Actor");if(value==null) throw new ContractProblemException(org.springframework.http.HttpStatus.UNAUTHORIZED,"/problems/unauthorized","Synthetic session missing");return Long.parseLong(value);
@@ -681,11 +682,13 @@ class PersonFoundationDatabaseHttpTest {
     }
     @Configuration @EnableAutoConfiguration @EnableTransactionManagement
     @MapperScan(basePackageClasses={PersonMapper.class,RbacMapper.class})
-    @Import({cn.jualn.miniapp.module.person.service.binding.PersonBindingTransitions.class,cn.jualn.miniapp.module.person.service.access.PersonAuthorityGate.class,cn.jualn.miniapp.module.admin.operation.AdminAuditTestConfiguration.class,ManagedPersonService.class,ManagedPersonIdentifierService.class,ManagedPersonBindingService.class,ManagedPersonAccess.class,ManagedPersonJournal.class,PersonIdentifierNamespaces.class,ManagedPersonController.class,PartyRosterService.class,RosterAccess.class,RosterWorkbook.class,PersistentMentorQualification.class,MentorManagementService.class,
+    @Import({cn.jualn.miniapp.module.person.service.qualification.MentorOperationAccess.class,cn.jualn.miniapp.module.person.service.qualification.MentorWorkflowService.class,cn.jualn.miniapp.module.person.service.binding.PersonBindingTransitions.class,cn.jualn.miniapp.module.person.service.access.PersonAuthorityGate.class,cn.jualn.miniapp.module.admin.operation.AdminAuditTestConfiguration.class,ManagedPersonService.class,ManagedPersonIdentifierService.class,ManagedPersonBindingService.class,ManagedPersonAccess.class,ManagedPersonJournal.class,PersonIdentifierNamespaces.class,ManagedPersonController.class,PartyRosterService.class,RosterAccess.class,RosterWorkbook.class,PersistentMentorQualification.class,MentorManagementService.class,
             RosterUploadService.class,RosterUploadCommands.class,
             QualificationController.class,QualificationProblemAdvice.class,
             PersonnelJournal.class,PersonPrivateData.class,PersonFoundationService.class,PersonFactReaders.class,TransactionalAuthorization.class,RbacAuthorizationReader.class,RbacCatalog.class,AdminPermissionPolicy.class,PersonController.class,PersonProblemAdvice.class,PersonNoStoreFilter.class,GlobalExceptionHandler.class,JacksonConfig.class,
             PersonBusinessScopes.class,UnifiedDutyCatalog.class,UnifiedDutyReader.class,UnifiedAuthorizationService.class,UnifiedAuthorizationController.class,RbacExceptionHandler.class})
+    @org.springframework.context.annotation.ComponentScan(basePackages="cn.jualn.miniapp.module.person.service.roster",useDefaultFilters=false,
+            includeFilters=@org.springframework.context.annotation.ComponentScan.Filter(type=org.springframework.context.annotation.FilterType.REGEX,pattern=".*PartyPersonnelCorrections"))
     static class Config {
         @Bean cn.jualn.miniapp.module.user.service.UserAccountService qualificationUsers() {return org.mockito.Mockito.mock(cn.jualn.miniapp.module.user.service.UserAccountService.class);}
         @Bean RosterApplicationThrottle qualificationThrottle() {return org.mockito.Mockito.mock(RosterApplicationThrottle.class);}
@@ -700,7 +703,7 @@ class PersonFoundationDatabaseHttpTest {
         }
         @Bean SqlSessionFactory sqlSessionFactory(DataSource source) throws Exception {
             var factory=new MybatisSqlSessionFactoryBean();factory.setDataSource(source);var config=new MybatisConfiguration();config.setMapUnderscoreToCamelCase(true);config.setCacheEnabled(false);factory.setConfiguration(config);
-            factory.setMapperLocations(new ClassPathResource("mapper/PersonMapper.xml"),new ClassPathResource("mapper/ManagedPersonMapper.xml"),new ClassPathResource("mapper/MentorAnswerEvidence.xml"), new ClassPathResource("mapper/QualificationMapper.xml"),new ClassPathResource("mapper/RbacMapper.xml"),new ClassPathResource("mapper/RbacOfflineMapper.xml"),new ClassPathResource("mapper/UnifiedMapper.xml"),new ClassPathResource("mapper/PersonBusinessMapper.xml"));return factory.getObject();
+            factory.setMapperLocations(new ClassPathResource("mapper/MentorWorkflowMapper.xml"),new ClassPathResource("mapper/PersonMapper.xml"),new ClassPathResource("mapper/ManagedPersonMapper.xml"),new ClassPathResource("mapper/MentorAnswerEvidence.xml"), new ClassPathResource("mapper/QualificationMapper.xml"),new ClassPathResource("mapper/RbacMapper.xml"),new ClassPathResource("mapper/RbacOfflineMapper.xml"),new ClassPathResource("mapper/UnifiedMapper.xml"),new ClassPathResource("mapper/PersonBusinessMapper.xml"));return factory.getObject();
         }
     }
 }

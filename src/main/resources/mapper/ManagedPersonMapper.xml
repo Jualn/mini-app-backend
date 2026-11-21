@@ -113,7 +113,7 @@
         AND e.operation='createUserPersonBinding' AND e.source='LOCAL_MANUAL' AND e.person_id=b.person_id
         AND e.verification_reference=b.source_reference AND CHAR_LENGTH(TRIM(b.source_reference))&gt;0
         AND e.recorded_at=b.started_at AND r.created_at=e.recorded_at AND r.event_id=e.id AND r.status=201
-        AND r.operation IN ('createUserPersonBinding','reassociateUserPersonBinding') AND r.target=b.person_id
+        AND r.operation IN ('createUserPersonBinding','reassociateUserPersonBinding','changeMentorAccountBinding') AND r.target=b.person_id
         AND r.result_json=e.after_json AND r.fingerprint REGEXP '^[0-9a-f]{64}$'
         AND JSON_UNQUOTE(JSON_EXTRACT(COALESCE(JSON_EXTRACT(e.after_json,'$.binding'),e.after_json),'$.bindingId'))=b.id
         AND

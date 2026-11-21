@@ -32,9 +32,10 @@ public interface QualificationMapper {
     int insertApplication(Application row);
     Mentor mentor(String person);
     List<Mentor> mentors();
-    List<Mentor> mentorPage(@Param("q") String q,@Param("status") String status,@Param("bindingState") String bindingState,@Param("at") java.time.LocalDateTime at,@Param("limit") int limit,@Param("offset") long offset);
-    long mentorCount(@Param("q") String q,@Param("status") String status,@Param("bindingState") String bindingState,@Param("at") java.time.LocalDateTime at);
-    long mentorListCorruption(@Param("q") String q,@Param("status") String status,@Param("bindingState") String bindingState,@Param("at") java.time.LocalDateTime at);
+    List<Mentor> mentorPage(@Param("q") String q,@Param("status") String status,@Param("bindingState") String bindingState,@Param("at") java.time.LocalDateTime at,@Param("visible") java.util.List<String> visible,@Param("limit") int limit,@Param("offset") long offset);
+    long mentorCount(@Param("q") String q,@Param("status") String status,@Param("bindingState") String bindingState,@Param("at") java.time.LocalDateTime at,@Param("visible") java.util.List<String> visible);
+    long mentorListCorruption(@Param("q") String q,@Param("status") String status,@Param("bindingState") String bindingState,@Param("at") java.time.LocalDateTime at,@Param("visible") java.util.List<String> visible);
+    java.util.List<String> createdMentors(long actor);
     int insertMentor(Mentor row);
     int saveMentor(Mentor row);
     List<Event> history(@Param("type") String type,@Param("id") String id,@Param("limit") int limit,@Param("offset") long offset);

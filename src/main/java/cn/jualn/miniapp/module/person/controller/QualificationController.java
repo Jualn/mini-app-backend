@@ -1,5 +1,8 @@
 package cn.jualn.miniapp.module.person.controller;
 
+import cn.jualn.miniapp.module.person.bo.MentorWorkflowBO;
+import cn.jualn.miniapp.module.person.service.qualification.MentorWorkflowService;
+import cn.jualn.miniapp.module.person.service.binding.ManagedPersonBindingService;
 import org.springframework.http.MediaType;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.jualn.miniapp.module.person.bo.QualificationBO.Apply;
@@ -55,6 +58,8 @@ import org.springframework.web.multipart.MultipartFile;
 public class QualificationController {
     private final PartyRosterService roster;
     private final MentorManagementService mentors;
+    private final MentorWorkflowService mentorWorkflow;
+    private final ManagedPersonBindingService mentorBindings;
     private final PersonAuthentication authentication;
     private final UserAccountService users;
     private final RosterApplicationThrottle throttle;
@@ -219,6 +224,34 @@ public class QualificationController {
     @GetMapping("/v1/users/me/party-identity-applications")
     public ResponseEntity<?> applications(@RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int pageSize) {
         return ok(QualificationConverter.page(roster.applications(mini(), page, pageSize), QualificationConverter::application));
+    }
+
+    @GetMapping("/v1/admin/mentor-candidates")
+    public ResponseEntity<?> mentorCandidates(@RequestParam String q, @RequestParam(defaultValue="1") int page, @RequestParam(defaultValue="20") int pageSize) {
+        return ok(mentorWorkflow.candidates(admin(),q,page,pageSize));
+    }
+
+    @PostMapping("/v1/admin/mentors")
+    public ResponseEntity<?> createMentor(@RequestBody byte[] input,@RequestHeader(value="Idempotency-Key",required=false) String key) {
+        return resource(mentorWorkflow.create(admin(),body(input,MentorWorkflowBO.Create.class),key),QualificationConverter::mentor);
+    }
+
+    @GetMapping("/v1/admin/mentors/{personId}/account-options")
+    public ResponseEntity<?> mentorAccounts(@PathVariable String personId,@RequestParam String q,@RequestParam(defaultValue="1") int page,@RequestParam(defaultValue="20") int pageSize) {
+        return ok(mentorWorkflow.accounts(admin(),personId,q,page,pageSize));
+    }
+
+    @GetMapping("/v1/admin/mentors/{personId}/account-binding")
+    public ResponseEntity<?> mentorBinding(@PathVariable String personId) {
+        var result=mentorBindings.getMentorBinding(admin(),personId);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).eTag(result.etag()).body(result.value());
+    }
+
+    @PostMapping("/v1/admin/mentors/{personId}/account-binding")
+    public ResponseEntity<?> changeMentorBinding(@PathVariable String personId,@RequestBody byte[] input,
+            @RequestHeader(value="Idempotency-Key",required=false) String key,@RequestHeader(value="If-Match",required=false) String match) {
+        var result=mentorBindings.changeMentorBinding(admin(),personId,body(input,MentorWorkflowBO.BindingChange.class),key,match);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).eTag(result.etag()).body(result.value());
     }
 
     @GetMapping("/v1/admin/mentors")

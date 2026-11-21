@@ -88,7 +88,12 @@ public final class QualificationBO {
                               String version,String verificationMethod,Instant decidedAt,String personId,String bindingId) {}
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Mentor(String personId,String realName,String position,String affiliation,String personStatus,String bindingState,String accountAvailability,String qualificationStatus,String qualificationId,
-                         Instant validFrom,Instant validUntil,Instant verifiedAt,String verifiedByUserId,String verificationReference,String version,Instant evaluatedAt) {}
+                         Instant validFrom,Instant validUntil,Instant verifiedAt,String verifiedByUserId,String verificationReference,String version,Instant evaluatedAt,List<String> allowedOperations) {
+        public Mentor(String personId,String realName,String position,String affiliation,String personStatus,String bindingState,String accountAvailability,String qualificationStatus,String qualificationId,
+                      Instant validFrom,Instant validUntil,Instant verifiedAt,String verifiedByUserId,String verificationReference,String version,Instant evaluatedAt) {
+            this(personId,realName,position,affiliation,personStatus,bindingState,accountAvailability,qualificationStatus,qualificationId,validFrom,validUntil,verifiedAt,verifiedByUserId,verificationReference,version,evaluatedAt,null);
+        }
+    }
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record CertifiedMentor(String userId,String realName,String position,String affiliation,boolean certified,Instant evaluatedAt,Instant validUntil,String personId,String bindingId,String qualificationId) {}
     public record Audit(String changeId,String resourceId,String operation,String operatorUserId,Instant recordedAt,String reason,

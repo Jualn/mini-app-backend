@@ -7,7 +7,7 @@
  UNION ALL SELECT 'ORGANIZATION',NULL,id,name,CONCAT(type,' · ',id) FROM person_organization WHERE 1=1
  <if test="!historical">AND status='ACTIVE'</if>
  <if test="partyOnly">AND type IN ('PARTY_COMMITTEE','PARTY_GENERAL_BRANCH','PARTY_BRANCH')</if>
- UNION ALL SELECT 'PERSON',id,NULL,real_name,CONCAT('人员 · ',id) FROM person_profile <if test="!historical">WHERE status='ACTIVE'</if>
+ UNION ALL SELECT 'PERSON',id,NULL,real_name,CONCAT('人员 · ',id) FROM person_profile WHERE 1=1 <if test="!historical">AND status='ACTIVE'</if><if test="mentorOnly">AND EXISTS(SELECT 1 FROM mentor_profile mentor WHERE mentor.person_id=person_profile.id)</if>
  ) t WHERE t.type IN <foreach collection="types" item="x" open="(" separator="," close=")">#{x}</foreach>
  <if test="ceilings!=null">AND (<foreach collection="ceilings" item="c" separator=" OR ">
   (t.type=#{c.type} AND <choose><when test="c.type=='PLATFORM'">1=1</when><when test="c.type=='PERSON'">t.person_id=#{c.personId}</when><otherwise>t.organization_id=#{c.organizationId}</otherwise></choose>)

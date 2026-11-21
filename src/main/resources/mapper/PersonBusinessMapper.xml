@@ -2,6 +2,7 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.jualn.miniapp.module.person.mapper.PersonBusinessMapper">
  <sql id="columns">id,grantee_user_id,duty_code,assignment_id,authority_id,root_assignment_id,selection,member_bindings,granted_by,granted_at,expires_at,change_id,revoked_at,revoked_by,revocation_reason</sql>
+ <select id="mentorExists" resultType="long">SELECT COUNT(*) FROM mentor_profile WHERE person_id=#{person}</select>
  <select id="activeOrganizations" resultType="string" flushCache="true" useCache="false">SELECT id FROM person_organization WHERE status='ACTIVE' ORDER BY id</select>
  <select id="allOrganizations" resultType="string" flushCache="true" useCache="false">SELECT id FROM person_organization ORDER BY id</select>
  <select id="roster" resultType="cn.jualn.miniapp.module.person.service.access.PersonBusinessScopes$Roster" flushCache="true" useCache="false">SELECT verification,version,membership_digest,source_reference FROM person_roster_completeness WHERE organization_id=#{organization}</select>

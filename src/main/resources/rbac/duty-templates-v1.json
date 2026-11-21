@@ -1,6 +1,6 @@
 {
-  "catalogVersion": "unified-duty-v1-final-r11",
-  "rbacCatalogVersion": "rbac-v1-unified-final-r10",
+  "catalogVersion": "unified-duty-v1-final-r12",
+  "rbacCatalogVersion": "rbac-v1-unified-final-r11",
   "businessConfirmation": "docs/coordination/person-identity-org-auth-unified-v1.md",
   "readiness": "NOT_READY",
   "description": "模板仅映射既有Role×namespace和逐职责业务范围；不是授权事实，不开放Role/Permission编辑。新POINTS_READER_V1只含points:read，不改变旧组合。正式可用性按每个目标环境逐切片验收，不整体开启NOT_READY。 Article组织发布增量仅新增旧内容角色的ARTICLE_EDIT/ARTICLE_PUBLISH组织目标映射，不增加Role/Permission；旧GLOBAL Assignment不自动获组织范围。 2026-10-23全面收口：新增日常工作仅为非生效定义；scopeActions是各业务owning policy执行义务，不是通用权限裁剪器。旧Role/Duty成员与语义保留；新PLATFORM仅该职责明确业务模块，需同源目标，旧GLOBAL不自动获得。 Points V1复用POINTS_MANAGER作为单管理员纠错组合，POINTS_CORRECTION独立按原受理组织或显式PERSON/PLATFORM授权；不改变其他角色/职责。Points切片READY是目标目录定义，实际可用性仍需Provider支持、目标环境匹配发布和验收。 成长记录仅为POST_MODERATE、POST_SAFETY_REVIEW、REPORT_HANDLE增加精确ORGANIZATION目标，原PLATFORM不自动获得成长范围；实际支持仍由Provider目标环境计算。 V1正式来源仅ASSIGNMENT；单ROOT无需普通Duty，但只消费本期支持且运行ENABLED/READY的能力。MENTOR_MANAGE复用既有导师角色，ACTIVITY_REGISTRATION_DISPOSE为独立报名作废职责；两者登记NOT_READY，不自动发布。",
@@ -724,6 +724,90 @@
       ],
       "readiness": "NOT_READY",
       "grantable": false
+    },
+    {
+      "dutyCode": "MENTOR_READ",
+      "roleCode": "MENTOR_READER_V1",
+      "namespace": "MENTOR",
+      "targetTypes": [
+        "PERSON",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_MENTOR"
+      ],
+      "permissionCodes": [
+        "mentor:read"
+      ],
+      "readiness": "READY",
+      "grantable": true
+    },
+    {
+      "dutyCode": "MENTOR_CREATE",
+      "roleCode": "MENTOR_CREATOR_V1",
+      "namespace": "MENTOR",
+      "targetTypes": [
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "CREATE_MENTOR"
+      ],
+      "permissionCodes": [
+        "mentor:create"
+      ],
+      "readiness": "READY",
+      "grantable": true
+    },
+    {
+      "dutyCode": "MENTOR_PROFILE_MAINTAIN",
+      "roleCode": "MENTOR_PROFILE_EDITOR_V1",
+      "namespace": "MENTOR",
+      "targetTypes": [
+        "PERSON",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "MAINTAIN_PROFILE"
+      ],
+      "permissionCodes": [
+        "mentor:profile-maintain"
+      ],
+      "readiness": "READY",
+      "grantable": true
+    },
+    {
+      "dutyCode": "MENTOR_QUALIFICATION_MANAGE",
+      "roleCode": "MENTOR_QUALIFICATION_MANAGER_V1",
+      "namespace": "MENTOR",
+      "targetTypes": [
+        "PERSON",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "MANAGE_QUALIFICATION"
+      ],
+      "permissionCodes": [
+        "mentor:qualification-decide"
+      ],
+      "readiness": "READY",
+      "grantable": true
+    },
+    {
+      "dutyCode": "MENTOR_BINDING_MANAGE",
+      "roleCode": "MENTOR_BINDING_MANAGER_V1",
+      "namespace": "MENTOR",
+      "targetTypes": [
+        "PERSON",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "MANAGE_BINDING"
+      ],
+      "permissionCodes": [
+        "mentor:binding-manage"
+      ],
+      "readiness": "READY",
+      "grantable": true
     }
   ],
   "excludedDailyCombinations": [

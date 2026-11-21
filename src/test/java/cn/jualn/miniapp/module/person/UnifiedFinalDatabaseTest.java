@@ -235,6 +235,101 @@ class UnifiedFinalDatabaseTest extends ManagedPersonDatabaseHttpTest {
         assertThrows(IllegalStateException.class,()->tool.inspect("synthetic-final-bootstrap",2,"isolated-operator","second root denied","b".repeat(64)));
     }
 
+    @Test void businessAuthorizationMentorScopesAndOperationsDoNotCross() {
+        var workflow=context.getBean(cn.jualn.miniapp.module.person.service.qualification.MentorWorkflowService.class);
+        var mentors=context.getBean(cn.jualn.miniapp.module.person.service.qualification.MentorManagementService.class);
+        var created=workflow.create(1,new cn.jualn.miniapp.module.person.bo.MentorWorkflowBO.Create("Mentor A","Lecturer","College","verified","source-a"),key());
+        var other=workflow.create(1,new cn.jualn.miniapp.module.person.bo.MentorWorkflowBO.Create("Mentor B","Lecturer","College","verified","source-b"),key());
+        long staff=user();String p=created.value().personId();
+        String nonMentor=create("NotMentorCandidate").value().personId();
+        assertTrue(unified().targetOptions(1,root(),"MENTOR_PROFILE_MAINTAIN","PERSON","NotMentorCandidate",20,null).items().isEmpty());
+        assertThrows(ContractProblemException.class,()->grant(1,staff,root(),"MENTOR_PROFILE_MAINTAIN",new Target("PERSON",nonMentor,null)));
+        grant(1,staff,root(),"MENTOR_PROFILE_MAINTAIN",new Target("PERSON",p,null));
+        assertFalse(reader().read(staff).allows("identity:read","IDENTITY"));
+        assertEquals(1,mentors.list(staff,1,20,null,null).totalItems());
+        assertEquals(List.of("READ","MAINTAIN_PROFILE"),mentors.get(staff,p).value().allowedOperations());
+        assertEquals(404,assertThrows(ContractProblemException.class,()->mentors.get(staff,other.value().personId())).getStatus().value());
+        var body=new cn.jualn.miniapp.module.person.bo.QualificationBO.ProfileWrite("Updated","College","verified","source");
+        mentors.put(staff,p,body,key(),mentors.get(staff,p).etag(),null);
+        assertEquals(403,assertThrows(ContractProblemException.class,()->mentors.put(staff,other.value().personId(),body,key(),null,"*")).getStatus().value());
+        assertEquals(403,assertThrows(ContractProblemException.class,()->workflow.create(staff,new cn.jualn.miniapp.module.person.bo.MentorWorkflowBO.Create("No permission","Lecturer","College","verified","source"),key())).getStatus().value());
+        assertEquals(403,assertThrows(ContractProblemException.class,()->mentors.change(staff,p,new cn.jualn.miniapp.module.person.bo.QualificationBO.QualificationChange("APPROVE",null,"verified","source"),key(),mentors.get(staff,p).etag())).getStatus().value());
+    }
+
+    @Test void businessAuthorizationReplacementAndCompleteRevocationAreAtomicAndIndependent() {
+        long staff=user();var platform=new Target("PLATFORM",null,null);
+        var first=grant(1,staff,root(),"MENTOR_READ",platform);
+        var independent=grant(1,staff,root(),"MENTOR_READ",platform);
+        String scope=first.scopeGrantIds().get(0),assignment=first.assignmentIds().get(0);
+        var replace=new Intent("REPLACE",Long.toString(staff),List.of(new Selection("MENTOR_PROFILE_MAINTAIN",platform,expiry(),null)),root(),"AUTHORIZATION",scope,"change operation");
+        var preview=unified().preview(1,replace,key());String command=key();var replaced=unified().commit(1,new Commit(preview.previewId(),replace),command);
+        assertEquals(replaced,unified().commit(1,new Commit(preview.previewId(),replace),command));
+        assertNotNull(db.queryForObject("SELECT revoked_at FROM rbac_user_role_assignment WHERE id=?",java.time.LocalDateTime.class,assignment));
+        assertNotNull(db.queryForObject("SELECT revoked_at FROM person_business_scope WHERE id=?",java.time.LocalDateTime.class,scope));
+        assertTrue(reader().read(staff).allows("mentor:read","MENTOR"));
+        String replacementScope=replaced.scopeGrantIds().get(0);
+        var rollback=new Intent("REPLACE",Long.toString(staff),List.of(new Selection("MENTOR_BINDING_MANAGE",platform,expiry(),null)),root(),"AUTHORIZATION",replacementScope,"must rollback");
+        var before=unified().preview(1,rollback,key());
+        db.execute("CREATE TRIGGER mentor_replacement_failure BEFORE INSERT ON rbac_user_role_assignment FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='synthetic replacement failure'");
+        try { assertThrows(RuntimeException.class,()->unified().commit(1,new Commit(before.previewId(),rollback),key())); }
+        finally { db.execute("DROP TRIGGER mentor_replacement_failure"); }
+        assertNull(db.queryForObject("SELECT revoked_at FROM person_business_scope WHERE id=?",java.time.LocalDateTime.class,replacementScope));
+        var revoke=new Intent("REVOKE",null,null,null,"AUTHORIZATION",replacementScope,"end this authorization");
+        var rev=unified().preview(1,revoke,key());unified().commit(1,new Commit(rev.previewId(),revoke),key());
+        assertFalse(reader().read(staff).allows("mentor:profile-maintain","MENTOR"));
+        assertTrue(reader().read(staff).allows("mentor:read","MENTOR"));
+        assertNull(db.queryForObject("SELECT revoked_at FROM person_business_scope WHERE id=?",java.time.LocalDateTime.class,independent.scopeGrantIds().get(0)));
+    }
+
+    @Test void businessAuthorizationMentorCreationReplayAndBindingKeepOriginalPerson() {
+        var workflow=context.getBean(cn.jualn.miniapp.module.person.service.qualification.MentorWorkflowService.class);
+        var mentors=context.getBean(cn.jualn.miniapp.module.person.service.qualification.MentorManagementService.class);
+        long creator=user(),binder=user(),accountA=user(),accountB=user();var platform=new Target("PLATFORM",null,null);
+        grant(1,creator,root(),"MENTOR_CREATE",platform);
+        var command=new cn.jualn.miniapp.module.person.bo.MentorWorkflowBO.Create("Accountless mentor","Lecturer","College","verified","source");String request=key();
+        var result=workflow.create(creator,command,request);String p=result.value().personId();
+        assertEquals(p,workflow.create(creator,command,request).value().personId());
+        assertEquals("UNBOUND",result.value().bindingState());assertEquals("NOT_GRANTED",result.value().qualificationStatus());
+        assertTrue(workflow.candidates(creator,"Accountless mentor",1,20).items().stream().anyMatch(c->c.personId().equals(p)));
+        grant(1,binder,root(),"MENTOR_BINDING_MANAGE",new Target("PERSON",p,null));
+        var initial=bindings.getMentorBinding(binder,p);
+        var associate=new cn.jualn.miniapp.module.person.bo.MentorWorkflowBO.BindingChange("ASSOCIATE",Long.toString(accountA),"verified","source-a");
+        var linked=bindings.changeMentorBinding(binder,p,associate,key(),initial.etag());
+        String original=linked.value().bindingId();assertNotNull(original);
+        assertEquals(1,context.getBean(cn.jualn.miniapp.module.person.mapper.ManagedPersonMapper.class).confirmedAdminBinding(original));
+        var next=new cn.jualn.miniapp.module.person.bo.MentorWorkflowBO.BindingChange("ASSOCIATE",Long.toString(accountB),"verified","source-b");
+        assertEquals(412,assertThrows(ContractProblemException.class,()->bindings.changeMentorBinding(binder,p,next,key(),initial.etag())).getStatus().value());
+        var changed=bindings.changeMentorBinding(binder,p,next,key(),linked.etag());
+        assertEquals(p,changed.value().personId());assertNotEquals(original,changed.value().bindingId());
+        assertEquals("ENDED",db.queryForObject("SELECT status FROM person_account_binding WHERE id=?",String.class,original));
+        var end=new cn.jualn.miniapp.module.person.bo.MentorWorkflowBO.BindingChange("END",null,"verified","source-end");
+        bindings.changeMentorBinding(binder,p,end,key(),changed.etag());
+        assertNull(bindings.getMentorBinding(binder,p).value().userId());
+        assertEquals("NOT_GRANTED",mentors.get(binder,p).value().qualificationStatus());
+    }
+
+    @Test void businessAuthorizationHttpMentorCreationAndAccountAssociation() throws Exception {
+        String request=key();
+        String body=json.writeValueAsString(new cn.jualn.miniapp.module.person.bo.MentorWorkflowBO.Create("HttpMentor","Lecturer","College","verified","source"));
+        var created=wire("POST","/v1/admin/mentors",body,request,null,"application/json",201);
+        String person=created.body().path("personId").asText();assertFalse(person.isBlank());
+        assertEquals(person,wire("POST","/v1/admin/mentors",body,request,null,"application/json",201).body().path("personId").asText());
+        var found=wire("GET","/v1/admin/mentor-candidates?q=HttpMentor",null,null,null,"application/json",200);
+        assertEquals(person,found.body().path("items").get(0).path("personId").asText());
+        var initial=wire("GET","/v1/admin/mentors/"+person+"/account-binding",null,null,null,"application/json",200);
+        long user=user();
+        var options=wire("GET","/v1/admin/mentors/"+person+"/account-options?q="+user,null,null,null,"application/json",200);
+        assertEquals(Long.toString(user),options.body().path("items").get(0).path("userId").asText());
+        var command=new cn.jualn.miniapp.module.person.bo.MentorWorkflowBO.BindingChange("ASSOCIATE",Long.toString(user),"verified","source");
+        String path="/v1/admin/mentors/"+person+"/account-binding",commandKey=key();
+        var linked=wire("POST",path,json.writeValueAsString(command),commandKey,initial.etag(),"application/json",200);
+        assertEquals(linked.body().path("bindingId"),wire("POST",path,json.writeValueAsString(command),commandKey,initial.etag(),"application/json",200).body().path("bindingId"));
+        wire("POST",path,json.writeValueAsString(new cn.jualn.miniapp.module.person.bo.MentorWorkflowBO.BindingChange("END",null,"verified","source")),key(),"W/"+linked.etag(),"application/json",400);
+        wire("POST",path,"{\"reason\":\"verified\",\"verificationReference\":\"source\"}",key(),linked.etag(),"application/json",400);
+        assertEquals(1,context.getBean(cn.jualn.miniapp.module.person.mapper.ManagedPersonMapper.class).confirmedAdminBinding(linked.body().path("bindingId").asText()));
+        wire("POST",path,"{\"action\":\"END\",\"personId\":\"forged\",\"reason\":\"verified\",\"verificationReference\":\"source\"}",key(),linked.etag(),"application/json",400);
+    }
+
     void sessionActor(long actor){
         var storage=mock(cn.dev33.satoken.context.model.SaStorage.class);Map<String,Object> state=new HashMap<>();
         when(storage.get(anyString())).thenAnswer(i->state.get(i.getArgument(0)));when(storage.set(anyString(),any())).thenAnswer(i->{state.put(i.getArgument(0),i.getArgument(1));return storage;});when(storage.delete(anyString())).thenAnswer(i->{state.remove(i.getArgument(0));return storage;});

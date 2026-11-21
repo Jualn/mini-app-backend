@@ -20,7 +20,11 @@ public class DutyCandidateDirectory {
     private final PersonBusinessScopes scopes;
     public List<TargetRow> targets(List<Ceiling> ceilings, List<String> types, boolean historical, boolean partyOnly,
                                    String platformLabel, String q, long offset, int limit) {
-        return mapper.targets(ceilings, types, historical, partyOnly, platformLabel, q, offset, limit);
+        return targets(ceilings,types,historical,partyOnly,false,platformLabel,q,offset,limit);
+    }
+    public List<TargetRow> targets(List<Ceiling> ceilings,List<String> types,boolean historical,boolean partyOnly,boolean mentorOnly,
+                                   String platformLabel,String q,long offset,int limit) {
+        return mapper.targets(ceilings, types, historical, partyOnly, mentorOnly, platformLabel, q, offset, limit);
     }
     public List<Candidate> recipients(boolean independent, String memberOrganization, String filter, String q,
                                       LocalDateTime at, long offset, int limit) {

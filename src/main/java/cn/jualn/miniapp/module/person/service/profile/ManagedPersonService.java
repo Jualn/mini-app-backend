@@ -77,19 +77,28 @@ public class ManagedPersonService {
 
     /** Restricted import owner entry. Caller has verified the exact organization/source and holds the common gate. */
     public Profile createFromRoster(long actor, String name, String majorClass, String source, String key, PersonReadContext context) {
+        return createScopedProfile(actor, name, majorClass, source, key, context, "commitPartyRosterImport.person", "ROSTER_IMPORT");
+    }
+
+    public Profile createFromMentor(long actor, String name, String source, String key, PersonReadContext context) {
+        return createScopedProfile(actor, name, null, source, key, context, "createMentorWithPerson.person", "ADMIN_MANUAL");
+    }
+
+    private Profile createScopedProfile(long actor, String name, String majorClass, String source, String key,
+                                        PersonReadContext context, String operation, String method) {
         context.requireUser(actor);
-        var command = new Create(text(name, 100, "realName"), majorClass==null || majorClass.isBlank()?null:nullable(majorClass, 200, "majorClass"), "Verified roster import", source);
+        var command = new Create(text(name, 100, "realName"), majorClass==null || majorClass.isBlank()?null:nullable(majorClass, 200, "majorClass"), "ROSTER_IMPORT".equals(method)?"Verified roster import":"新增导师人员档案", source);
         var row = new ManagedPersonRows.Profile(); var now = context.evaluatedAt();
         row.setId(uuid()); row.setRealName(command.realName()); row.setStatus("ACTIVE"); row.setRevision(1);
         row.setCreatedAt(now); row.setUpdatedAt(now); row.setLastChangeId(uuid()); String receipt = uuid();
-        journal.event(actor, row.getId(), "PROFILE", row.getId(), 1, row.getLastChangeId(), "commitPartyRosterImport.person",
-                command.reason(), "Verified roster source", null, profileVersion(row), receipt, now);
+        journal.event(actor, row.getId(), "PROFILE", row.getId(), 1, row.getLastChangeId(), operation,
+                command.reason(), "ROSTER_IMPORT".equals(method)?"Verified roster source":source, null, profileVersion(row), receipt, now);
         one(persons.insertProfile(row));
         if (command.majorClass() != null) {
-            setRegistration(actor, row.getId(), command.majorClass(), command.reason(), source, receipt, now, "ROSTER_IMPORT");
+            setRegistration(actor, row.getId(), command.majorClass(), command.reason(), source, receipt, now, method);
         }
         var result = journal.result(profile(row), 201, "/v1/admin/persons/" + row.getId());
-        journal.complete(actor, "commitPartyRosterImport.person", source, key, command, receipt, row.getLastChangeId(), result, now);
+        journal.complete(actor, operation, source, key, command, receipt, row.getLastChangeId(), result, now);
         return result.value();
     }
 

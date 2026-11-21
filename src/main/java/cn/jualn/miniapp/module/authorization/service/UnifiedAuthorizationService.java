@@ -150,7 +150,7 @@ public class UnifiedAuthorizationService {
         if(source.ceilings()!=null && !Set.of("POST_MODERATE","POST_SAFETY_REVIEW","REPORT_HANDLE").contains(duty) && source.ceilings().stream().anyMatch(x->"PLATFORM".equals(x.target().type())))ceilings=null;
         String binding=candidateBinding(source,List.of("targets",authority,duty,type==null?"":type,q==null?"":q,size));
         long offset=candidateOffset(actor,binding,cursor,c.at());
-        var rows=candidates.targets(ceilings,types,"POINTS_CORRECTION".equals(duty),"PARTY_ORG_PERSONNEL_MANAGE".equals(duty),
+        var rows=candidates.targets(ceilings,types,"POINTS_CORRECTION".equals(duty),"PARTY_ORG_PERSONNEL_MANAGE".equals(duty),"MENTOR".equals(t.namespace()),
                 catalog.role(t.roleCode()).name()+" · 平台",q,offset,size+1);
         boolean more=rows.size()>size;if(more)rows=rows.subList(0,size);
         var items=rows.stream().map(x->new UnifiedModels.TargetOption(new Target(x.type(),x.personId(),x.organizationId()),
@@ -407,11 +407,12 @@ public class UnifiedAuthorizationService {
         var scopes = new ArrayList<String>();
         var audit = new ArrayList<PersonBusinessScopes.Scope>();
         long changedUser;
-        if ("GRANT".equals(intent.kind())) {
+        if ("GRANT".equals(intent.kind()) || "REPLACE".equals(intent.kind())) {
             long user = user(intent.granteeUserId());
             changedUser = user;
             locks.begin(PersonAuthorityGate.Access.EXCLUSIVE, actor, user);
             revise(user, c.at());
+            if ("REPLACE".equals(intent.kind())) revokeComplete(actor, persons.scope(intent.sourceId()), intent.reason(), change, c.at());
             var root = root(c.actor());
             AuthorityRow authority = root == null ? mapper.authority(intent.authorityId()) : null;
             for (var s : intent.items()) {
@@ -449,6 +450,9 @@ public class UnifiedAuthorizationService {
                 var authority = mapper.authority(intent.sourceId());
                 one(mapper.revokeAuthority(intent.sourceId(), actor, intent.reason(), c.at()));
                 managementAudit.delegation(authority, reader.list(authority.getCeilings(), Selection.class), reader.list(authority.getMemberBindings(), Binding.class), actor, change, "REVOKE", c.at());
+            } else if ("AUTHORIZATION".equals(intent.sourceType())) {
+                assignments.add(persons.scope(intent.sourceId()).assignmentId());
+                revokeComplete(actor, persons.scope(intent.sourceId()), intent.reason(), change, c.at());
             } else if ("SCOPE".equals(intent.sourceType()))
                 persons.revoke(intent.sourceId(), actor, intent.reason(), c.at());
             else {
@@ -466,8 +470,9 @@ public class UnifiedAuthorizationService {
             for (var s : affected) {
                 scopes.add(s.id());
                 audit.add(s);
-                managementAudit.unifiedScope(s, reader.decode(s.selection(), Selection.class), reader.list(s.memberBindings(), Binding.class), actor, change,
-                        "SCOPE".equals(intent.sourceType()) ? "REVOKE" : "INVALIDATE", c.at());
+                if (!"AUTHORIZATION".equals(intent.sourceType()))
+                    managementAudit.unifiedScope(s, reader.decode(s.selection(), Selection.class), reader.list(s.memberBindings(), Binding.class), actor, change,
+                            "SCOPE".equals(intent.sourceType()) ? "REVOKE" : "INVALIDATE", c.at());
             }
         }
         var version = target(changedUser).getVersion();
@@ -478,17 +483,17 @@ public class UnifiedAuthorizationService {
         var current = authorization.readCurrent(actor, finalAt);
         if (!current.accountEligible()) throw forbidden();
         // Effects may revoke the requested source, so final permission checks use the surviving ROOT or issuing authority.
-        if (root(current) == null && "GRANT".equals(intent.kind())) authorize(actor, current, intent, finalAt, true);
-        if ("GRANT".equals(intent.kind()))
+        if (root(current) == null && ("GRANT".equals(intent.kind()) || "REPLACE".equals(intent.kind()))) authorize(actor, current, grantIntent(intent), finalAt, true);
+        if ("GRANT".equals(intent.kind()) || "REPLACE".equals(intent.kind()))
             for (var s : audit) if (!"EFFECTIVE".equals(reader.reason(s, finalAt))) throw unavailable();
         var finalIntent = intent;
         beforeCommit(() -> {
             var at = rbac.now();
             var decision = authorization.readCurrent(actor, at);
             if (!decision.accountEligible()) throw forbidden();
-            if (root(decision) == null && "GRANT".equals(finalIntent.kind()))
-                authorize(actor, decision, finalIntent, at, true);
-            if ("GRANT".equals(finalIntent.kind()))
+            if (root(decision) == null && ("GRANT".equals(finalIntent.kind()) || "REPLACE".equals(finalIntent.kind())))
+                authorize(actor, decision, grantIntent(finalIntent), at, true);
+            if ("GRANT".equals(finalIntent.kind()) || "REPLACE".equals(finalIntent.kind()))
                 for (var scope : audit) if (!"EFFECTIVE".equals(reader.reason(scope, at))) throw unavailable();
         });
         return response;
@@ -496,6 +501,14 @@ public class UnifiedAuthorizationService {
 
     private void authorize(long actor, RbacModels.Decision decision, Intent intent, LocalDateTime at, boolean future) {
         if (intent == null) throw RbacProblems.invalid("intent");
+        if ("REPLACE".equals(intent.kind())) {
+            var old = persons.scope(intent.sourceId());
+            if (old == null || old.granteeUserId() != user(intent.granteeUserId())) throw missing();
+            authorize(actor, decision, new Intent("REVOKE", null, null, null, "AUTHORIZATION", intent.sourceId(), intent.reason()), at, future);
+            authorize(actor, decision, grantIntent(intent), at, future);
+            return;
+        }
+
         if ("GRANT".equals(intent.kind())) {
             long user = user(intent.granteeUserId());
             self(actor, user);
@@ -533,7 +546,7 @@ public class UnifiedAuthorizationService {
                 if (future && a.getRevokedAt() != null) throw stale();
             } else {
                 PersonBusinessScopes.Scope scope;
-                if ("SCOPE".equals(intent.sourceType())) scope = persons.scope(intent.sourceId());
+                if (Set.of("SCOPE", "AUTHORIZATION").contains(intent.sourceType())) scope = persons.scope(intent.sourceId());
                 else if ("ASSIGNMENT".equals(intent.sourceType())) {
                     var a = rbac.assignment(intent.sourceId());
                     if (a == null) throw missing();
@@ -564,6 +577,7 @@ public class UnifiedAuthorizationService {
         if (s.target() == null || !t.targetTypes().contains(s.target().type())) throw RbacProblems.invalid("target");
         if ("PARTY_ORG_PERSONNEL_MANAGE".equals(s.dutyCode()) && "ORGANIZATION".equals(s.target().type())
                 && !persons.isActivePartyOrganization(s.target().organizationId())) throw missing();
+        if ("MENTOR".equals(t.namespace()) && "PERSON".equals(s.target().type())) persons.requireMentor(s.target().personId());
         if (checkFuture) future(expiry(s.expiresAt()), at);
         if (PlatformDutyPolicy.supports(s.dutyCode()) && !PlatformDutyPolicy.matches(t, s))
             throw RbacProblems.invalid("target");
@@ -602,10 +616,32 @@ public class UnifiedAuthorizationService {
         return duties.ready(code, rbac.permissions(), rbac.roles());
     }
 
+    private static Intent grantIntent(Intent intent) {
+        return new Intent("GRANT", intent.granteeUserId(), intent.items(), intent.authorityId(), null, null, intent.reason());
+    }
+
+    private void revokeComplete(long actor, PersonBusinessScopes.Scope scope, String reason, String change, LocalDateTime at) {
+        if (scope == null) throw missing();
+        var assignment = rbac.assignment(scope.assignmentId());
+        var paired = assignment == null ? null : persons.assignmentScope(assignment.getId());
+        if (assignment == null || paired == null || !"UNIFIED".equals(assignment.getOriginKind())
+                || assignment.getUserId() != scope.granteeUserId()
+                || !scope.id().equals(paired.id())) throw unavailable();
+        persons.revoke(scope.id(), actor, reason, at);
+        if (assignment.getRevokedAt() == null) {
+            var before = reader.decode(reader.encode(assignment), RbacModels.Assignment.class);
+            String next = id(), revoke = id();
+            one(rbac.revoke(assignment.getId(), assignment.getVersion(), next, revoke, at));
+            assignment.setVersion(next); assignment.setRevokedAt(at); assignment.setRevokeChangeId(revoke);
+            rbacAudit(actor, assignment, before, change, at);
+        }
+        managementAudit.unifiedScope(scope, reader.decode(scope.selection(), Selection.class), reader.list(scope.memberBindings(), Binding.class), actor, change, "REVOKE", at);
+    }
+
     private List<PersonBusinessScopes.Scope> affected(Intent intent) {
         if ("GRANT".equals(intent.kind())) return List.of();
         if ("DELEGATION_AUTHORITY".equals(intent.sourceType())) return persons.forAuthority(intent.sourceId());
-        var s = "SCOPE".equals(intent.sourceType()) ? persons.scope(intent.sourceId()) : persons.assignmentScope(intent.sourceId());
+        var s = "REPLACE".equals(intent.kind()) || "SCOPE".equals(intent.sourceType()) || "AUTHORIZATION".equals(intent.sourceType()) ? persons.scope(intent.sourceId()) : persons.assignmentScope(intent.sourceId());
         return s == null ? List.of() : List.of(s);
     }
 
@@ -633,7 +669,7 @@ public class UnifiedAuthorizationService {
         state.add(intent);
         state.add(mapper.authorities());
         for (long user : rbac.rootUsers()) state.add(List.of(rbac.subject(user), rbac.assignments(user)));
-        if ("GRANT".equals(intent.kind())) {
+        if ("GRANT".equals(intent.kind()) || "REPLACE".equals(intent.kind())) {
             long user = user(intent.granteeUserId());
             state.add(rbac.subject(user));
             state.add(persons.forUser(user));
@@ -647,7 +683,7 @@ public class UnifiedAuthorizationService {
     private long sourceUser(Intent intent) {
         if ("DELEGATION_AUTHORITY".equals(intent.sourceType()))
             return mapper.authority(intent.sourceId()).getGranteeUserId();
-        if ("SCOPE".equals(intent.sourceType())) return persons.scope(intent.sourceId()).granteeUserId();
+        if ("REPLACE".equals(intent.kind()) || "SCOPE".equals(intent.sourceType()) || "AUTHORIZATION".equals(intent.sourceType())) return persons.scope(intent.sourceId()).granteeUserId();
         return rbac.assignment(intent.sourceId()).getUserId();
     }
 
@@ -794,11 +830,11 @@ public class UnifiedAuthorizationService {
 
     private Intent normalize(Intent i) {
         if (i == null) throw RbacProblems.invalid("intent");
-        return new Intent(i.kind(), i.granteeUserId(), i.items() == null ? null : normalize(i.items(), true), i.authorityId(), i.sourceType(), i.sourceId(), reason(i.reason()));
+        return new Intent(i.kind(), i.granteeUserId(), i.items() == null ? null : normalize(i.items(), true), i.authorityId(), "REPLACE".equals(i.kind()) ? null : i.sourceType(), i.sourceId(), reason(i.reason()));
     }
 
     private Intent resolveDeadlines(Intent intent, RbacModels.Decision decision, LocalDateTime at) {
-        if (!"GRANT".equals(intent.kind()) || intent.items() == null
+        if (!("GRANT".equals(intent.kind()) || "REPLACE".equals(intent.kind())) || intent.items() == null
                 || intent.items().stream().noneMatch(s -> s.expiresAt() == null)) return intent;
         boolean owner = root(decision) != null;
         List<Selection> ceilings = List.of();
