@@ -49,11 +49,12 @@ class PartyPersonnelCorrections {
         var profile = persons.profile(person);
         if (profile == null || !"ACTIVE".equals(profile.getStatus()) || persons.everBound(person, actor)) return false;
         LocalDateTime at = finalCheck ? context.finalEvaluatedAt() : context.evaluatedAt();
-        if (!access.organization(actor, organization, true, at)) return false;
+        if (!access.allows(actor, organization, "MAINTAIN_PROFILE", at)) return false;
         var local = finalCheck ? readers.localMembershipFinal(person, organization, context)
                 : readers.localMembership(person, organization, context);
         if (local.outcome() != PersonFactReaders.Outcome.KNOWN || !"PRESENT".equals(local.fact().presence())) return false;
         if (personAccess.optionalWrite(actor, person, at)) return true;
+        if(access.coversRecordedPersonnel(actor,person,at)) return true;
         var membership = finalCheck ? readers.membershipsFinal(person, context) : readers.memberships(person, context);
         return membership.outcome() == PersonFactReaders.Outcome.KNOWN && membership.organizationIds().contains(organization)
                 && access.coversSharedPersonnel(actor, membership.organizationIds(), at);

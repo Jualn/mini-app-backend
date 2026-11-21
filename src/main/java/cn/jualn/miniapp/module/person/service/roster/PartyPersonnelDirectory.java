@@ -37,8 +37,9 @@ public class PartyPersonnelDirectory {
     private final TransactionalAuthorization authorization;
     private final ManagedPersonMapper persons;
     private final ManagedPersonIdentifierService identifiers;
+    private final cn.jualn.miniapp.module.person.mapper.PersonnelAccountMapper accountCandidates;
 
-    public record Organization(String organizationId, String name, String type) {
+    public record Organization(String organizationId, String name, String type, List<String> allowedOperations) {
     }
 
     public record OrganizationPage(List<Organization> items, int page, int pageSize, long totalItems,
@@ -51,10 +52,20 @@ public class PartyPersonnelDirectory {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Member(String personId, String membershipId, String organizationId, String realName,
                          String studentNumberMasked, String studentNumber, String majorClass, String stageId,
-                         List<String> editableFields, boolean canRemove) {
+                         List<String> editableFields, boolean canRemove, boolean canAddAffiliation, List<String> allowedOperations) {
     }
 
     public record MemberPage(List<Member> items, int page, int pageSize, long totalItems, Instant evaluatedAt) {
+    }
+
+    public cn.jualn.miniapp.module.person.bo.QualificationBO.Page<cn.jualn.miniapp.module.person.bo.PersonnelAccountBO.AccountOption> accounts(
+            long actor,String organization,String person,String q,int pageNumber,int pageSize) {
+        page(pageNumber,pageSize);
+        q=cn.jualn.miniapp.module.person.service.support.PersonnelValues.text(q,100,"q");
+        var c=readers.open(actor); access.requireBinding(actor,organization,person,c.evaluatedAt());
+        return new cn.jualn.miniapp.module.person.bo.QualificationBO.Page<>(
+                accountCandidates.accounts(q,person,actor,(long)(pageNumber-1)*pageSize,pageSize),pageNumber,pageSize,
+                accountCandidates.accountCount(q,person,actor),c.evaluatedAt().toInstant(ZoneOffset.UTC));
     }
 
     public MemberPage members(long actor, String organization, int pageNumber, int pageSize, String search) {
@@ -104,7 +115,9 @@ public class PartyPersonnelDirectory {
         return new Member(row.personId(), row.membershipId(), row.organizationId(), row.realName(),
                 number == null ? null : number.getValueMasked(), number == null ? null : identifiers.rosterValue(number),
                 registration == null ? null : registration.getMajorClass(),
-                "ACTIVE".equals(identity.status()) ? identity.stageId() : null, corrections.editable(actor, row.organizationId(), row.personId(), context), !persons.everBound(row.personId(), actor));
+                "ACTIVE".equals(identity.status()) ? identity.stageId() : null, corrections.editable(actor, row.organizationId(), row.personId(), context), !persons.everBound(row.personId(), actor) && access.allows(actor,row.organizationId(),"REMOVE",context.evaluatedAt()),
+                access.canAddElsewhere(actor,row.organizationId(),row.personId(),context.evaluatedAt()),
+                persons.everBound(row.personId(),actor) ? List.of("READ") : access.operations(actor,row.organizationId(),context.evaluatedAt()));
     }
 
     public OrganizationPage organizations(long actor, int pageNumber, int pageSize, String type, String search) {
@@ -129,7 +142,7 @@ public class PartyPersonnelDirectory {
                 : mapper.partyOrganizationCount(new PersonMapper.PartyOrganizations(
                 platform, organizationIds, PARTY_ORGANIZATION_TYPES, null, null, pageSize, 0));
         var items = mapper.partyOrganizations(query).stream()
-                .map(row -> new Organization(row.getId(), row.getName(), row.getType())).toList();
+                .map(row -> new Organization(row.getId(), row.getName(), row.getType(), access.operations(actor,row.getId(),at))).toList();
 
         return new OrganizationPage(items, pageNumber, pageSize, total, authorized, at.toInstant(ZoneOffset.UTC));
     }

@@ -19,6 +19,12 @@ public final class PlatformDutyPolicy {
     }
 
     private static final Map<String, Rule> RULES = Map.ofEntries(
+            Map.entry("PARTY_PERSONNEL_BINDING_MANAGE", new Rule("PARTY_PERSONNEL_BINDING_MANAGER_V1", "ORGANIZATION", Set.of("party-personnel:binding-manage"))),
+            Map.entry("PARTY_PERSONNEL_ROSTER_VERIFY", new Rule("PARTY_PERSONNEL_ROSTER_VERIFIER_V1", "ORGANIZATION", Set.of("party-personnel:roster-verify"))),
+            Map.entry("PARTY_PERSONNEL_REMOVE", new Rule("PARTY_PERSONNEL_REMOVER_V1", "ORGANIZATION", Set.of("party-personnel:remove"))),
+            Map.entry("PARTY_PERSONNEL_PROFILE_MAINTAIN", new Rule("PARTY_PERSONNEL_PROFILE_EDITOR_V1", "ORGANIZATION", Set.of("party-personnel:profile-maintain"))),
+            Map.entry("PARTY_PERSONNEL_ADD", new Rule("PARTY_PERSONNEL_ADDER_V1", "ORGANIZATION", Set.of("party-personnel:add"))),
+            Map.entry("PARTY_PERSONNEL_READ", new Rule("PARTY_PERSONNEL_READER_V1", "ORGANIZATION", Set.of("party-personnel:read"))),
             Map.entry("HOME_BANNER_MANAGE", new Rule("HOME_BANNER_MANAGER_V1", "HOME", Set.of("home-banner:manage"))),
             Map.entry("POINTS_ACCEPTANCE_MANAGE", new Rule("POINTS_ACCEPTANCE_STEWARD_V1", "POINTS", Set.of("points:acceptance-manage"))),
             Map.entry("ARTICLE_CATEGORY_MAINTAIN", new Rule("ARTICLE_CATEGORY_STEWARD_V1", "ARTICLE", Set.of("article-category:manage", "article-category:read"))),
@@ -58,6 +64,7 @@ public final class PlatformDutyPolicy {
                 && rule.permissions().equals(Set.copyOf(template.permissions())) && target != null && template.targetTypes().contains(target.type())
                 && ("PLATFORM".equals(target.type()) && target.personId() == null && target.organizationId() == null
                     || template.dutyCode().startsWith("MENTOR_") && !Set.of("MENTOR_MANAGE", "MENTOR_CREATE").contains(template.dutyCode()) && "PERSON".equals(target.type()) && target.personId() != null && target.organizationId() == null
+                    || template.dutyCode().startsWith("PARTY_PERSONNEL_") && "ORGANIZATION".equals(target.type()) && target.personId()==null && target.organizationId()!=null
                     || Set.of("POST_MODERATE","POST_SAFETY_REVIEW","REPORT_HANDLE").contains(template.dutyCode()) && "ORGANIZATION".equals(target.type()) && target.personId()==null && target.organizationId()!=null)
                 && selection.audienceTargets() == null;
     }

@@ -91,6 +91,7 @@ public class PartyPersonnelPlans {
     public Match match(long actor, String organization, MatchRequest request) {
         var c = readers.open(actor);
         access.requireOrganization(actor, organization, true, c.evaluatedAt());
+        access.requireOperation(actor,organization,"ADD",c.evaluatedAt());
         var input = normalize(request);
         return match(actor, organization, input, c, true);
     }
@@ -138,10 +139,11 @@ public class PartyPersonnelPlans {
         var reference = command.verificationReference() == null ? planId : text(command.verificationReference(), 256, "verificationReference");
         var c = readers.open(PersonAuthorityGate.Access.EXCLUSIVE, actor);
         var at = c.evaluatedAt();
-        access.requireOrganization(actor, organization, true, at);
+        access.requireOrganization(actor, organization, false, at);
         var fixed = open("party-plan", command.planToken(), Fixed.class);
         if (actor != fixed.actor() || !organization.equals(fixed.organization()) || !planId.equals(fixed.planId())) throw stale();
-        fixed.organizations().forEach(org -> access.requireOrganization(actor, org, true, at));
+        fixed.organizations().forEach(org -> access.requireOrganization(actor, org, false, at));
+        requireRequest(actor,organization,fixed.request(),at);
         var replay = journal.replay(actor, COMMIT, planId, key, command, Receipt.class);
         if (replay != null) return replay.value();
         if (!fixed.expiresAt().isAfter(at) || facts.event(planId) != null) throw stale();
@@ -193,7 +195,8 @@ public class PartyPersonnelPlans {
         one(facts.advanceEpoch(Long.parseLong(c.authorityVersion())));
         cn.jualn.miniapp.module.person.service.profile.ManagedPersonService.recheckBeforeCommit(() -> {
             var now = facts.now();
-            draft.organizations().forEach(org -> access.requireOrganization(actor, org, true, now));
+            requireRequest(actor,organization,fixed.request(),now);
+            draft.organizations().forEach(org -> access.requireOrganization(actor, org, false, now));
             for (var cycle : targetCycles)
                 if (!cycle.cycle().equals(roster.currentRegisteredCycle(cycle.organization(), cycle.person(), now))) throw stale();
             for (var person : checkedPeople)
@@ -204,7 +207,7 @@ public class PartyPersonnelPlans {
 
     private Draft draft(long actor, String organization, Request request, PersonReadContext c) {
         var at = c.evaluatedAt();
-        access.requireOrganization(actor, organization, true, at);
+        access.requireOrganization(actor, organization, false, at);
         if (request == null || !"MANUAL".equals(request.kind()) || request.items() == null
                 || request.items().isEmpty() || request.items().size() > 100 || request.workbook() != null) throw invalid("items");
         var rows = new ArrayList<Resolved>();
@@ -215,6 +218,7 @@ public class PartyPersonnelPlans {
         for (var item : request.items()) {
             if (item == null || item.action() == null) throw invalid("items");
             if ("REGISTER".equals(item.action())) {
+                access.requireOperation(actor,organization,"ADD",at);
                 if (item.personId() != null || item.membershipId() != null || item.fields() != null || item.targetOrganizationId() != null)
                     throw invalid("items");
                 var matched = open("party-match", item.matchToken(), Matched.class);
@@ -235,6 +239,8 @@ public class PartyPersonnelPlans {
             if (!Set.of("REMOVE", "ADD_AFFILIATION", "TRANSFER", "CORRECT").contains(item.action())
                     || item.matchToken() != null) throw invalid("items.action");
             boolean correction = "CORRECT".equals(item.action());
+            if(correction) access.requireOperation(actor,organization,"MAINTAIN_PROFILE",at);
+            if(Set.of("REMOVE","TRANSFER").contains(item.action())) access.requireOperation(actor,organization,"REMOVE",at);
             if (correction != (item.fields() != null)) throw invalid("items.fields");
             var person = text(item.personId(), 128, "personId");
             var member = text(item.membershipId(), 128, "membershipId");
@@ -260,7 +266,7 @@ public class PartyPersonnelPlans {
                 if (profile == null || !"ACTIVE".equals(profile.getStatus())) throw stale();
                 text(target, 128, "targetOrganizationId");
                 if (organization.equals(target)) throw invalid("targetOrganizationId");
-                access.requireOrganization(actor, target, true, at);
+                access.requireOperation(actor, target, "ADD", at);
                 organizations.add(target);
                 var found = facts.memberships(person).stream().filter(m -> target.equals(m.getOrganizationId())).toList();
                 boolean present = found.stream().anyMatch(m -> !m.getValidFrom().isAfter(at)
@@ -279,6 +285,20 @@ public class PartyPersonnelPlans {
         var resolvedPeople = rows.stream().map(Resolved::person).toList();
         var digest = secrets.digest("party-manual-plan", encode(List.of(version(actor, c), effects, resolvedPeople)));
         return new Draft(List.copyOf(rows), List.copyOf(organizations), effects, digest);
+    }
+
+    private void requireRequest(long actor,String organization,Request request,LocalDateTime at) {
+        if(request.workbook()!=null) {
+            if("FULL_REVIEW".equals(request.kind())) access.requireOperation(actor,organization,"VERIFY_ROSTER",at);
+            // Workbook effects are revalidated by the owning import service before mutation.
+            return;
+        }
+        for(var item:request.items()) {
+            if("REGISTER".equals(item.action())) access.requireOperation(actor,organization,"ADD",at);
+            if("CORRECT".equals(item.action())) access.requireOperation(actor,organization,"MAINTAIN_PROFILE",at);
+            if(Set.of("REMOVE","TRANSFER").contains(item.action())) access.requireOperation(actor,organization,"REMOVE",at);
+            if(item.targetOrganizationId()!=null) access.requireOperation(actor,item.targetOrganizationId(),"ADD",at);
+        }
     }
 
     private boolean visible(long actor, String organization, String person, LocalDateTime at) {

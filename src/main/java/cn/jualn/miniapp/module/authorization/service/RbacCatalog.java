@@ -47,7 +47,7 @@ public class RbacCatalog {
                     throw new IllegalStateException("Invalid implemented management permission list");
             codes.addAll(Set.of("person-scope:read", "person-scope:manage",
                     "mentor:qualification-manage", "mentor:read", "mentor:create", "mentor:profile-maintain", "mentor:qualification-decide", "mentor:binding-manage", "points:acceptance-manage",
-                    "points:read", "points:review", "points:adjust", "points:adjust-approve", "activity:registration:dispose", "home-banner:manage", "party-personnel:manage"));
+                    "points:read", "points:review", "points:adjust", "points:adjust-approve", "activity:registration:dispose", "home-banner:manage", "party-personnel:manage", "party-personnel:read", "party-personnel:add", "party-personnel:profile-maintain", "party-personnel:remove", "party-personnel:roster-verify", "party-personnel:binding-manage"));
             return Set.copyOf(codes);
         } catch (IOException e) {
             throw new IllegalStateException("Cannot load implemented management support", e);

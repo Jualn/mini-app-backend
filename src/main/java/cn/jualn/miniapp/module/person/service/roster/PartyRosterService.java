@@ -518,8 +518,18 @@ public class PartyRosterService {
             effects.add(new PartyPersonnelPlans.Effect(++sequence, organization, null, member.realName(),
                     List.of(reverseAction(decision == null ? "DEFER" : decision.action()))));
         }
+        requireEffects(actor,organization,effects.stream().map(PartyPersonnelPlans.Effect::actions).toList(),command.review()!=null,at);
         var digest = secrets.digest("party-workbook-preview", encode(List.of(batch.getPlanFingerprint(), command, effects)));
         return new WorkbookPreview(digest, batch.getPlanExpiresAt(), etag(batch.getRevision()), effects, changes);
+    }
+
+    private void requireEffects(long actor,String organization,List<List<String>> effects,boolean review,LocalDateTime at) {
+        if(review) access.requireOperation(actor,organization,"VERIFY_ROSTER",at);
+        for(var actions:effects) {
+            if(actions.contains("CREATE") || actions.contains("JOIN")) access.requireOperation(actor,organization,"ADD",at);
+            if(actions.contains("CORRECT")) access.requireOperation(actor,organization,"MAINTAIN_PROFILE",at);
+            if(actions.contains("REMOVE")) access.requireOperation(actor,organization,"REMOVE",at);
+        }
     }
 
     private static String reverseAction(String action) {
@@ -598,6 +608,8 @@ public class PartyRosterService {
                 .anyMatch(input -> "BLOCKED".equals(resolution(actor, row, input, c.evaluatedAt()).outcome()));
         var effects = new ArrayList<>(parsed.stream().map(input -> importEffect(actor, row, input,
                 skipped.contains(input.rowNumber()), c, changes.get(input.rowNumber()))).toList());
+        requireEffects(actor,row.getOrganizationId(),effects.stream().map(QualificationBO.ImportEffect::actions).toList(),full,c.evaluatedAt());
+        for(var decision:decisions.values()) if("REMOVE".equals(decision.action())) access.requireOperation(actor,row.getOrganizationId(),"REMOVE",c.evaluatedAt());
         if (complete) for (var member : businessScopes.registeredRoster(row.getOrganizationId(), c.evaluatedAt()))
             retained.put(member.personId(), member.membershipId());
         var before=project(row,c.evaluatedAt());
@@ -673,6 +685,7 @@ public class PartyRosterService {
         one(facts.advanceEpoch(Long.parseLong(c.authorityVersion())));
         finish(actor,row,true);
         ManagedPersonService.recheckBeforeCommit(() -> {
+            requireEffects(actor,row.getOrganizationId(),effects.stream().map(QualificationBO.ImportEffect::actions).toList(),full,facts.now());
             var at = facts.now();
             for (var member : appliedCycles.entrySet()) {
                 if (!member.getValue().equals(currentRegisteredCycle(row.getOrganizationId(), member.getKey(), at)))
@@ -819,6 +832,7 @@ public class PartyRosterService {
         var c = readers.open(cn.jualn.miniapp.module.person.service.access.PersonAuthorityGate.Access.EXCLUSIVE, actor);
         access.capabilities(actor, true, c.evaluatedAt());
         var row = entryRow(id);
+        access.requireOperation(actor,row.getOrganizationId(),"MAINTAIN_PROFILE",c.evaluatedAt());
         if (!access.entry(actor, row, true, c.evaluatedAt())) throw problem(HttpStatus.NOT_FOUND, "not-found");
         var replay = journal.replay(actor, "correctPartyRosterEntry", id, key, command, Entry.class);
         if (replay != null) return replay;
@@ -841,7 +855,7 @@ public class PartyRosterService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void beforeCommit(boolean readOnly) {
-                access.capabilities(actor, true, facts.now());
+                access.requireOperation(actor,row.getOrganizationId(),"MAINTAIN_PROFILE",facts.now());
                 if (!access.entry(actor, row, true, facts.now())) throw problem(HttpStatus.NOT_FOUND, "not-found");
             }
         });
@@ -900,6 +914,7 @@ public class PartyRosterService {
         if (row == null || row.getCreator() != actor || !access.organization(actor, row.getOrganizationId(), write, at))
             throw problem(HttpStatus.NOT_FOUND, "not-found");
         if (mapper.importCorruption(id) != 0) throw unavailable();
+        if(write) access.requireImport(actor,row.getOrganizationId(),at);
         return row;
     }
 

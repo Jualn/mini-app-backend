@@ -12,12 +12,12 @@ import static cn.jualn.miniapp.module.authorization.model.RbacModels.*;
 class UnifiedR3PolicyTest {
     @Test void everyRegisteredTemplateHasAnOwnerButMissingRuntimeDefinitionsRemainClosed() {
         var catalog=new RbacCatalog();var duties=new UnifiedDutyCatalog(catalog);
-        assertEquals(42,duties.templates().size());assertTrue(duties.templates().stream().allMatch(t->duties.supported(t.dutyCode())));
+        assertEquals(48,duties.templates().size());assertTrue(duties.templates().stream().allMatch(t->duties.supported(t.dutyCode())));
         for(var t:duties.templates()) if(PlatformDutyPolicy.supports(t.dutyCode())) {
             var valid=new UnifiedModels.Selection(t.dutyCode(),new UnifiedModels.Target("PLATFORM",null,null),"2027-01-01T00:00:00Z",null);
             assertTrue(PlatformDutyPolicy.matches(t,valid),t.dutyCode());
             assertFalse(PlatformDutyPolicy.matches(t,new UnifiedModels.Selection(t.dutyCode(),new UnifiedModels.Target("GLOBAL",null,null),valid.expiresAt(),null)));
-            assertEquals(Set.of("POST_MODERATE","POST_SAFETY_REVIEW","REPORT_HANDLE").contains(t.dutyCode()),PlatformDutyPolicy.matches(t,new UnifiedModels.Selection(t.dutyCode(),new UnifiedModels.Target("ORGANIZATION",null,"a"),valid.expiresAt(),null)));
+            assertEquals(t.dutyCode().startsWith("PARTY_PERSONNEL_") || Set.of("POST_MODERATE","POST_SAFETY_REVIEW","REPORT_HANDLE").contains(t.dutyCode()),PlatformDutyPolicy.matches(t,new UnifiedModels.Selection(t.dutyCode(),new UnifiedModels.Target("ORGANIZATION",null,"a"),valid.expiresAt(),null)));
             assertFalse(PlatformDutyPolicy.matches(t,new UnifiedModels.Selection(t.dutyCode(),valid.target(),valid.expiresAt(),List.of(valid.target()))));
             assertFalse(duties.ready(t.dutyCode(),List.of(),List.of()));
         }

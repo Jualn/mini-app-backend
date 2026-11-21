@@ -39,7 +39,7 @@ class PartyPersonnelDirectoryTest {
         var identifiers = new ManagedPersonIdentifierService(readers, mapper, persons, mock(ManagedPersonAccess.class),
                 mock(ManagedPersonJournal.class), secrets,
                 new PersonIdentifierNamespaces("CAMPUS_STUDENT_NUMBER", "学号"));
-        var directory = new PartyPersonnelDirectory(corrections, readers, mapper, access, authorization, persons, identifiers);
+        var directory = new PartyPersonnelDirectory(corrections, readers, mapper, access, authorization, persons, identifiers, org.mockito.Mockito.mock(cn.jualn.miniapp.module.person.mapper.PersonnelAccountMapper.class));
 
         var context = mock(PersonReadContext.class);
         var at = LocalDateTime.of(2026, 11, 17, 0, 0);

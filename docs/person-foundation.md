@@ -14,7 +14,7 @@ Person 生命周期、当前身份、组织成员、来源证据、完整性、R
 
 标识按固定技术命名空间登记、更正、撤销。默认学号命名空间为 `CAMPUS_STUDENT_NUMBER`，可通过 `people-qualification.student-number-namespace` 和 `student-number-display-name` 显式配置。学号仅 trim，保留大小写、前导零与内部字符。更正、撤销均保留旧值永久占用；数据库唯一键裁决并发。首期不允许跨人转移、自动合并或业务搬迁。
 
-HMAC 匹配与 AES-GCM 加密沿用 `PersonPrivateData` 的安全 owner 和独立密钥配置；缺失/错误密钥失败关闭。完整原值只在独立授权的受控核对渠道解密，不进入普通响应、URL、日志。党建人员目录列表和详情在当前 `party-personnel:manage` 及精确组织范围内作为受控核对渠道，通过 `studentNumber` 返回当前已核实完整学号，同时保留 `studentNumberMasked`；普通来源、历史与错误仍不得返回完整学号。不能直接替换密钥导致历史密文不可读或摘要无法匹配。
+HMAC 匹配与 AES-GCM 加密沿用 `PersonPrivateData` 的安全 owner 和独立密钥配置；缺失/错误密钥失败关闭。完整原值只在独立授权的受控核对渠道解密，不进入普通响应、URL、日志。党建人员目录列表和详情在当前任一党建人员操作及精确组织范围内作为受控核对渠道，通过 `studentNumber` 返回当前已核实完整学号，同时保留 `studentNumberMasked`；普通来源、历史与错误仍不得返回完整学号。不能直接替换密钥导致历史密文不可读或摘要无法匹配。
 
 ## 绑定与治理
 
@@ -66,6 +66,14 @@ Mini `createMyPartyIdentityApplication` 只接受正式档案姓名和当前已�
 同号异名及本组织来源快照冲突在预览阻断，提交使用相同判定并重验；重复导入保留既有Person、阶段和有效membershipId，相同来源行通过批次追溯事件复用。来源表示返回 `sourceEffect=TRACE_ONLY`。原文件及可恢复完整单元格的预览按固定期限清理：未提交为expiresAt后24小时、已提交为提交后24小时；清理只移除密文和临时计划，文件读取410 roster-file-unavailable，正式事实、来源行、映射、摘要、历史与成功收据保留。
 
 上传命令沿用短事务收据登记、事务外解析、短事务原子完成的恢复边界；未知结果保留原 body/key，只读查询后恢复。成功收据不随预览过期删除。来源更正不能跨人转移标识或自动覆盖 Person 姓名。
+
+### 党建业务操作与账号办理
+
+党建人员按查看、添加、资料维护、移出、完整名单核验、账号关联六项独立职责判权，组织精确匹配且不递归。任一操作包含完成该业务所需的受限读取，不能取得全局人员或账号目录能力。RosterAccess 统一范围与可操作投影；PartyPersonnelPlans 和 PartyRosterService 按实际效果分别校验，预览、提交及事务结束前重验。上传和映射只允许添加、资料维护或核验操作；账号关联或移出权限不产生导入写能力。旧总职责保留原能力，不自动包含账号关联。
+
+当前已证明的成员可在业务范围内更正获准字段，不要求先核实完整个人组织集合；已登记共享关系须由同一合法范围覆盖，争议、损坏来源及历史本人治理仍阻断。canRemove、canAddAffiliation、editableFields 和 allowedOperations 共同投影当前可办理动作，不单凭页面总权限开放入口。
+
+PersonnelAccountBO / PersonnelAccountMapper 与 ManagedPersonBindingService 是导师和党建共用的账号办理机制。党建专用入口检查当前组织成员及账号关联操作，强 ETag 关联当前成员周期；关联、更换、解除仍维护同一个 Person 的唯一账号槽、ADMIN_MANUAL 核实证明、永久幂等收据和不可变历史，不产生党建专有绑定或更换 Person。对引用同一档案的其他业务同步生效。目录定义由前向 V100 发布，未部署环境不视为已启用。
 
 ## 导师与正式答疑
 

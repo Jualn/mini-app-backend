@@ -100,7 +100,7 @@ public class UnifiedAuthorizationService {
                     List<Target> targets = new ArrayList<>();
                     if(t.targetTypes().contains("PLATFORM"))targets.add(new Target("PLATFORM",null,null));
                     if(t.targetTypes().contains("ORGANIZATION"))targets.addAll(persons.organizations().stream()
-                            .filter(id -> !"PARTY_ORG_PERSONNEL_MANAGE".equals(t.dutyCode()) || persons.isActivePartyOrganization(id))
+                            .filter(id -> !(t.dutyCode().startsWith("PARTY_PERSONNEL_") || "PARTY_ORG_PERSONNEL_MANAGE".equals(t.dutyCode())) || persons.isActivePartyOrganization(id))
                             .map(id->new Target("ORGANIZATION",null,id)).toList());
                     if (!targets.isEmpty())
                         options.add(new Option(t.dutyCode(), t.roleCode(), t.namespace(), catalog.rolePermissions(t.roleCode(), t.namespace()), targets,
@@ -150,7 +150,7 @@ public class UnifiedAuthorizationService {
         if(source.ceilings()!=null && !Set.of("POST_MODERATE","POST_SAFETY_REVIEW","REPORT_HANDLE").contains(duty) && source.ceilings().stream().anyMatch(x->"PLATFORM".equals(x.target().type())))ceilings=null;
         String binding=candidateBinding(source,List.of("targets",authority,duty,type==null?"":type,q==null?"":q,size));
         long offset=candidateOffset(actor,binding,cursor,c.at());
-        var rows=candidates.targets(ceilings,types,"POINTS_CORRECTION".equals(duty),"PARTY_ORG_PERSONNEL_MANAGE".equals(duty),"MENTOR".equals(t.namespace()),
+        var rows=candidates.targets(ceilings,types,"POINTS_CORRECTION".equals(duty),(duty.startsWith("PARTY_PERSONNEL_") || "PARTY_ORG_PERSONNEL_MANAGE".equals(duty)),"MENTOR".equals(t.namespace()),
                 catalog.role(t.roleCode()).name()+" · 平台",q,offset,size+1);
         boolean more=rows.size()>size;if(more)rows=rows.subList(0,size);
         var items=rows.stream().map(x->new UnifiedModels.TargetOption(new Target(x.type(),x.personId(),x.organizationId()),
@@ -575,7 +575,7 @@ public class UnifiedAuthorizationService {
         var t = duties.template(s.dutyCode());
         if (!ready(s.dutyCode())) throw unavailable();
         if (s.target() == null || !t.targetTypes().contains(s.target().type())) throw RbacProblems.invalid("target");
-        if ("PARTY_ORG_PERSONNEL_MANAGE".equals(s.dutyCode()) && "ORGANIZATION".equals(s.target().type())
+        if ((s.dutyCode().startsWith("PARTY_PERSONNEL_") || "PARTY_ORG_PERSONNEL_MANAGE".equals(s.dutyCode())) && "ORGANIZATION".equals(s.target().type())
                 && !persons.isActivePartyOrganization(s.target().organizationId())) throw missing();
         if ("MENTOR".equals(t.namespace()) && "PERSON".equals(s.target().type())) persons.requireMentor(s.target().personId());
         if (checkFuture) future(expiry(s.expiresAt()), at);

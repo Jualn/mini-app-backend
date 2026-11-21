@@ -1,9 +1,9 @@
 package cn.jualn.miniapp.module.person.service.binding;
 
-import cn.jualn.miniapp.module.person.bo.MentorWorkflowBO;
+import cn.jualn.miniapp.module.person.bo.PersonnelAccountBO;
 import cn.jualn.miniapp.module.person.service.qualification.MentorOperationAccess;
 import cn.jualn.miniapp.module.person.mapper.QualificationMapper;
-import cn.jualn.miniapp.module.person.mapper.MentorWorkflowMapper;
+import cn.jualn.miniapp.module.person.mapper.PersonnelAccountMapper;
 import cn.jualn.miniapp.module.person.service.facts.PersonFoundationService;
 import cn.jualn.miniapp.module.person.service.facts.PersonFactReaders;
 import cn.jualn.miniapp.module.person.service.facts.PersonReadContext;
@@ -62,7 +62,8 @@ public class ManagedPersonBindingService {
     private final ManagedPersonService profiles;
     private final MentorOperationAccess mentorAccess;
     private final QualificationMapper mentorRecords;
-    private final MentorWorkflowMapper mentorCandidates;
+    private final PersonnelAccountMapper accountCandidates;
+    private final cn.jualn.miniapp.module.person.service.roster.RosterAccess partyAccess;
 
     public Result<Binding> createUserPersonBinding(long actor, Bind input, String key) {
         var command = normalize(input); long user = PersonFoundationService.userId(command.userId());
@@ -198,10 +199,33 @@ public class ManagedPersonBindingService {
                 "etag", receipt.getEtag(), "location", receipt.getLocation());
     }
 
-    public Result<MentorWorkflowBO.BindingView> getMentorBinding(long actor, String person) {
+    public Result<PersonnelAccountBO.BindingView> getMentorBinding(long actor, String person) {
         var c=readers.open(actor); mentorBindingAccess(actor,person,c.evaluatedAt());
-        var value=mentorBinding(person,c.evaluatedAt());
+        var value=accountBinding(person,c.evaluatedAt());
         return new Result<>(value,"\""+value.version()+"\"",null,200);
+    }
+
+    public Result<PersonnelAccountBO.BindingView> getPartyBinding(long actor,String organization,String person) {
+        var c=readers.open(actor); partyAccess.requireBinding(actor,organization,person,c.evaluatedAt());
+        var value=businessBinding(person,organization,c.evaluatedAt());
+        return new Result<>(value,"\""+value.version()+"\"",null,200);
+    }
+    public Result<PersonnelAccountBO.BindingView> changePartyBinding(long actor,String organization,String person,
+            PersonnelAccountBO.BindingChange input,String key,String match) {
+        return changeBusinessBinding(actor,organization,person,input,key,match);
+    }
+    private record PartyBindingCommand(String organizationId,PersonnelAccountBO.BindingChange change) {}
+    private void businessBindingAccess(long actor,String organization,String person,LocalDateTime at) {
+        if(organization==null) mentorBindingAccess(actor,person,at);
+        else partyAccess.requireBinding(actor,organization,person,at);
+    }
+    private PersonnelAccountBO.BindingView businessBinding(String person,String organization,LocalDateTime at) {
+        var view=accountBinding(person,at);
+        if(organization==null) return view;
+        var cycle=facts.partyMembers(new cn.jualn.miniapp.module.person.mapper.PersonMapper.PartyMembers(organization,at,null,null,person,1,0));
+        if(cycle.isEmpty()) throw missing();
+        return new PersonnelAccountBO.BindingView(person,view.userId(),view.nickname(),view.bindingId(),
+                view.version()+":"+cycle.get(0).membershipId(),view.evaluatedAt());
     }
 
     private void mentorBindingAccess(long actor,String person,LocalDateTime at) {
@@ -209,28 +233,34 @@ public class ManagedPersonBindingService {
         if(mentorRecords.mentor(person)==null) throw missing();
     }
 
-    private MentorWorkflowBO.BindingView mentorBinding(String person,LocalDateTime at) {
+    private PersonnelAccountBO.BindingView accountBinding(String person,LocalDateTime at) {
         var p=profiles.required(person); var row=persons.personBinding(person);
         String version="mentor-binding:"+p.getRevision()+":"+p.getBindingRevision();
-        return new MentorWorkflowBO.BindingView(person,row==null?null:Long.toString(row.getUserId()),
-                row==null?null:mentorCandidates.nickname(row.getUserId()),row==null?null:row.getId(),version,at.toInstant(java.time.ZoneOffset.UTC));
+        return new PersonnelAccountBO.BindingView(person,row==null?null:Long.toString(row.getUserId()),
+                row==null?null:accountCandidates.nickname(row.getUserId()),row==null?null:row.getId(),version,at.toInstant(java.time.ZoneOffset.UTC));
     }
 
-    private record MentorBindingReceipt(MentorWorkflowBO.BindingView view, Binding binding) {}
+    private record PersonnelBindingReceipt(PersonnelAccountBO.BindingView view, Binding binding) {}
 
-    public Result<MentorWorkflowBO.BindingView> changeMentorBinding(long actor,String person,
-            MentorWorkflowBO.BindingChange input,String key,String match) {
+    public Result<PersonnelAccountBO.BindingView> changeMentorBinding(long actor,String person,
+            PersonnelAccountBO.BindingChange input,String key,String match) {
+        return changeBusinessBinding(actor,null,person,input,key,match);
+    }
+    private Result<PersonnelAccountBO.BindingView> changeBusinessBinding(long actor,String organization,String person,
+            PersonnelAccountBO.BindingChange input,String key,String match) {
         key(key);
         if(input==null || input.action()==null || !java.util.Set.of("ASSOCIATE","END").contains(input.action())
                 || "ASSOCIATE".equals(input.action()) && input.userId()==null || "END".equals(input.action()) && input.userId()!=null) throw invalid("body");
-        var command=new MentorWorkflowBO.BindingChange(input.action(),input.userId(),
+        var command=new PersonnelAccountBO.BindingChange(input.action(),input.userId(),
                 text(input.reason(),2000,"reason"),text(input.verificationReference(),256,"verificationReference"));
         long user=input.userId()==null?actor:PersonFoundationService.userId(input.userId());
         var c=readers.open(cn.jualn.miniapp.module.person.service.access.PersonAuthorityGate.Access.EXCLUSIVE,actor,user);
-        mentorBindingAccess(actor,person,c.evaluatedAt());
-        var prior=journal.replay(actor,"changeMentorAccountBinding",person,key,command,MentorBindingReceipt.class);
+        businessBindingAccess(actor,organization,person,c.evaluatedAt());
+        String operation=organization==null?"changeMentorAccountBinding":"changePartyPersonnelAccountBinding";
+        Object intent=organization==null?command:new PartyBindingCommand(organization,command);
+        var prior=journal.replay(actor,operation,person,key,intent,PersonnelBindingReceipt.class);
         if(prior!=null) return new Result<>(prior.value().view(),prior.etag(),null,200);
-        var before=mentorBinding(person,c.evaluatedAt());
+        var before=businessBinding(person,organization,c.evaluatedAt());
         if(match==null) throw problem(HttpStatus.PRECONDITION_REQUIRED,"precondition-required");
         if(!match.matches("\"[^\"\\r\\n]+\"")) throw invalid("If-Match");
         if(!("\""+before.version()+"\"").equals(match)) throw problem(HttpStatus.PRECONDITION_FAILED,"precondition-failed");
@@ -249,14 +279,14 @@ public class ManagedPersonBindingService {
             var bind=new Bind(person,Long.toString(user),ManagedPersonService.profileVersion(profiles.required(person)),personSlot(person),accountSlot(user),command.reason(),command.verificationReference());
             started=start(actor,bind,receipt,c.evaluatedAt()); event=started.getId();
         } else event=endedEvent;
-        var value=mentorBinding(person,c.evaluatedAt());
+        var value=businessBinding(person,organization,c.evaluatedAt());
         var result=new Result<>(value,"\""+value.version()+"\"",null,200);
-        var saved=new MentorBindingReceipt(value,binding(started==null?current:started));
-        journal.complete(actor,"changeMentorAccountBinding",person,key,command,receipt,event,
+        var saved=new PersonnelBindingReceipt(value,binding(started==null?current:started));
+        journal.complete(actor,operation,person,key,intent,receipt,event,
                 new Result<>(saved,result.etag(),null,started==null?200:201),c.evaluatedAt());
         one(facts.advanceEpoch(Long.parseLong(c.authorityVersion())));
         ManagedPersonService.recheckBeforeCommit(() -> {
-            mentorBindingAccess(actor,person,facts.now());
+            businessBindingAccess(actor,organization,person,facts.now());
             if("ASSOCIATE".equals(command.action())) access.usable(user,facts.now());
         });
         return result;

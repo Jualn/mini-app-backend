@@ -354,7 +354,7 @@ public class PersonFoundationService {
     public void removeReviewedMember(long actor, String organization, String person, String membership,
                                      String reason, String reference, String key, PersonReadContext context) {
         var at = context.evaluatedAt();
-        if (!rosterAccess.canManage(actor, organization, at)) throw missing();
+        rosterAccess.requireOperation(actor,organization,"REMOVE",at);
         self(actor, person);
         var h = head(person);
         var rows = new ArrayList<>(mapper.memberships(person));
@@ -455,7 +455,7 @@ public class PersonFoundationService {
     }
 
     private void localAccess(long actor, String organization, boolean write, LocalDateTime now) {
-        if (rosterAccess != null && rosterAccess.canManage(actor, organization, now)) return;
+        if (rosterAccess != null && (write ? rosterAccess.canManage(actor,organization,now) : rosterAccess.canRead(actor,organization,now))) return;
         requireGeneralLocalAccess(actor, organization, write, now);
     }
 

@@ -44,7 +44,7 @@ public class RosterUploadCommands {
     private final PersonnelJournal journal;
     private final cn.jualn.miniapp.module.person.service.profile.PersonIdentifierNamespaces namespaces;
     public UploadReservation reserve(long actor,String organization,String source,byte[] bytes,String key) {
-        var c=readers.open(cn.jualn.miniapp.module.person.service.access.PersonAuthorityGate.Access.EXCLUSIVE,actor);access.requireOrganization(actor,organization,true,c.evaluatedAt());access.active(organization);key(key);
+        var c=readers.open(cn.jualn.miniapp.module.person.service.access.PersonAuthorityGate.Access.EXCLUSIVE,actor);access.requireOrganization(actor,organization,true,c.evaluatedAt());access.requireImport(actor,organization,c.evaluatedAt());access.active(organization);key(key);
         var command=new UploadFingerprint(organization,text(source,256,"sourceReference"),secrets.digest("workbook",Base64.getEncoder().encodeToString(bytes)));
         var prior=facts.receipt(actor,"createPartyRosterImport",organization,key);
         if(prior!=null && !journal.fingerprint(command).equals(prior.getFingerprint())) throw problem(org.springframework.http.HttpStatus.CONFLICT,"people-idempotency-conflict");
@@ -60,7 +60,7 @@ public class RosterUploadCommands {
         return new UploadReservation(command,null);
     }
     public Resource<Import> complete(long actor,UploadFingerprint command,byte[] bytes,List<Column> columns,String key) {
-        var c=readers.open(cn.jualn.miniapp.module.person.service.access.PersonAuthorityGate.Access.EXCLUSIVE,actor);access.requireOrganization(actor,command.organizationId(),true,c.evaluatedAt());access.active(command.organizationId());
+        var c=readers.open(cn.jualn.miniapp.module.person.service.access.PersonAuthorityGate.Access.EXCLUSIVE,actor);access.requireOrganization(actor,command.organizationId(),true,c.evaluatedAt());access.requireImport(actor,command.organizationId(),c.evaluatedAt());access.active(command.organizationId());
         var replay=journal.replay(actor,"createPartyRosterImport",command.organizationId(),key,command,Import.class);if(replay!=null) return replay;
         var pending=facts.receipt(actor,"createPartyRosterImport",command.organizationId(),key);
         if(pending==null || pending.getStatus()!=202 || !journal.fingerprint(command).equals(pending.getFingerprint())) throw unavailable();
@@ -70,7 +70,7 @@ public class RosterUploadCommands {
         row.setNamespace(namespaces.items().get(0).namespace());row.setLastEventId(id());
         var result=journal.append(actor,"createPartyRosterImport",row.getId(),key,command,row.getLastEventId(),"ROSTER_IMPORT",1,null,PartyRosterService.project(row,c.evaluatedAt()),
             "Upload roster source",command.sourceReference(),"ADMIN_VERIFIED_SOURCE",command.sourceReference(),1L,actor,c.evaluatedAt(),201,"/v1/admin/party-roster-imports/"+row.getId());
-        one(mapper.insertImport(row));access.requireOrganization(actor,command.organizationId(),true,facts.now());access.active(command.organizationId());return result;
+        one(mapper.insertImport(row));access.requireOrganization(actor,command.organizationId(),true,facts.now());access.requireImport(actor,command.organizationId(),facts.now());access.active(command.organizationId());return result;
     }
     public void abandonKnownParseFailure(long actor,UploadFingerprint command,String key) {
         mapper.abandonUpload(actor,command.organizationId(),key,journal.fingerprint(command));

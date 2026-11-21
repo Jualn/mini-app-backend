@@ -44,8 +44,8 @@ class UnifiedFinalDatabaseTest extends ManagedPersonDatabaseHttpTest {
     }
     void revoke(String type,String id){var i=new Intent("REVOKE",null,null,null,type,id,"isolated withdrawal");var p=unified().preview(1,i,key());unified().commit(1,new Commit(p.previewId(),i),key());}
     @Test void unifiedFinalCatalogOrdinaryAccountsAndPersonReadiness() {
-        assertEquals(66,count("rbac_permission_definition"));assertEquals(27,count("rbac_role"));
-        assertEquals(36,context.getBean(UnifiedDutyCatalog.class).templates().size());
+        assertEquals(78,count("rbac_permission_definition"));assertEquals(39,count("rbac_role"));
+        assertEquals(48,context.getBean(UnifiedDutyCatalog.class).templates().size());
         assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM rbac_role_permission WHERE role_code IN ('REGISTRATION_READER','REGISTRATION_EXPORTER','EVENT_OPERATOR') AND permission_code='activity:registration:dispose'",Integer.class));
         long user=user();assertFalse(reader().read(user).canUseAdmin());assertTrue(reader().read(user).grants().isEmpty());
         for(int scalar:List.of(1,2,3)){db.update("UPDATE user_profile SET role=? WHERE id=?",scalar,user);assertFalse(reader().read(user).canUseAdmin());}
@@ -293,16 +293,16 @@ class UnifiedFinalDatabaseTest extends ManagedPersonDatabaseHttpTest {
         assertTrue(workflow.candidates(creator,"Accountless mentor",1,20).items().stream().anyMatch(c->c.personId().equals(p)));
         grant(1,binder,root(),"MENTOR_BINDING_MANAGE",new Target("PERSON",p,null));
         var initial=bindings.getMentorBinding(binder,p);
-        var associate=new cn.jualn.miniapp.module.person.bo.MentorWorkflowBO.BindingChange("ASSOCIATE",Long.toString(accountA),"verified","source-a");
+        var associate=new cn.jualn.miniapp.module.person.bo.PersonnelAccountBO.BindingChange("ASSOCIATE",Long.toString(accountA),"verified","source-a");
         var linked=bindings.changeMentorBinding(binder,p,associate,key(),initial.etag());
         String original=linked.value().bindingId();assertNotNull(original);
         assertEquals(1,context.getBean(cn.jualn.miniapp.module.person.mapper.ManagedPersonMapper.class).confirmedAdminBinding(original));
-        var next=new cn.jualn.miniapp.module.person.bo.MentorWorkflowBO.BindingChange("ASSOCIATE",Long.toString(accountB),"verified","source-b");
+        var next=new cn.jualn.miniapp.module.person.bo.PersonnelAccountBO.BindingChange("ASSOCIATE",Long.toString(accountB),"verified","source-b");
         assertEquals(412,assertThrows(ContractProblemException.class,()->bindings.changeMentorBinding(binder,p,next,key(),initial.etag())).getStatus().value());
         var changed=bindings.changeMentorBinding(binder,p,next,key(),linked.etag());
         assertEquals(p,changed.value().personId());assertNotEquals(original,changed.value().bindingId());
         assertEquals("ENDED",db.queryForObject("SELECT status FROM person_account_binding WHERE id=?",String.class,original));
-        var end=new cn.jualn.miniapp.module.person.bo.MentorWorkflowBO.BindingChange("END",null,"verified","source-end");
+        var end=new cn.jualn.miniapp.module.person.bo.PersonnelAccountBO.BindingChange("END",null,"verified","source-end");
         bindings.changeMentorBinding(binder,p,end,key(),changed.etag());
         assertNull(bindings.getMentorBinding(binder,p).value().userId());
         assertEquals("NOT_GRANTED",mentors.get(binder,p).value().qualificationStatus());
@@ -320,14 +320,143 @@ class UnifiedFinalDatabaseTest extends ManagedPersonDatabaseHttpTest {
         long user=user();
         var options=wire("GET","/v1/admin/mentors/"+person+"/account-options?q="+user,null,null,null,"application/json",200);
         assertEquals(Long.toString(user),options.body().path("items").get(0).path("userId").asText());
-        var command=new cn.jualn.miniapp.module.person.bo.MentorWorkflowBO.BindingChange("ASSOCIATE",Long.toString(user),"verified","source");
+        var command=new cn.jualn.miniapp.module.person.bo.PersonnelAccountBO.BindingChange("ASSOCIATE",Long.toString(user),"verified","source");
         String path="/v1/admin/mentors/"+person+"/account-binding",commandKey=key();
         var linked=wire("POST",path,json.writeValueAsString(command),commandKey,initial.etag(),"application/json",200);
         assertEquals(linked.body().path("bindingId"),wire("POST",path,json.writeValueAsString(command),commandKey,initial.etag(),"application/json",200).body().path("bindingId"));
-        wire("POST",path,json.writeValueAsString(new cn.jualn.miniapp.module.person.bo.MentorWorkflowBO.BindingChange("END",null,"verified","source")),key(),"W/"+linked.etag(),"application/json",400);
+        wire("POST",path,json.writeValueAsString(new cn.jualn.miniapp.module.person.bo.PersonnelAccountBO.BindingChange("END",null,"verified","source")),key(),"W/"+linked.etag(),"application/json",400);
         wire("POST",path,"{\"reason\":\"verified\",\"verificationReference\":\"source\"}",key(),linked.etag(),"application/json",400);
         assertEquals(1,context.getBean(cn.jualn.miniapp.module.person.mapper.ManagedPersonMapper.class).confirmedAdminBinding(linked.body().path("bindingId").asText()));
         wire("POST",path,"{\"action\":\"END\",\"personId\":\"forged\",\"reason\":\"verified\",\"verificationReference\":\"source\"}",key(),linked.etag(),"application/json",400);
+    }
+
+    String partyOrg(String name) {
+        return context.getBean(cn.jualn.miniapp.module.person.service.facts.PersonFoundationService.class)
+                .createOrganization(1,new cn.jualn.miniapp.module.person.bo.PersonBO.OrganizationChange(name,"",null,"checked","source","PARTY_BRANCH"),key()).value().organizationId();
+    }
+    String partyRegister(long actor,String org,String name) {
+        var plans=context.getBean(cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.class);
+        var matched=plans.match(actor,org,new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.MatchRequest(name,null,null,null,null,true,null));
+        var req=new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Request("MANUAL",List.of(new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Item("REGISTER",matched.matchToken(),null,null,null,null)),null);
+        var plan=plans.preview(actor,org,req);
+        plans.commit(actor,org,plan.planId(),new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Confirm("verified","source",plan.planToken()),key());
+        return context.getBean(cn.jualn.miniapp.module.person.service.roster.PartyPersonnelDirectory.class).members(actor,org,1,20,name).items().get(0).personId();
+    }
+    @Test void businessAuthorizationPartyReadAndProfileCannotAddRemoveBindOrEscapeScope() throws Exception {
+        var directory=context.getBean(cn.jualn.miniapp.module.person.service.roster.PartyPersonnelDirectory.class);
+        var plans=context.getBean(cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.class);
+        var roster=context.getBean(cn.jualn.miniapp.module.person.service.roster.PartyRosterService.class);
+        String org=partyOrg("ScopedParty"),other=partyOrg("OtherParty");
+        String person=partyRegister(1,org,"ExistingPartyMember");long viewer=user(),editor=user();
+        grant(1,viewer,root(),"PARTY_PERSONNEL_READ",new Target("ORGANIZATION",null,org));
+        grant(1,editor,root(),"PARTY_PERSONNEL_PROFILE_MAINTAIN",new Target("ORGANIZATION",null,org));
+        assertEquals(List.of(org),directory.organizations(viewer,1,100,null,null).items().stream().map(x->x.organizationId()).toList());
+        assertTrue(directory.member(viewer,org,person).editableFields().isEmpty());assertFalse(directory.member(viewer,org,person).canRemove());
+        assertThrows(ContractProblemException.class,()->directory.members(viewer,other,1,20,null));
+        assertThrows(ContractProblemException.class,()->plans.match(viewer,org,new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.MatchRequest("Forbidden",null,null,null,null,true,null)));
+        assertThrows(ContractProblemException.class,()->bindings.getPartyBinding(editor,org,person));
+        var current=directory.member(editor,org,person);assertTrue(current.editableFields().contains("realName"));
+        var correct=new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Request("MANUAL",List.of(new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Item("CORRECT",null,person,current.membershipId(),null,Map.of("realName","UpdatedPartyMember"))),null);
+        var plan=plans.preview(editor,org,correct);plans.commit(editor,org,plan.planId(),new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Confirm("verified","source",plan.planToken()),key());
+        assertEquals("UpdatedPartyMember",directory.member(viewer,org,person).realName());
+        var remove=new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Request("MANUAL",List.of(new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Item("REMOVE",null,person,current.membershipId(),null,null)),null);
+        assertEquals(403,assertThrows(ContractProblemException.class,()->plans.preview(editor,org,remove)).getStatus().value());
+        context.getBean(PersonFoundationDatabaseHttpTest.TestCatalog.class).confirmed=true;
+        long before=count("person_profile");
+        assertEquals(403,assertThrows(ContractProblemException.class,()->importRoster(roster,editor,org,"ImportMustNotAdd",key(),"Class")).getStatus().value());
+        assertEquals(before,count("person_profile"));
+        var foundation=context.getBean(cn.jualn.miniapp.module.person.service.facts.PersonFoundationService.class);
+        foundation.changeLocalMembership(1,person,other,new cn.jualn.miniapp.module.person.bo.PersonBO.LocalMemberChange(cn.jualn.miniapp.module.person.bo.PersonBO.LocalMemberKind.JOIN,"verified","source"),key(),foundation.localMembership(1,person,other).etag());
+        assertTrue(directory.member(editor,org,person).editableFields().isEmpty());
+    }
+    @Test void businessAuthorizationPartyAddTransferAndBindingAreIndependent() throws Exception {
+        var directory=context.getBean(cn.jualn.miniapp.module.person.service.roster.PartyPersonnelDirectory.class);
+        var plans=context.getBean(cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.class);
+        String org=partyOrg("AddParty"),destination=partyOrg("DestinationParty");long adder=user(),binder=user();
+        grant(1,adder,root(),"PARTY_PERSONNEL_ADD",new Target("ORGANIZATION",null,org));
+        String person=partyRegister(adder,org,"AddedPartyMember");
+        assertTrue(directory.member(adder,org,person).editableFields().isEmpty());
+        grant(1,binder,root(),"PARTY_PERSONNEL_BINDING_MANAGE",new Target("ORGANIZATION",null,org));
+        assertTrue(directory.member(binder,org,person).allowedOperations().contains("MANAGE_BINDING"));
+        assertThrows(ContractProblemException.class,()->bindings.getPartyBinding(binder,destination,person));
+        long account=user();var before=bindings.getPartyBinding(binder,org,person);
+        assertEquals(Long.toString(account),directory.accounts(binder,org,person,Long.toString(account),1,8).items().get(0).userId());
+        var cmd=new cn.jualn.miniapp.module.person.bo.PersonnelAccountBO.BindingChange("ASSOCIATE",Long.toString(account),"verified","source");String intent=key();
+        var linked=bindings.changePartyBinding(binder,org,person,cmd,intent,before.etag());
+        assertEquals(linked.value(),bindings.changePartyBinding(binder,org,person,cmd,intent,before.etag()).value());
+        assertEquals(1,context.getBean(cn.jualn.miniapp.module.person.mapper.ManagedPersonMapper.class).confirmedAdminBinding(linked.value().bindingId()));
+        var end=new cn.jualn.miniapp.module.person.bo.PersonnelAccountBO.BindingChange("END",null,"verified","source");
+        assertEquals(412,assertThrows(ContractProblemException.class,()->bindings.changePartyBinding(binder,org,person,end,key(),before.etag())).getStatus().value());
+        bindings.changePartyBinding(binder,org,person,end,key(),linked.etag());assertNull(bindings.getPartyBinding(binder,org,person).value().userId());
+        assertEquals(person,directory.member(adder,org,person).personId());
+        var member=directory.member(adder,org,person);
+        grant(1,adder,root(),"PARTY_PERSONNEL_ADD",new Target("ORGANIZATION",null,destination));
+        var transfer=new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Request("MANUAL",List.of(new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Item("TRANSFER",null,person,member.membershipId(),destination,null)),null);
+        assertEquals(403,assertThrows(ContractProblemException.class,()->plans.preview(adder,org,transfer)).getStatus().value());
+        grant(1,adder,root(),"PARTY_PERSONNEL_REMOVE",new Target("ORGANIZATION",null,org));
+        var plan=plans.preview(adder,org,transfer);plans.commit(adder,org,plan.planId(),new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Confirm("verified","source",plan.planToken()),key());
+        assertThrows(ContractProblemException.class,()->directory.member(binder,org,person));
+        assertThrows(ContractProblemException.class,()->bindings.getPartyBinding(binder,org,person));
+        assertEquals(person,directory.member(adder,destination,person).personId());
+    }
+    @Test void businessAuthorizationPartyHttpUsesStringAccountIdsAndTrustedBinding() throws Exception {
+        String org=partyOrg("HttpParty"),person=partyRegister(1,org,"HttpPartyMember");
+        String base="/v1/admin/party-personnel/organizations/"+org+"/members/"+person;
+        var member=wire("GET",base,null,null,null,"application/json",200);assertTrue(member.body().path("allowedOperations").toString().contains("MANAGE_BINDING"));
+        long account=user();
+        var options=wire("GET",base+"/account-options?q="+account,null,null,null,"application/json",200);
+        assertTrue(options.body().path("items").get(0).path("userId").isTextual());
+        var initial=wire("GET",base+"/account-binding",null,null,null,"application/json",200);
+        var cmd=new cn.jualn.miniapp.module.person.bo.PersonnelAccountBO.BindingChange("ASSOCIATE",Long.toString(account),"verified","source");
+        String body=json.writeValueAsString(cmd),intent=key();
+        var linked=wire("POST",base+"/account-binding",body,intent,initial.etag(),"application/json",200);
+        assertEquals(Long.toString(account),linked.body().path("userId").asText());
+        assertEquals(linked.body().path("bindingId"),wire("POST",base+"/account-binding",body,intent,initial.etag(),"application/json",200).body().path("bindingId"));
+        wire("POST",base+"/account-binding",body,key(),null,"application/json",428);
+        wire("POST",base+"/account-binding",body,key(),"W/"+linked.etag(),"application/json",400);
+    }
+
+    cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Workbook partyWorkbook(long actor,String org,String name,String number) throws Exception {
+        var roster=context.getBean(cn.jualn.miniapp.module.person.service.roster.PartyRosterService.class);
+        byte[] bytes;
+        try(var workbook=new org.apache.poi.xssf.usermodel.XSSFWorkbook();var out=new java.io.ByteArrayOutputStream()) {
+            var sheet=workbook.createSheet("source");var header=sheet.createRow(0);var row=sheet.createRow(1);
+            String[] titles={"name","number","major","stage"},values={name,number,"Class","activist"};
+            for(int i=0;i<4;i++){header.createCell(i).setCellValue(titles[i]);row.createCell(i).setCellValue(values[i]);}
+            workbook.write(out);bytes=out.toByteArray();
+        }
+        var uploaded=roster.upload(actor,org,"verified source","source.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",bytes,key());
+        var mapping=new cn.jualn.miniapp.module.person.bo.QualificationBO.Mapping(0,1,new cn.jualn.miniapp.module.person.bo.QualificationBO.Columns(1,2,3,4),List.of(new cn.jualn.miniapp.module.person.bo.QualificationBO.StageValue("activist","PARTY_ACTIVIST")));
+        var mapped=roster.map(actor,uploaded.value().importId(),mapping,key(),uploaded.etag());
+        var rows=roster.rows(actor,uploaded.value().importId(),1,20,"FULL_REVIEW");
+        return new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Workbook(uploaded.value().importId(),rows.value().planId(),mapped.value().version(),List.of(),new cn.jualn.miniapp.module.person.bo.QualificationBO.ReviewDecision(List.of()),List.of(),List.of());
+    }
+    @Test void businessAuthorizationPartyFullReviewCannotRemoveWithoutRemoveOrCreateWithoutAdd() throws Exception {
+        var roster=context.getBean(cn.jualn.miniapp.module.person.service.roster.PartyRosterService.class);
+        var directory=context.getBean(cn.jualn.miniapp.module.person.service.roster.PartyPersonnelDirectory.class);
+        var plans=context.getBean(cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.class);
+        var foundation=context.getBean(cn.jualn.miniapp.module.person.service.facts.PersonFoundationService.class);
+        context.getBean(PersonFoundationDatabaseHttpTest.TestCatalog.class).confirmed=true;
+        String org=partyOrg("FullReviewParty"),number="001"+user(),otherNumber="002"+user();
+        importRoster(roster,org,"ReviewIncluded",number,"Class");importRoster(roster,org,"ReviewMissing",otherNumber,"Class");
+        long verifier=user(),binder=user(),adder=user();
+        grant(1,verifier,root(),"PARTY_PERSONNEL_ROSTER_VERIFY",new Target("ORGANIZATION",null,org));
+        grant(1,binder,root(),"PARTY_PERSONNEL_BINDING_MANAGE",new Target("ORGANIZATION",null,org));
+        grant(1,adder,root(),"PARTY_PERSONNEL_ADD",new Target("ORGANIZATION",null,org));
+        assertEquals(403,assertThrows(ContractProblemException.class,()->partyWorkbook(binder,org,"ReviewIncluded",number)).getStatus().value());
+        var workbook=partyWorkbook(verifier,org,"ReviewIncluded",number);
+        var missing=directory.members(verifier,org,1,20,"ReviewMissing").items().get(0);
+        var removal=new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Workbook(workbook.importId(),workbook.parsedPlanId(),workbook.version(),List.of(),new cn.jualn.miniapp.module.person.bo.QualificationBO.ReviewDecision(List.of(new cn.jualn.miniapp.module.person.bo.QualificationBO.MissingMemberDecision(missing.membershipId(),"REMOVE",null))),List.of(),List.of());
+        assertEquals(403,assertThrows(ContractProblemException.class,()->plans.preview(verifier,org,new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Request("FULL_REVIEW",null,removal))).getStatus().value());
+        var retain=new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Workbook(workbook.importId(),workbook.parsedPlanId(),workbook.version(),List.of(),new cn.jualn.miniapp.module.person.bo.QualificationBO.ReviewDecision(List.of(new cn.jualn.miniapp.module.person.bo.QualificationBO.MissingMemberDecision(missing.membershipId(),"RETAIN","verified present"))),List.of(),List.of());
+        var plan=plans.preview(verifier,org,new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Request("FULL_REVIEW",null,retain));
+        plans.commit(verifier,org,plan.planId(),new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Confirm("verified","source",plan.planToken()),key());
+        assertEquals("COMPLETE",foundation.rosterCompleteness(verifier,org).value().status());
+        assertEquals(2,directory.members(verifier,org,1,20,null).totalItems());
+        var unauthorizedReview=partyWorkbook(adder,org,"ReviewIncluded",number);
+        assertEquals(403,assertThrows(ContractProblemException.class,()->plans.preview(adder,org,new cn.jualn.miniapp.module.person.service.roster.PartyPersonnelPlans.Request("FULL_REVIEW",null,unauthorizedReview))).getStatus().value());
+        assertEquals(403,assertThrows(ContractProblemException.class,()->importRoster(roster,verifier,org,"VerifyMustNotAdd","003"+user(),"Class")).getStatus().value());
+        assertEquals(2,directory.members(verifier,org,1,20,null).totalItems());
     }
 
     void sessionActor(long actor){

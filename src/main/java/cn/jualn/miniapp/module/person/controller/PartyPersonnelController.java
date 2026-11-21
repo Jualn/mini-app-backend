@@ -26,6 +26,25 @@ public class PartyPersonnelController {
 
     private static final int MAX_WORKFLOW_BODY_BYTES = 16_000_000;
     private final PartyPersonnelPlans plans;
+    private final cn.jualn.miniapp.module.person.service.binding.ManagedPersonBindingService bindings;
+
+    @GetMapping("/v1/admin/party-personnel/organizations/{organizationId}/members/{personId}/account-options")
+    public ResponseEntity<?> accounts(@PathVariable String organizationId,@PathVariable String personId,
+            @RequestParam String q,@RequestParam(defaultValue="1") String page,@RequestParam(defaultValue="20") String pageSize) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(directory.accounts(authentication.actor(),organizationId,personId,q,PersonController.page(page),PersonController.size(pageSize)));
+    }
+    @GetMapping("/v1/admin/party-personnel/organizations/{organizationId}/members/{personId}/account-binding")
+    public ResponseEntity<?> binding(@PathVariable String organizationId,@PathVariable String personId) {
+        var r=bindings.getPartyBinding(authentication.actor(),organizationId,personId);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).eTag(r.etag()).body(r.value());
+    }
+    @PostMapping("/v1/admin/party-personnel/organizations/{organizationId}/members/{personId}/account-binding")
+    public ResponseEntity<?> changeBinding(@PathVariable String organizationId,@PathVariable String personId,@RequestBody byte[] body,
+            @RequestHeader(value="Idempotency-Key",required=false) String key,@RequestHeader(value="If-Match",required=false) String match) {
+        var r=bindings.changePartyBinding(authentication.actor(),organizationId,personId,
+                QualificationController.body(body,cn.jualn.miniapp.module.person.bo.PersonnelAccountBO.BindingChange.class),key,match);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).eTag(r.etag()).body(r.value());
+    }
 
     @PostMapping("/v1/admin/party-personnel/organizations/{organizationId}/matches")
     public ResponseEntity<PartyPersonnelPlans.Match> match(@PathVariable String organizationId, @RequestBody byte[] body) {

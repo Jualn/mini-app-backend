@@ -1,6 +1,7 @@
 package cn.jualn.miniapp.module.person.controller;
 
 import cn.jualn.miniapp.module.person.bo.MentorWorkflowBO;
+import cn.jualn.miniapp.module.person.bo.PersonnelAccountBO;
 import cn.jualn.miniapp.module.person.service.qualification.MentorWorkflowService;
 import cn.jualn.miniapp.module.person.service.binding.ManagedPersonBindingService;
 import org.springframework.http.MediaType;
@@ -250,7 +251,7 @@ public class QualificationController {
     @PostMapping("/v1/admin/mentors/{personId}/account-binding")
     public ResponseEntity<?> changeMentorBinding(@PathVariable String personId,@RequestBody byte[] input,
             @RequestHeader(value="Idempotency-Key",required=false) String key,@RequestHeader(value="If-Match",required=false) String match) {
-        var result=mentorBindings.changeMentorBinding(admin(),personId,body(input,MentorWorkflowBO.BindingChange.class),key,match);
+        var result=mentorBindings.changeMentorBinding(admin(),personId,body(input,PersonnelAccountBO.BindingChange.class),key,match);
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).eTag(result.etag()).body(result.value());
     }
 

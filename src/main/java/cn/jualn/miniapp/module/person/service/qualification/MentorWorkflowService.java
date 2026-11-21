@@ -3,6 +3,7 @@ package cn.jualn.miniapp.module.person.service.qualification;
 import cn.jualn.miniapp.module.person.service.facts.PersonFoundationService;
 import cn.jualn.miniapp.module.person.PersonProblems;
 import cn.jualn.miniapp.module.person.bo.MentorWorkflowBO;
+import cn.jualn.miniapp.module.person.bo.PersonnelAccountBO;
 import cn.jualn.miniapp.module.person.bo.QualificationBO;
 import cn.jualn.miniapp.module.person.mapper.MentorWorkflowMapper;
 import cn.jualn.miniapp.module.person.mapper.QualificationMapper;
@@ -29,6 +30,7 @@ public class MentorWorkflowService {
     private final PersonFactReaders readers;
     private final PersonMapper facts;
     private final MentorWorkflowMapper mapper;
+    private final cn.jualn.miniapp.module.person.mapper.PersonnelAccountMapper accounts;
     private final QualificationMapper mentorRecords;
     private final ManagedPersonService persons;
     private final MentorManagementService mentors;
@@ -59,10 +61,10 @@ public class MentorWorkflowService {
         return result;
     }
 
-    public QualificationBO.Page<MentorWorkflowBO.AccountOption> accounts(long actor,String person,String q,int page,int size) {
+    public QualificationBO.Page<PersonnelAccountBO.AccountOption> accounts(long actor,String person,String q,int page,int size) {
         page(page,size);q=text(q,100,"q");var c=readers.open(actor);
         access.writable(actor,"mentor:binding-manage",person,c.evaluatedAt());
         if(mentorRecords.mentor(person)==null) throw PersonProblems.missing();
-        return new QualificationBO.Page<>(mapper.accounts(q,person,actor,(long)(page-1)*size,size),page,size,mapper.accountCount(q,person,actor),instant(c.evaluatedAt()));
+        return new QualificationBO.Page<>(accounts.accounts(q,person,actor,(long)(page-1)*size,size),page,size,accounts.accountCount(q,person,actor),instant(c.evaluatedAt()));
     }
 }

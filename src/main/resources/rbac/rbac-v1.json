@@ -1,5 +1,5 @@
 {
-  "catalogVersion": "rbac-v1-unified-final-r11",
+  "catalogVersion": "rbac-v1-unified-final-r12",
   "description": "正式后台授权仅ASSIGNMENT；静态状态为登记/验收快照，不证明目标数据库发布。Provider支持、运行Role/Permission ENABLED/READY及真实来源共同决定可用性，不批量启用。已退役或没有管理实现的权限和角色退出当前目录；历史授权与审计事实受迁移保护。",
   "namespaces": [
     "AUTHORIZATION",
@@ -833,6 +833,72 @@
       "readiness": "READY",
       "grantable": true,
       "unavailableReason": null
+    },
+    {
+      "code": "party-personnel:read",
+      "description": "查看人员；仅授权党组织及当前成员，包含完成该操作所需的受限读取，不开放全局人员或账号管理",
+      "namespaces": [
+        "ORGANIZATION"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "party-personnel:add",
+      "description": "添加人员；仅授权党组织及当前成员，包含完成该操作所需的受限读取，不开放全局人员或账号管理",
+      "namespaces": [
+        "ORGANIZATION"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "party-personnel:profile-maintain",
+      "description": "修改人员资料；仅授权党组织及当前成员，包含完成该操作所需的受限读取，不开放全局人员或账号管理",
+      "namespaces": [
+        "ORGANIZATION"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "party-personnel:remove",
+      "description": "移出人员；仅授权党组织及当前成员，包含完成该操作所需的受限读取，不开放全局人员或账号管理",
+      "namespaces": [
+        "ORGANIZATION"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "party-personnel:roster-verify",
+      "description": "核验完整名单；仅授权党组织及当前成员，包含完成该操作所需的受限读取，不开放全局人员或账号管理",
+      "namespaces": [
+        "ORGANIZATION"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "party-personnel:binding-manage",
+      "description": "管理账号关联；仅授权党组织及当前成员，包含完成该操作所需的受限读取，不开放全局人员或账号管理",
+      "namespaces": [
+        "ORGANIZATION"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
     }
   ],
   "roles": [
@@ -1374,6 +1440,90 @@
       ],
       "permissionCodes": [
         "mentor:binding-manage"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "PARTY_PERSONNEL_READER_V1",
+      "name": "查看人员",
+      "namespaces": [
+        "ORGANIZATION"
+      ],
+      "permissionCodes": [
+        "party-personnel:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "PARTY_PERSONNEL_ADDER_V1",
+      "name": "添加人员",
+      "namespaces": [
+        "ORGANIZATION"
+      ],
+      "permissionCodes": [
+        "party-personnel:add"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "PARTY_PERSONNEL_PROFILE_EDITOR_V1",
+      "name": "修改人员资料",
+      "namespaces": [
+        "ORGANIZATION"
+      ],
+      "permissionCodes": [
+        "party-personnel:profile-maintain"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "PARTY_PERSONNEL_REMOVER_V1",
+      "name": "移出人员",
+      "namespaces": [
+        "ORGANIZATION"
+      ],
+      "permissionCodes": [
+        "party-personnel:remove"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "PARTY_PERSONNEL_ROSTER_VERIFIER_V1",
+      "name": "核验完整名单",
+      "namespaces": [
+        "ORGANIZATION"
+      ],
+      "permissionCodes": [
+        "party-personnel:roster-verify"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "PARTY_PERSONNEL_BINDING_MANAGER_V1",
+      "name": "管理账号关联",
+      "namespaces": [
+        "ORGANIZATION"
+      ],
+      "permissionCodes": [
+        "party-personnel:binding-manage"
       ],
       "lifecycle": "ENABLED",
       "readiness": "READY",

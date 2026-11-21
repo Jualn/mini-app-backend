@@ -8,14 +8,4 @@
  <include refid="candidateFrom"/> ORDER BY p.id LIMIT #{limit} OFFSET #{offset}
  </select>
  <select id="candidateCount" resultType="long">SELECT COUNT(*) <include refid="candidateFrom"/></select>
- <sql id="accountFrom">FROM user_profile u WHERE u.deleted_at IS NULL AND u.id&lt;&gt;#{actor}
- AND (LOCATE(#{q},u.nickname)&gt;0 OR CAST(u.id AS CHAR)=#{q})
- AND (u.status=1 OR u.status IN (2,3) AND u.ban_expire_at&lt;=NOW())</sql>
- <select id="accounts" resultType="cn.jualn.miniapp.module.person.bo.MentorWorkflowBO$AccountOption">
- SELECT CAST(u.id AS CHAR) user_id,COALESCE(u.nickname,'') nickname,
- NOT EXISTS(SELECT 1 FROM person_account_binding b WHERE b.user_id=u.id AND b.status='ACTIVE' AND b.person_id&lt;&gt;#{person}) available
- <include refid="accountFrom"/> ORDER BY u.id LIMIT #{limit} OFFSET #{offset}
- </select>
- <select id="accountCount" resultType="long">SELECT COUNT(*) <include refid="accountFrom"/></select>
- <select id="nickname" resultType="string">SELECT COALESCE(nickname,'') FROM user_profile WHERE id=#{user}</select>
 </mapper>
