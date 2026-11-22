@@ -14,6 +14,7 @@ import cn.jualn.miniapp.module.points.bo.PointsBO.AcceptingOrganization;
 import cn.jualn.miniapp.module.points.bo.PointsBO.AcceptingOrganizations;
 import cn.jualn.miniapp.module.points.bo.PointsBO.Acceptance;
 import cn.jualn.miniapp.module.points.bo.PointsBO.Query;
+import cn.jualn.miniapp.module.points.bo.PointsBO.Management;
 import cn.jualn.miniapp.module.points.mapper.PointsMapper;
 import cn.jualn.miniapp.module.points.mapper.PointsR3Mapper;
 import lombok.RequiredArgsConstructor;
@@ -129,15 +130,13 @@ public class PointsAcceptancePolicy {
     }
 
     public Plan applications(long actor, String person, String organization, Query query, PersonReadContext context) {
-        var sources = sources(actor, "POINTS_REVIEW", context.evaluatedAt());
+        var sources = readSources(actor, context.evaluatedAt());
         var targets = sources.stream().map(SourceTarget::target).toList();
-        var corrections = sources(actor, "POINTS_CORRECTION", context.evaluatedAt());
+        var corrections = historicalSources(actor, context.evaluatedAt());
         if (targets.isEmpty() && corrections.isEmpty()) throw missing();
         var plan = new Plan(context, sources, List.of(), person, organization);
         plan.correctionSources = List.copyOf(corrections);
-        if (!targets.isEmpty() && queries.unresolvedApplications(plan, query) != 0)
-            throw unavailable(Dependency.PERSON_RESOLVER);
-        for (var pending : queries.pendingOrganizations(plan, query)) qualified(pending);
+        if (queries.unresolvedApplications(plan, query) != 0) throw unavailable(Dependency.PERSON_RESOLVER);
         return plan;
     }
 
@@ -253,23 +252,79 @@ public class PointsAcceptancePolicy {
         if (app.acceptingOrganizationId() == null || app.membershipId() == null)
             throw unavailable(Dependency.PERSON_RESOLVER);
         if (action == Action.REVERSE || action == Action.CORRECT) {
-            if (app.status() != Status.APPROVED || !correctionAllowed(actor, app, at)) throw missing();
+            if (app.status() != Status.APPROVED || !correctionAllowed(actor, app, action, at)) throw missing();
             return;
         }
-        if (!organizationAllowed(actor, "POINTS_REVIEW", app.acceptingOrganizationId(), at)) {
-            if (action == Action.READ && app.status() == Status.APPROVED && correctionAllowed(actor, app, at)) return;
-            throw missing();
+        if (action == Action.REVIEW || action == Action.MATERIAL_READ) {
+            if (!organizationAllowed(actor, "POINTS_REVIEW", app.acceptingOrganizationId(), at)) throw missing();
+            if (action == Action.REVIEW && app.status() == Status.PENDING && !validBasis(app, context, last))
+                throw conflict("acceptance-unavailable");
+            return;
         }
-        if (app.status() == Status.PENDING && !validBasis(app, context, last)) {
-            if (action == Action.REVIEW) throw conflict("acceptance-unavailable");
-            throw missing();
-        }
+        if (matches(readSources(actor, at), app) || app.status() == Status.APPROVED && matches(historicalSources(actor, at), app)) return;
+        throw missing();
     }
 
-    private boolean correctionAllowed(long actor, Application app, LocalDateTime at) {
-        return targets(actor, "POINTS_CORRECTION", at).stream().anyMatch(t -> "PLATFORM".equals(t.type())
+    private List<SourceTarget> readSources(long actor, LocalDateTime at) {
+        var result = new ArrayList<>(sources(actor, "POINTS_REVIEW", at));
+        result.addAll(sources(actor, "POINTS_APPLICATION_READ", at));
+        return result;
+    }
+
+    private List<SourceTarget> historicalSources(long actor, LocalDateTime at) {
+        var result = new ArrayList<SourceTarget>();
+        for (var code : List.of("POINTS_CORRECTION", "POINTS_GRANT_CORRECT", "POINTS_GRANT_REVOKE", "POINTS_LEDGER_READ"))
+            result.addAll(sources(actor, code, at));
+        return result;
+    }
+
+    private boolean matches(List<SourceTarget> sources, Application app) {
+        return sources.stream().map(SourceTarget::target).anyMatch(t -> "PLATFORM".equals(t.type())
                 || "PERSON".equals(t.type()) && app.personId().equals(t.personId())
                 || "ORGANIZATION".equals(t.type()) && app.acceptingOrganizationId().equals(t.organizationId()));
+    }
+
+    private boolean correctionAllowed(long actor, Application app, Action action, LocalDateTime at) {
+        var decision = authorization.current(actor, at);
+        if (!List.of("points:read", "points:adjust", "points:adjust-approve").stream().allMatch(code -> decision.allows(code, "POINTS"))) return false;
+        return matches(sources(actor, "POINTS_CORRECTION", at), app)
+                || matches(sources(actor, action == Action.CORRECT ? "POINTS_GRANT_CORRECT" : "POINTS_GRANT_REVOKE", at), app);
+    }
+
+    public Management management(long actor, Application app, PersonReadContext context) {
+        var operations = new ArrayList<String>();
+        operations.add("READ_LEDGER");
+        var at = context.evaluatedAt();
+        boolean reviewer = authorization.current(actor, at).allows("points:review", "POINTS")
+                && organizationAllowed(actor, "POINTS_REVIEW", app.acceptingOrganizationId(), at);
+        if (reviewer) operations.add("READ_MATERIALS");
+        String reason = null;
+        boolean own = actor == app.applicantUserId() || persons.historicallyBound(app.personId(), actor);
+        if (app.status() == Status.PENDING && reviewer) {
+            if (own) reason = "SELF_REVIEW_FORBIDDEN";
+            else try {
+                if (validBasis(app, context, false)) operations.add("REVIEW");
+                else reason = "ACCEPTANCE_UNAVAILABLE";
+            } catch (ContractProblemException failure) {
+                if (failure.getStatus() != HttpStatus.SERVICE_UNAVAILABLE) throw failure;
+                reason = "DEPENDENCY_UNAVAILABLE";
+            }
+        }
+        if (!own && app.status() == Status.APPROVED && app.accounting() != null && "EFFECTIVE".equals(app.accounting().status())) {
+            if (correctionAllowed(actor, app, Action.CORRECT, at)) operations.add("CORRECT");
+            if (correctionAllowed(actor, app, Action.REVERSE, at)) operations.add("REVERSE");
+        }
+        return new Management(operations, reason);
+    }
+
+    public Plan organizationPlan(long actor, String view, PersonReadContext context) {
+        boolean accepting = "ACCEPTING".equals(view);
+        var sources = sources(actor, accepting ? "POINTS_STATS_ACCEPTING" : "POINTS_STATS_CURRENT", context.evaluatedAt());
+        if (sources.isEmpty()) throw missing();
+        var directory = accepting ? persons.allOrganizations() : persons.organizations();
+        var allowed = directory.stream().filter(id -> sources.stream().map(SourceTarget::target)
+                .anyMatch(t -> "PLATFORM".equals(t.type()) || id.equals(t.organizationId()))).toList();
+        return new Plan(context, sources, allowed, null, null);
     }
 
     public void ledger(long actor, String person, LocalDateTime at) {

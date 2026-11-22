@@ -1,9 +1,9 @@
 {
-  "catalogVersion": "unified-duty-v1-final-r14",
+  "catalogVersion": "unified-duty-v1-final-r15",
   "rbacCatalogVersion": "rbac-v1-unified-final-r13",
   "businessConfirmation": "docs/coordination/person-identity-org-auth-unified-v1.md",
   "readiness": "NOT_READY",
-  "description": "模板仅映射既有Role×namespace和逐职责业务范围；不是授权事实，不开放Role/Permission编辑。新POINTS_READER_V1只含points:read，不改变旧组合。正式可用性按每个目标环境逐切片验收，不整体开启NOT_READY。 Article组织发布增量仅新增旧内容角色的ARTICLE_EDIT/ARTICLE_PUBLISH组织目标映射，不增加Role/Permission；旧GLOBAL Assignment不自动获组织范围。 2026-10-23全面收口：新增日常工作仅为非生效定义；scopeActions是各业务owning policy执行义务，不是通用权限裁剪器。旧Role/Duty成员与语义保留；新PLATFORM仅该职责明确业务模块，需同源目标，旧GLOBAL不自动获得。 Points V1复用POINTS_MANAGER作为单管理员纠错组合，POINTS_CORRECTION独立按原受理组织或显式PERSON/PLATFORM授权；不改变其他角色/职责。Points切片READY是目标目录定义，实际可用性仍需Provider支持、目标环境匹配发布和验收。 成长记录仅为POST_MODERATE、POST_SAFETY_REVIEW、REPORT_HANDLE增加精确ORGANIZATION目标，原PLATFORM不自动获得成长范围；实际支持仍由Provider目标环境计算。 V1正式来源仅ASSIGNMENT；单ROOT无需普通Duty，但只消费本期支持且运行ENABLED/READY的能力。MENTOR_MANAGE复用既有导师角色，ACTIVITY_REGISTRATION_DISPOSE为独立报名作废职责；两者登记NOT_READY，不自动发布。",
+  "description": "模板仅映射既有Role×namespace和逐职责业务范围；不是授权事实，不开放Role/Permission编辑。新POINTS_READER_V1只含points:read，不改变旧组合。正式可用性按每个目标环境逐切片验收，不整体开启NOT_READY。 Article组织发布增量仅新增旧内容角色的ARTICLE_EDIT/ARTICLE_PUBLISH组织目标映射，不增加Role/Permission；旧GLOBAL Assignment不自动获组织范围。 2026-10-23全面收口：新增日常工作仅为非生效定义；scopeActions是各业务owning policy执行义务，不是通用权限裁剪器。旧Role/Duty成员与语义保留；新PLATFORM仅该职责明确业务模块，需同源目标，旧GLOBAL不自动获得。 Points V1复用POINTS_MANAGER作为单管理员纠错组合，POINTS_CORRECTION独立按原受理组织或显式PERSON/PLATFORM授权；不改变其他角色/职责。Points切片READY是目标目录定义，实际可用性仍需Provider支持、目标环境匹配发布和验收。 成长记录仅为POST_MODERATE、POST_SAFETY_REVIEW、REPORT_HANDLE增加精确ORGANIZATION目标，原PLATFORM不自动获得成长范围；实际支持仍由Provider目标环境计算。 V1正式来源仅ASSIGNMENT；单ROOT无需普通Duty，但只消费本期支持且运行ENABLED/READY的能力。MENTOR_MANAGE复用既有导师角色，ACTIVITY_REGISTRATION_DISPOSE为独立报名作废职责；两者登记NOT_READY，不自动发布。 积分工作台按记录的历史归属授权；POINTS_APPLICATION_READ、POINTS_LEDGER_READ、POINTS_GRANT_CORRECT、POINTS_GRANT_REVOKE分别表示查看申请、查看账务、修改积分、撤销积分，各含必要受限读取。POINTS_CORRECTION保留既有组合能力，不作为新建授权首选；旧完整个人账务不改为局部组织账务。不同范围的操作独立生效，不跨范围拼接。",
   "templates": [
     {
       "dutyCode": "PARTY_ORG_PERSONNEL_MANAGE",
@@ -1470,6 +1470,85 @@
       "readiness": "READY",
       "grantable": true,
       "operationOf": "REPORT_HANDLE"
+    },
+    {
+      "dutyCode": "POINTS_APPLICATION_READ",
+      "roleCode": "POINTS_READER_V1",
+      "namespace": "POINTS",
+      "targetTypes": [
+        "PERSON",
+        "ORGANIZATION",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_APPLICATION"
+      ],
+      "permissionCodes": [
+        "points:read"
+      ],
+      "readiness": "READY",
+      "grantable": true
+    },
+    {
+      "dutyCode": "POINTS_LEDGER_READ",
+      "roleCode": "POINTS_READER_V1",
+      "namespace": "POINTS",
+      "targetTypes": [
+        "PERSON",
+        "ORGANIZATION",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_APPLICATION",
+        "READ_APPLICATION_LEDGER"
+      ],
+      "permissionCodes": [
+        "points:read"
+      ],
+      "readiness": "READY",
+      "grantable": true
+    },
+    {
+      "dutyCode": "POINTS_GRANT_CORRECT",
+      "roleCode": "POINTS_MANAGER",
+      "namespace": "POINTS",
+      "targetTypes": [
+        "PERSON",
+        "ORGANIZATION",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_CORRECTION",
+        "CORRECT_GRANT"
+      ],
+      "permissionCodes": [
+        "points:adjust",
+        "points:adjust-approve",
+        "points:read"
+      ],
+      "readiness": "READY",
+      "grantable": true
+    },
+    {
+      "dutyCode": "POINTS_GRANT_REVOKE",
+      "roleCode": "POINTS_MANAGER",
+      "namespace": "POINTS",
+      "targetTypes": [
+        "PERSON",
+        "ORGANIZATION",
+        "PLATFORM"
+      ],
+      "scopeActions": [
+        "READ_CORRECTION",
+        "REVOKE_GRANT"
+      ],
+      "permissionCodes": [
+        "points:adjust",
+        "points:adjust-approve",
+        "points:read"
+      ],
+      "readiness": "READY",
+      "grantable": true
     }
   ],
   "excludedDailyCombinations": [

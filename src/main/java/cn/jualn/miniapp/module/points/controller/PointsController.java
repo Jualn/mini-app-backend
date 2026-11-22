@@ -126,9 +126,35 @@ public class PointsController {
     @GetMapping("/v1/admin/points/applications")
     public ResponseEntity<PointsVO.Page<PointsVO.Application>> adminApplications(@RequestParam(defaultValue = "1") String page,
                                                                                  @RequestParam(defaultValue = "20") String pageSize, @RequestParam(required = false) String status,
-                                                                                 @RequestParam(required = false) String personId, @RequestParam(required = false) String organizationId) {
-        var result = points.adminApplications(query(page, pageSize, status, null), personId, organizationId);
+                                                                                 @RequestParam(required = false) String personId, @RequestParam(required = false) String organizationId, @RequestParam(required = false) String q) {
+        var base = query(page, pageSize, status, null);
+        var result = points.adminApplications(new PointsBO.Query(base.page(),base.pageSize(),base.status(),null,null,search(q)), personId, organizationId);
         return ok(new PointsVO.Page<>(result.items().stream().map(PointsVO::application).toList(), result.page(), result.pageSize(), result.totalItems()));
+    }
+
+    @GetMapping("/v1/admin/points/ledger")
+    public ResponseEntity<PointsVO.Page<PointsVO.ManagementLedger>> managementLedger(
+            @RequestParam(defaultValue = "1") String page, @RequestParam(defaultValue = "20") String pageSize,
+            @RequestParam(required = false) String kind, @RequestParam(required = false) String applicationId,
+            @RequestParam(required = false) String personId, @RequestParam(required = false) String organizationId,
+            @RequestParam(required = false) String q) {
+        var base = query(page,pageSize,null,kind);
+        var result = points.managementLedgers(new PointsBO.Query(base.page(),base.pageSize(),null,base.kind(),applicationId==null?null:resource(applicationId),search(q)),personId,organizationId);
+        return ok(new PointsVO.Page<>(result.items().stream().map(row -> new PointsVO.ManagementLedger(PointsVO.ledger(row.ledger()),PointsVO.application(row.application()))).toList(),result.page(),result.pageSize(),result.totalItems()));
+    }
+
+    @GetMapping("/v1/admin/points/organization-options")
+    public ResponseEntity<PointsVO.Page<PointsBO.ManagementOrganization>> organizationOptions(
+            @RequestParam String view, @RequestParam(defaultValue = "1") String page,
+            @RequestParam(defaultValue = "20") String pageSize, @RequestParam(required = false) String q) {
+        var result = points.managementOrganizations(view,search(q),query(page,pageSize,null,null));
+        return ok(new PointsVO.Page<>(result.items(),result.page(),result.pageSize(),result.totalItems()));
+    }
+
+    private static String search(String value) {
+        if (value == null || value.isBlank()) return null;
+        if (value.codePointCount(0,value.length()) > 100) throw invalidParameter("query","q");
+        return value.trim();
     }
 
     @GetMapping("/v1/admin/points/statistics/persons")
@@ -148,7 +174,7 @@ public class PointsController {
     @GetMapping("/v1/admin/points/statistics/accepting-organizations")
     public ResponseEntity<PointsVO.AcceptanceStatisticsPage> acceptanceStatistics(@RequestParam(defaultValue = "1") String page, @RequestParam(defaultValue = "20") String pageSize, @RequestParam(required = false) String organizationId) {
         var result = points.acceptanceStatistics(query(page, pageSize, null, null), organizationId);
-        return ok(new PointsVO.AcceptanceStatisticsPage(result.items().stream().map(r -> new PointsVO.AcceptanceStatistics(r.organizationId(), r.applicationCount(), r.balance(), r.totalGranted(), r.totalReversed())).toList(), result.page(), result.pageSize(), result.totalItems(), result.membershipBasis(), PointsVO.time(result.evaluatedAt())));
+        return ok(new PointsVO.AcceptanceStatisticsPage(result.items().stream().map(r -> new PointsVO.AcceptanceStatistics(r.organizationId(), r.applicationCount(), r.balance(), r.totalGranted(), r.totalReversed(), r.organizationName())).toList(), result.page(), result.pageSize(), result.totalItems(), result.membershipBasis(), PointsVO.time(result.evaluatedAt())));
     }
 
     private static Long optionalUser(String user) {

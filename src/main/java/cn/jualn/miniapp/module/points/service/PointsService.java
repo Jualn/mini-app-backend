@@ -385,7 +385,7 @@ public class PointsService {
             dependencies.begin(Action.READ, actor);
             var row = requiredApplication(applicationId);
             dependencies.requireApplication(actor, application(row), Action.READ);
-            return application(row);
+            return managed(actor, row);
         });
     }
 
@@ -442,7 +442,49 @@ public class PointsService {
             dependencies.begin(Action.READ, actor);
             var plan = dependencies.applicationPlan(actor, personId, organizationId, q);
             long count = checkedCount(queries.applicationCount(plan, q));
-            return new Page<>(queries.applications(plan, q).stream().map(this::application).toList(), q.page(), q.pageSize(), count);
+            return new Page<>(queries.applications(plan, q).stream().map(row -> managed(actor, row)).toList(), q.page(), q.pageSize(), count);
+        });
+    }
+
+    private Application managed(long actor, PointApplication row) {
+        var result = application(row);
+        dependencies.requireApplication(actor, result, Action.READ);
+        return result.managed(dependencies.management(actor, result));
+    }
+
+    public Page<PointsBO.ManagementLedger> managementLedgers(Query q, String personId, String organizationId) {
+        outsideTransaction();
+        long actor = dependencies.actor(Action.READ);
+        validate(q);
+        return transaction.execute(status -> {
+            dependencies.begin(Action.READ, actor);
+            var plan = dependencies.applicationPlan(actor, personId, organizationId, q);
+            long count = checkedCount(queries.managementLedgerCount(plan, q));
+            var rows = queries.managementLedgers(plan, q).stream().map(row -> {
+                var app = requiredApplication(row.getApplicationId());
+                if (!java.util.Objects.equals(row.getPersonId(), app.getPersonId())
+                        || !java.util.Objects.equals(row.getAcceptingOrganizationId(), app.getAcceptingOrganizationId())
+                        || !java.util.Objects.equals(row.getMembershipId(), app.getMembershipId())) throw unavailable(Dependency.AUTHORIZATION);
+                dependencies.requireApplication(actor, application(app), Action.READ);
+                return new PointsBO.ManagementLedger(ledger(row), managed(actor, app));
+            }).toList();
+            return new Page<>(rows, q.page(), q.pageSize(), count);
+        });
+    }
+
+    public Page<PointsBO.ManagementOrganization> managementOrganizations(String view, String search, Query q) {
+        outsideTransaction();
+        if (!java.util.Set.of("APPLICATIONS", "LEDGER", "CURRENT", "ACCEPTING").contains(view)) throw invalid("view");
+        if (search != null && search.codePointCount(0, search.length()) > 100) throw invalid("q");
+        long actor = dependencies.actor(Action.READ);
+        validate(q);
+        return transaction.execute(status -> {
+            dependencies.begin(Action.READ, actor);
+            var plan = java.util.Set.of("CURRENT", "ACCEPTING").contains(view)
+                    ? dependencies.organizationPlan(actor, view) : dependencies.applicationPlan(actor, null, null, q);
+            String value = search == null || search.isBlank() ? null : search.trim();
+            return new Page<>(queries.managementOrganizations(plan, view, value, q), q.page(), q.pageSize(),
+                    checkedCount(queries.managementOrganizationCount(plan, view, value)));
         });
     }
 
@@ -457,7 +499,7 @@ public class PointsService {
             var items = queries.personStatistics(plan, q).stream().map(row -> {
                 var totals = PointsAmounts.summary(row.personId(), new Totals(row.granted(), row.reversed()), plan.now());
                 return new PersonStatistics(row.personId(), totals.balance(), totals.totalGranted(), totals.totalReversed(),
-                        checkedCount(row.applicationCount()), checkedCount(row.pendingCount()), checkedCount(row.approvedCount()), checkedCount(row.rejectedCount()), checkedCount(row.closedCount()));
+                        checkedCount(row.applicationCount()), checkedCount(row.pendingCount()), checkedCount(row.approvedCount()), checkedCount(row.rejectedCount()), checkedCount(row.closedCount()), row.personName());
             }).toList();
             return new StatisticsPage<>(items, q.page(), q.pageSize(), count, "CURRENT", plan.now());
         });
@@ -473,7 +515,7 @@ public class PointsService {
             long count = checkedCount(queries.currentOrganizationCount(plan));
             var items = queries.currentStatistics(plan, q).stream().map(row -> {
                 var totals = PointsAmounts.summary(null, new Totals(row.granted(), row.reversed()), plan.now());
-                return new OrganizationStatistics(row.organizationId(), checkedCount(row.participantCount()), totals.balance(), totals.totalGranted(), totals.totalReversed());
+                return new OrganizationStatistics(row.organizationId(), checkedCount(row.participantCount()), totals.balance(), totals.totalGranted(), totals.totalReversed(), dependencies.organizationName(row.organizationId()));
             }).toList();
             return new StatisticsPage<>(items, q.page(), q.pageSize(), count, "CURRENT", plan.now());
         });
@@ -488,7 +530,7 @@ public class PointsService {
             var plan = dependencies.statisticsPlan(actor, organizationId, true);
             var items = queries.acceptanceStatistics(plan, q).stream().map(row -> {
                 var totals = PointsAmounts.summary(null, new Totals(row.granted(), row.reversed()), plan.now());
-                return new AcceptanceStatistics(row.organizationId(), checkedCount(row.applicationCount()), totals.balance(), totals.totalGranted(), totals.totalReversed());
+                return new AcceptanceStatistics(row.organizationId(), checkedCount(row.applicationCount()), totals.balance(), totals.totalGranted(), totals.totalReversed(), dependencies.organizationName(row.organizationId()));
             }).toList();
             return new StatisticsPage<>(items, q.page(), q.pageSize(), checkedCount(plan.organizations().size()), "ACCEPTING_ORGANIZATION", plan.now());
         });
@@ -694,6 +736,7 @@ public class PointsService {
 
     public static void validate(Query q) {
         if (q.page() < 1 || q.pageSize() < 1 || q.pageSize() > 100) throw invalid("page");
+        if (q.search() != null && q.search().codePointCount(0,q.search().length()) > 100) throw invalid("q");
     }
 
     private long checkedCount(long count) {

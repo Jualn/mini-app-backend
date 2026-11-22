@@ -5,9 +5,10 @@
   <if test="p.person()!=null">AND a.person_id=#{p.person}</if>
   <if test="p.organization()!=null">AND a.accepting_organization_id=#{p.organization}</if>
   <if test="q.status!=null">AND a.status=#{q.status}</if>
+  <if test="q.search!=null">AND (LOCATE(#{q.search},a.title)&gt;0 OR EXISTS(SELECT 1 FROM person_profile sp WHERE sp.id=a.person_id AND LOCATE(#{q.search},sp.real_name)&gt;0))</if>
  </sql>
  <sql id="appScope">
-  (FALSE <foreach collection="p.targets()" item="t"> OR (#{t.type}='PLATFORM' OR #{t.type}='ORGANIZATION' AND #{t.organizationId}=a.accepting_organization_id)</foreach> OR (a.status='APPROVED' AND (FALSE <foreach collection="p.correctionTargets()" item="t"> OR (#{t.type}='PLATFORM' OR #{t.type}='PERSON' AND #{t.personId}=a.person_id OR #{t.type}='ORGANIZATION' AND #{t.organizationId}=a.accepting_organization_id)</foreach>)))
+  (FALSE <foreach collection="p.targets()" item="t"> OR (#{t.type}='PLATFORM' OR #{t.type}='PERSON' AND #{t.personId}=a.person_id OR #{t.type}='ORGANIZATION' AND #{t.organizationId}=a.accepting_organization_id)</foreach> OR (a.status='APPROVED' AND (FALSE <foreach collection="p.correctionTargets()" item="t"> OR (#{t.type}='PLATFORM' OR #{t.type}='PERSON' AND #{t.personId}=a.person_id OR #{t.type}='ORGANIZATION' AND #{t.organizationId}=a.accepting_organization_id)</foreach>)))
  </sql>
  <sql id="liveApplication">
   (a.status&lt;&gt;'PENDING' OR (EXISTS(SELECT 1 FROM person_membership m JOIN person_organization o ON o.id=m.organization_id
@@ -16,15 +17,51 @@
    AND EXISTS(SELECT 1 FROM point_organization_acceptance qf JOIN point_acceptance_evidence e ON e.id=qf.evidence_id
     WHERE qf.organization_id=a.accepting_organization_id AND e.organization_id=qf.organization_id AND e.verification='VERIFIED' AND e.enabled=1)))
  </sql>
- <select id="unresolvedApplications" resultType="long">SELECT COUNT(*) FROM point_application a WHERE a.accepting_organization_id IS NULL <if test="p.person()!=null">AND a.person_id=#{p.person}</if><if test="q.status!=null">AND a.status=#{q.status}</if></select>
+ <select id="unresolvedApplications" resultType="long">
+  SELECT COUNT(*) FROM point_application a WHERE <include refid="appScope"/>
+  AND (a.accepting_organization_id IS NULL OR a.membership_id IS NULL OR a.person_id IS NULL)<include refid="appFilters"/>
+ </select>
  <select id="pendingOrganizations" resultType="string">SELECT DISTINCT a.accepting_organization_id FROM point_application a WHERE a.status='PENDING' AND <include refid="appScope"/><include refid="appFilters"/></select>
  <select id="applications" resultType="cn.jualn.miniapp.module.points.entity.PointApplication">
   <bind name="offset" value="q.getOffset()"/>
   SELECT <include refid="cn.jualn.miniapp.module.points.mapper.PointsMapper.applicationColumns"/> FROM point_application a
-  WHERE <include refid="appScope"/> AND <include refid="liveApplication"/><include refid="appFilters"/> ORDER BY a.id DESC LIMIT #{q.pageSize} OFFSET #{offset}
+  WHERE <include refid="appScope"/><include refid="appFilters"/> ORDER BY a.created_at DESC,a.id DESC LIMIT #{q.pageSize} OFFSET #{offset}
  </select>
- <select id="applicationCount" resultType="long">SELECT COUNT(*) FROM point_application a WHERE <include refid="appScope"/> AND <include refid="liveApplication"/><include refid="appFilters"/></select>
+ <select id="applicationCount" resultType="long">SELECT COUNT(*) FROM point_application a WHERE <include refid="appScope"/><include refid="appFilters"/></select>
 
+ <sql id="managementLedgerWhere">
+  <include refid="appScope"/> AND a.status='APPROVED'<include refid="appFilters"/>
+  <if test="q.kind!=null">AND l.kind=#{q.kind}</if>
+  <if test="q.applicationId!=null">AND l.application_id=#{q.applicationId}</if>
+ </sql>
+ <select id="managementLedgers" resultType="cn.jualn.miniapp.module.points.entity.PointLedger">
+  <bind name="offset" value="q.getOffset()"/>
+  SELECT l.* FROM point_ledger l JOIN point_application a ON a.id=l.application_id
+  WHERE <include refid="managementLedgerWhere"/> ORDER BY l.id DESC LIMIT #{q.pageSize} OFFSET #{offset}
+ </select>
+ <select id="managementLedgerCount" resultType="long">
+  SELECT COUNT(*) FROM point_ledger l JOIN point_application a ON a.id=l.application_id WHERE <include refid="managementLedgerWhere"/>
+ </select>
+ <sql id="managementOrganizationWhere">
+  <choose>
+   <when test="view=='APPLICATIONS' or view=='LEDGER'">
+    (EXISTS(SELECT 1 FROM point_application a WHERE a.accepting_organization_id=o.id AND <include refid="appScope"/>
+     <if test="view=='LEDGER'">AND a.status='APPROVED' AND EXISTS(SELECT 1 FROM point_ledger ol WHERE ol.application_id=a.id)</if>)
+     OR (FALSE <foreach collection="p.targets()" item="t">OR (#{t.type}='ORGANIZATION' AND #{t.organizationId}=o.id)</foreach>
+       <foreach collection="p.correctionTargets()" item="t">OR (#{t.type}='ORGANIZATION' AND #{t.organizationId}=o.id)</foreach>))
+   </when>
+   <otherwise><include refid="organizationFilter"/></otherwise>
+  </choose>
+  <if test="search!=null">AND LOCATE(#{search},o.name)&gt;0</if>
+ </sql>
+ <select id="managementOrganizations" resultType="cn.jualn.miniapp.module.points.bo.PointsBO$ManagementOrganization">
+  <bind name="offset" value="q.getOffset()"/>
+  SELECT o.id organization_id,o.name FROM person_organization o WHERE <include refid="managementOrganizationWhere"/>
+  ORDER BY o.id LIMIT #{q.pageSize} OFFSET #{offset}
+ </select>
+ <select id="managementOrganizationCount" resultType="long">
+  SELECT COUNT(*) FROM person_organization o WHERE <include refid="managementOrganizationWhere"/>
+ </select>
  <sql id="participantBase">
   u.id IS NOT NULL AND (EXISTS(SELECT 1 FROM point_application a WHERE a.person_id=u.id) OR EXISTS(SELECT 1 FROM point_ledger l WHERE l.person_id=u.id))
   <if test="p.person()!=null">AND u.id=#{p.person}</if>
@@ -57,7 +94,7 @@
  <select id="personStatistics" resultType="cn.jualn.miniapp.module.points.bo.PointsBO$ParticipantTotals">
   <bind name="offset" value="q.getOffset()"/>
   SELECT c.id person_id,COALESCE(l.granted,0) granted,COALESCE(l.reversed,0) reversed,COALESCE(a.application_count,0) application_count,
-   COALESCE(a.pending_count,0) pending_count,COALESCE(a.approved_count,0) approved_count,COALESCE(a.rejected_count,0) rejected_count,COALESCE(a.closed_count,0) closed_count
+   COALESCE(a.pending_count,0) pending_count,COALESCE(a.approved_count,0) approved_count,COALESCE(a.rejected_count,0) rejected_count,COALESCE(a.closed_count,0) closed_count,(SELECT pn.real_name FROM person_profile pn WHERE pn.id=c.id) person_name
   FROM (<include refid="participants"/>) c LEFT JOIN (<include refid="ledgerTotals"/>) l ON l.person_id=c.id
   LEFT JOIN (SELECT person_id,COUNT(*) application_count,SUM(status='PENDING') pending_count,SUM(status='APPROVED') approved_count,SUM(status='REJECTED') rejected_count,SUM(status='CLOSED') closed_count FROM point_application GROUP BY person_id) a ON a.person_id=c.id
   ORDER BY c.id LIMIT #{q.pageSize} OFFSET #{offset}

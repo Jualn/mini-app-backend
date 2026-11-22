@@ -152,7 +152,7 @@ public class UnifiedAuthorizationService {
         if(source.ceilings()!=null && !DutyOperations.growth(duty) && source.ceilings().stream().anyMatch(x->"PLATFORM".equals(x.target().type())))ceilings=null;
         String binding=candidateBinding(source,List.of("targets",authority,duty,type==null?"":type,q==null?"":q,size));
         long offset=candidateOffset(actor,binding,cursor,c.at());
-        var rows=candidates.targets(ceilings,types,"POINTS_CORRECTION".equals(duty),(duty.startsWith("PARTY_PERSONNEL_") || "PARTY_ORG_PERSONNEL_MANAGE".equals(duty)),"MENTOR".equals(t.namespace()),
+        var rows=candidates.targets(ceilings,types,Set.of("POINTS_CORRECTION", "POINTS_GRANT_CORRECT", "POINTS_GRANT_REVOKE", "POINTS_LEDGER_READ", "POINTS_APPLICATION_READ").contains(duty),(duty.startsWith("PARTY_PERSONNEL_") || "PARTY_ORG_PERSONNEL_MANAGE".equals(duty)),"MENTOR".equals(t.namespace()),
                 catalog.role(t.roleCode()).name()+" · 平台",q,offset,size+1);
         boolean more=rows.size()>size;if(more)rows=rows.subList(0,size);
         var items=rows.stream().map(x->new UnifiedModels.TargetOption(new Target(x.type(),x.personId(),x.organizationId()),
@@ -583,7 +583,7 @@ public class UnifiedAuthorizationService {
         if (checkFuture) future(expiry(s.expiresAt()), at);
         if (PlatformDutyPolicy.supports(s.dutyCode()) && !PlatformDutyPolicy.matches(t, s))
             throw RbacProblems.invalid("target");
-        if("POINTS_CORRECTION".equals(s.dutyCode())) {
+        if(Set.of("POINTS_CORRECTION", "POINTS_GRANT_CORRECT", "POINTS_GRANT_REVOKE", "POINTS_LEDGER_READ", "POINTS_APPLICATION_READ").contains(s.dutyCode())) {
             // Correction targets retained historical ownership, including archived persons/inactive organizations.
             if("PERSON".equals(s.target().type()) && persons.lifecycle(s.target().personId())==null
                     || "ORGANIZATION".equals(s.target().type()) && persons.organizationFact(s.target().organizationId())==null) throw missing();

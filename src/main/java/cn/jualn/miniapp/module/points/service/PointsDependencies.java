@@ -8,6 +8,7 @@ import cn.jualn.miniapp.module.points.bo.PointsBO.Action;
 import cn.jualn.miniapp.module.points.bo.PointsBO.Application;
 import cn.jualn.miniapp.module.points.bo.PointsBO.Eligibility;
 import cn.jualn.miniapp.module.points.bo.PointsBO.Ledger;
+import cn.jualn.miniapp.module.points.bo.PointsBO.Management;
 import cn.jualn.miniapp.module.points.bo.PointsBO.Query;
 import cn.jualn.miniapp.module.points.bo.PointsBO.Subject;
 
@@ -20,6 +21,9 @@ public interface PointsDependencies {
     default boolean approvalEligiblePerson(String person) {throw cn.jualn.miniapp.module.points.PointsProblems.unavailable(cn.jualn.miniapp.module.points.PointsProblems.Dependency.PERSON_RESOLVER);}
     default void requirePersonManage(long actor,String person,Action action) {throw cn.jualn.miniapp.module.points.PointsProblems.unavailable(cn.jualn.miniapp.module.points.PointsProblems.Dependency.AUTHORIZATION);}
     default void finishPerson(Action action,long actor,String person) {throw cn.jualn.miniapp.module.points.PointsProblems.unavailable(cn.jualn.miniapp.module.points.PointsProblems.Dependency.AUTHORIZATION);}
+    default Management management(long actor,Application application) {return null;}
+    default String organizationName(String organization) {return null;}
+    default PointsAcceptancePolicy.Plan organizationPlan(long actor,String view) {throw cn.jualn.miniapp.module.points.PointsProblems.unavailable(cn.jualn.miniapp.module.points.PointsProblems.Dependency.AUTHORIZATION);}
     long actor(Action action);
     /** First local transaction operation: person gate, then stable User/RBAC owner locks. */
     default void begin(Action action,long actor,long... targets) {}

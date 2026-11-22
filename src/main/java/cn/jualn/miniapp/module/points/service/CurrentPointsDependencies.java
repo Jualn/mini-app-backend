@@ -309,6 +309,27 @@ public class CurrentPointsDependencies extends UnavailablePointsDependencies {
     }
 
     @Override
+    public PointsBO.Management management(long actor, Application application) {
+        var result = acceptance().management(actor, application, context());
+        if (!result.operations().contains("REVIEW")) return result;
+        try {
+            return stageEligiblePerson(application.personId(), false) ? result
+                    : new PointsBO.Management(result.operations(), result.reviewUnavailableReason(), "BUSINESS_INELIGIBLE");
+        } catch (ContractProblemException failure) {
+            if (failure.getStatus() != HttpStatus.SERVICE_UNAVAILABLE) throw failure;
+            return new PointsBO.Management(result.operations(), result.reviewUnavailableReason(), "DEPENDENCY_UNAVAILABLE");
+        }
+    }
+
+    @Override
+    public String organizationName(String organization) { return profiles.organizationName(organization); }
+
+    @Override
+    public PointsAcceptancePolicy.Plan organizationPlan(long actor, String view) {
+        return acceptance().organizationPlan(actor, view, context());
+    }
+
+    @Override
     public void recheckAcceptance(Application application) {
         acceptance().currentBasis(application, context(), true);
     }

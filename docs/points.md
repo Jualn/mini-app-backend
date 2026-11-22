@@ -1,6 +1,6 @@
 # 积分申请与账务
 
-当前本地固定输入为 `points-v1-r6` / `identity-organization-v1-r5` / `unified-v1-r4`；Points 以当前 canonical schemas/paths 与两份配套授权目录为输入。独立主体切换是 breaking，没有 accepted compatibility baseline；目录版本与契约修订分开记录，见[人员基础](person-foundation.md)。
+接口与职责以相邻 Contracts 的当前 Points canonical 和授权目录为输入；旧 points-v1-r6 受控包保留为历史交付，不用其摘要代表工作台增量。
 
 ## 实现与约束
 
@@ -15,6 +15,14 @@ CurrentPointsDependencies 在共同 Person gate、User/RBAC 与账务锁内校�
 材料仍归媒体 owner：独立 POINTS 私有用途、不可变留存、File→Application 绑定及审计不变。已提交文件通过申请的业务授权供当前 Person 读取；原账号未提交草稿不随重绑开放。不能用该许可迁移所有文件或账号通知。实际 COS ACL/STS/CORS 与安全供应商仍需独立验收。 存储按[架构 §2.2](architecture.md#22-cos-环境与访问类别隔离)划分生产/测试与公开/私有四桶，`COS_PRIVATE_BUCKET` 显式绑定积分私有桶，禁止回落到 `COS_BUCKET`。当前 Points 要求与公开媒体不同桶、同地域且 ACL 可核实；WechatPointMaterialSafety 使用微信图片异步检查及既有回调；图片须明确通过才可登记，待定/未知返回503 CONTENT_SAFETY，明确拒绝返回400 points-file-unavailable。PDF/Word/VIDEO 按当前业务决定暂不做内容审核，继续复核格式、大小、所有权和私有ACL，不宣称内容安全通过。V69 为不可变留存文件关联唯一自动审核记录（scene=12，targetId为原上传User）；记录先提交再调用微信，重试只读原结果，超时/崩溃不自动重新送审。短期私有签名仅向微信传递，不入业务历史、Job或日志。回调不登记文件，必须由后续登记命令重新鉴权。真实微信与私有对象下载/回调仍需环境验收。旧混用桶按[运维手册](operations/runbook.md#141-cos-环境隔离与混用桶迁移)逐项核对后迁移，不以目录或年龄推断环境。
 
 结果通知与终审/撤销/改分同事务可靠受理，意图保存发生时 Person、当前可信 Binding/User。既有 worker 投递前复核同一绑定和可接收账号，换绑/解绑或账号明确不可用留跳过依据，依赖故障进入重试。改分仅产生一条 POINT_GRANT_CORRECTED/correctionId，不为内部冲正另发通知。Job schema v2 不解释旧无绑定证明的载荷；不将历史通知搬到新账号。可靠受理不等于外部投递成功；不含私密备注、材料或签名。
+
+## 积分管理工作台
+
+后台按申请管理、积分账务和积分统计处理授权记录，人员是搜索与筛选对象，不复用本人申报、结束申请入口。POINTS_APPLICATION_READ与POINTS_REVIEW提供各自原受理范围内申请读取；POINTS_LEDGER_READ、POINTS_GRANT_CORRECT、POINTS_GRANT_REVOKE分别提供账务查询、改分和全部撤销，包含目标定位、最小名称、相关申请与账务链读取。后两者复用POINTS_MANAGER但由不同当前有效业务目标判权，不能通过相同Role将A范围改分能力搬用到B范围。旧POINTS_CORRECTION保留原有组合，原完整个人账务与统计仍保留单来源完整覆盖要求。
+
+management投影由读取事务内的实际目标策略生成；材料、审核、改分与撤销各自判断。阶段失效只限制批准，驳回按原受理周期规则处理。失效待审记录仍可在原读取范围内追溯，不再因为周期失效从列表消失。写入和幂等重放继续按实际操作重验，投影不是授权凭证。
+
+管理账务列表以原受理组织和原Person匹配获准申请，合法记录合并去重后分页，COUNT同谓词；它不冒充完整个人账本。事项/姓名搜索与原组织筛选不要求通用人员目录权限。组织选项只提供当前分区合法组织及名称；CURRENT统计仍要求完整花名册，不能借局部账务读取放宽。新增职责复用既有数据库角色与权限组合，不创建真实授权或组织资格。
 
 ## 受理组织管理
 
