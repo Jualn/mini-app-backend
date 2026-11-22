@@ -94,6 +94,28 @@
         </if>
         ORDER BY published_at DESC,id DESC LIMIT #{size}
     </select>
+    <select id="referencePage" resultType="cn.jualn.miniapp.module.article.entity.Article">
+        SELECT
+        id,title,summary,category_id,publisher_id,publisher_org_id,publisher_name_snapshot,cover_attachment_id,comments_enabled,publish_status,revision,created_by,updated_by,created_at,updated_at,published_at,last_published_at,
+        <include refid="organizationRepresentation"/>
+        AS organization_representation FROM article WHERE
+        <include refid="publicArticle"/>
+        <if test="q != null">
+            AND (LOCATE(#{q},title)>0 OR LOCATE(#{q},plain_text)>0)
+        </if>
+        <if test="categoryId != null">
+            AND (category_id=#{categoryId}<if test="true">
+            OR category_id IN (SELECT id FROM article_category WHERE parent_id=#{categoryId})
+        </if>)
+        </if>
+        <if test="beforeTime != null">
+            <choose>
+                <when test="ascending">AND (published_at &gt; #{beforeTime} OR (published_at=#{beforeTime} AND id &gt; #{beforeId}))</when>
+                <otherwise>AND (published_at &lt; #{beforeTime} OR (published_at=#{beforeTime} AND id &lt; #{beforeId}))</otherwise>
+            </choose>
+        </if>
+        <choose><when test="ascending">ORDER BY published_at ASC,id ASC</when><otherwise>ORDER BY published_at DESC,id DESC</otherwise></choose> LIMIT #{size}
+    </select>
     <sql id="organizationRepresentation">
         (publisher_org_id IS NOT NULL AND (published_at IS NULL OR publisher_name_snapshot IS NOT NULL)
         AND (EXISTS(SELECT 1 FROM article_organization_audit aa WHERE aa.article_id=article.id)

@@ -51,12 +51,21 @@ public final class LearningTaskBO {
         }
     }
 
+    public record OrganizationSelection(String organizationId, List<String> personIds) {
+        public OrganizationSelection { personIds = copy(personIds); }
+    }
+
     public record Audience(List<String> personIds, List<String> accountUserIds, List<Filter> filters,
-                           String authorizedScopeId) {
+                           String authorizedScopeId,
+                           @JsonInclude(JsonInclude.Include.NON_EMPTY) List<OrganizationSelection> organizationSelections) {
+        public Audience(List<String> personIds, List<String> accountUserIds, List<Filter> filters, String authorizedScopeId) {
+            this(personIds, accountUserIds, filters, authorizedScopeId, List.of());
+        }
         public Audience {
             personIds = copy(personIds);
             accountUserIds = copy(accountUserIds);
             filters = copy(filters);
+            organizationSelections = copy(organizationSelections);
         }
     }
 

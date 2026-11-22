@@ -23,7 +23,13 @@ public final class LearningTaskDraftRequest {
     public record Filter(List<String> organizationIds, List<String> identityIds, List<String> developmentStageIds) {
     }
 
-    public record Persons(List<String> personIds, List<Filter> filters, String authorizedScopeId) {
+    public record OrganizationSelection(String organizationId, List<String> personIds) {}
+
+    public record Persons(List<String> personIds, List<Filter> filters, String authorizedScopeId,
+                          List<OrganizationSelection> organizationSelections) {
+        public Persons(List<String> personIds, List<Filter> filters, String authorizedScopeId) {
+            this(personIds, filters, authorizedScopeId, null);
+        }
     }
 
     public record Accounts(List<String> userIds) {

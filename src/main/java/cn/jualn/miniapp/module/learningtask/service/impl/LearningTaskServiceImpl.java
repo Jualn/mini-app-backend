@@ -869,6 +869,14 @@ public class LearningTaskServiceImpl implements LearningTaskService {
             throw invalid("audience");
         }
         uniqueOpaqueIds(a.personIds(), "audience/persons/personIds");
+        if (a.organizationSelections().size() > 100) throw invalid("audience/persons/organizationSelections");
+        var selectedOrganizations = new HashSet<String>();
+        for (var group : a.organizationSelections()) {
+            if (group.organizationId() == null || group.organizationId().isBlank() || group.organizationId().length() > 128 ||
+                    !selectedOrganizations.add(group.organizationId()) || group.personIds().isEmpty() ||
+                    !a.personIds().containsAll(group.personIds())) throw invalid("audience/persons/organizationSelections");
+            uniqueOpaqueIds(group.personIds(), "audience/persons/organizationSelections/personIds");
+        }
         uniqueOpaqueIds(a.accountUserIds(), "audience/accounts/userIds");
         if (a.authorizedScopeId() != null) {
             uniqueOpaqueIds(List.of(a.authorizedScopeId()), "audience/authorizedScopeId");

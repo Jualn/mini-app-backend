@@ -72,6 +72,10 @@ Assignment ETag 同时约束 Task 表示和 displayStatus；期限或父表示�
 
 `LearningTaskRecipientOptions` 以任务或新建 managementTarget、edit/assign 及当前 LEARNING_MANAGE 同源上限提供有界候选，不借 person:read/user:read。Person owner 的 `LearningRecipientReader` 提供最小姓名、关联定位及当前获准的专业班级辨识；组织展示限本次获准范围，未知阶段省略，不能把昵称当实名。SQL 先做组织并集与阶段交集、稳定游标分页，再按可信 Person 事实复核；最终完整受众仍由 ScopePolicy 验证一个来源可以覆盖全部对象，选项并集不等于职责拼接授权。
 
+组织批量固定选择先通过 `completeOrganization` 验证组织当前完整名单，再逐页读取可选及不可选成员；普通候选搜索无需完整名单证明。`selectableOnly` 与排除名单在形成候选页前处理，长排除名单复用同一 owning query 的只读 POST。创建页只提交明确 personIds；organizationSelections 仅为其子集分组，保存和发布不按分组重新展开组织。旧 filters 的解析与整体阻断继续有效；新增分组随原 audience JSON 保存，无新增表或迁移。
+
+材料候选由 Article owner 查询公开文章，支持两层分类筛选及双向发布时间游标；分类目录只提供最小辨识投影，不要求 Article 管理权限。字段与参数以 canonical 为准。
+
 冻结 members 是预览分类事实，阻断优先，新增、已分配、阻断互斥。过期、任务或依赖变化仍可读取原名单，当前 canApply 与强 ETag 一同变化；原预览 key 回放也重算可执行投影。失权仍拒绝，apply 始终重验当前事实。
 
 逐项核对已保存选择使用 `listLearningTaskSelectedRecipients`。它沿用管理详情的 `learning-task:read` 与当前管理范围，按当前同源受众上限逐条复核披露资格。只分页读取保存的 Person 和账号标识，脱敏项保留原位置。签名游标绑定操作者、任务版本、授权和页大小，载荷只使用页位置来定位条目。

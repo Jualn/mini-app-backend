@@ -96,7 +96,7 @@ public final class LearningTaskDraftJson {
         LearningTaskDraftRequest.Accounts accounts = null;
         if (node.has("persons")) {
             var p = node.get("persons");
-            object(p, "audience/persons", Set.of("personIds", "filters", "authorizedScopeId"));
+            object(p, "audience/persons", Set.of("personIds", "filters", "authorizedScopeId", "organizationSelections"));
             var ids = p.has("personIds") ? strings(p.get("personIds"), "audience/persons/personIds", 1, 1000, 128) : List.<String>of();
             var filters = new ArrayList<Filter>();
             if (p.has("filters")) {
@@ -111,7 +111,20 @@ public final class LearningTaskDraftJson {
             }
             String scope = p.has("authorizedScopeId") ? id(p.get("authorizedScopeId"), "audience/persons/authorizedScopeId") : null;
             if (ids.isEmpty() && filters.isEmpty() && scope == null) throw invalid("audience/persons");
-            persons = new LearningTaskDraftRequest.Persons(ids, List.copyOf(filters), scope);
+            var groups = new ArrayList<LearningTaskDraftRequest.OrganizationSelection>();
+            if (p.has("organizationSelections")) {
+                var values = p.get("organizationSelections");
+                if (!values.isArray() || values.isEmpty() || values.size() > 100) throw invalid("audience/persons/organizationSelections");
+                var organizations = new HashSet<String>();
+                for (var group : values) {
+                    object(group, "audience/persons/organizationSelections", Set.of("organizationId", "personIds"));
+                    String organization = id(group.get("organizationId"), "audience/persons/organizationSelections/organizationId");
+                    var members = strings(group.get("personIds"), "audience/persons/organizationSelections/personIds", 1, 1000, 128);
+                    if (!organizations.add(organization) || !ids.containsAll(members)) throw invalid("audience/persons/organizationSelections");
+                    groups.add(new LearningTaskDraftRequest.OrganizationSelection(organization, members));
+                }
+            }
+            persons = new LearningTaskDraftRequest.Persons(ids, List.copyOf(filters), scope, List.copyOf(groups));
         }
         if (node.hasNonNull("accounts")) {
             var a = node.get("accounts");

@@ -22,7 +22,13 @@ public final class LearningTaskAdminVO {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Persons(List<String> personIds, List<Filter> filters, String authorizedScopeId) {
+    public record OrganizationSelection(String organizationId, List<String> personIds) {}
+
+    public record Persons(List<String> personIds, List<Filter> filters, String authorizedScopeId,
+                          List<OrganizationSelection> organizationSelections) {
+        public Persons(List<String> personIds, List<Filter> filters, String authorizedScopeId) {
+            this(personIds, filters, authorizedScopeId, null);
+        }
     }
 
     public record Accounts(List<String> userIds) {

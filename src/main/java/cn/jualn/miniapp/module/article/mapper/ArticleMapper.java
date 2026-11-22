@@ -3,7 +3,11 @@ package cn.jualn.miniapp.module.article.mapper;
 import cn.jualn.miniapp.module.article.entity.Article;
 import cn.jualn.miniapp.module.article.bo.ArticleStatisticsBO;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import org.apache.ibatis.annotations.*;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -48,6 +52,10 @@ public interface ArticleMapper extends BaseMapper<Article> {
     default List<Article> publicPage(Long c, boolean children, LocalDateTime at, Long id, int size) {
         return publicPage(c, children, at, id, size, null, null);
     }
+
+    List<Article> referencePage(@Param("categoryId") Long categoryId, @Param("beforeTime") LocalDateTime beforeTime,
+                                @Param("beforeId") Long beforeId, @Param("size") int size, @Param("q") String q,
+                                @Param("ascending") boolean ascending);
 
     List<Article> adminPage(@Param("status") String status, @Param("categoryId") Long categoryId, @Param("includeChildren") boolean includeChildren,
                             @Param("publisherId") Long publisherId, @Param("publisherOrgId") String publisherOrgId, @Param("authorizedOrgs") List<String> authorizedOrgs, @Param("q") String q, @Param("sort") String sort,

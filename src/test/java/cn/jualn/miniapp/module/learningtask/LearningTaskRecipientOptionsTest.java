@@ -52,4 +52,34 @@ class LearningTaskRecipientOptionsTest {
         when(scopes.articleOptionsVersion(9,42L,null,null)).thenReturn("authority-revoked-v2");
         assertThrows(RuntimeException.class,()->options.list(42L,null,null,"PERSON",null,List.of(),List.of(),first.nextCursor(),1));
     }
+
+    @Test void selectableFilteringFillsThePageAfterExcludedAndUnavailableRows() {
+        when(reader.candidates(anyBoolean(),anyList(),anyList(),anyList(),any(),isNull(),anyInt(),any()))
+                .thenReturn(List.of(new LearningRecipientReader.Item("p1",null,"one"),new LearningRecipientReader.Item("p2",null,"two")));
+        when(reader.candidates(anyBoolean(),anyList(),anyList(),anyList(),any(),eq("p1"),anyInt(),any()))
+                .thenReturn(List.of(new LearningRecipientReader.Item("p2",null,"two"),new LearningRecipientReader.Item("p3",null,"three")));
+        when(reader.candidates(anyBoolean(),anyList(),anyList(),anyList(),any(),eq("p2"),anyInt(),any()))
+                .thenReturn(List.of(new LearningRecipientReader.Item("p3",null,"three")));
+        when(scopes.optionCovered(eq("PERSON"),anyString(),anyList())).thenReturn(true);
+        when(responsibilities.recipient(Subject.person("p2"))).thenReturn(new Recipient(Subject.person("p2"),null,null,"NO_BINDING"));
+        when(responsibilities.recipient(Subject.person("p3"))).thenReturn(new Recipient(Subject.person("p3"),3L,"b3","AVAILABLE"));
+        var result=options.list(42L,null,null,"PERSON",null,List.of(),List.of(),null,1,true,List.of("p1"),false);
+        assertEquals(List.of("p3"),result.items().stream().map(LearningTaskRecipientOptions.Option::id).toList());
+        assertNull(result.nextCursor());
+        assertTrue(result.fixedSelectionSupported());
+        verify(responsibilities,never()).recipient(Subject.person("p1"));
+    }
+
+    @Test void organizationSelectionRequiresCompleteRosterAndKeepsUnavailableMembersVisible() {
+        when(reader.candidates(anyBoolean(),anyList(),anyList(),anyList(),any(),any(),anyInt(),any()))
+                .thenReturn(List.of(new LearningRecipientReader.Item("p1","p1","未绑定人员")));
+        when(scopes.optionCovered(eq("PERSON"),anyString(),anyList())).thenReturn(true);
+        when(persons.positiveOrganizations("p1",persons.now())).thenReturn(List.of("org-a"));
+        when(responsibilities.recipient(Subject.person("p1"))).thenReturn(new Recipient(Subject.person("p1"),null,null,"NO_BINDING"));
+        var result=options.list(42L,null,null,"PERSON",null,List.of("org-a"),List.of(),null,20,false,List.of(),true);
+        assertFalse(result.items().get(0).selectable());
+        assertEquals("NO_BINDING",result.items().get(0).unavailableReason());
+        verify(persons,times(2)).requireRoster(eq("org-a"),any());
+        assertThrows(RuntimeException.class,()->options.list(42L,null,null,"PERSON",null,List.of("org-a"),List.of(),null,20,true,List.of(),true));
+    }
 }

@@ -81,14 +81,17 @@ public class LearningTaskDraftConverter {
         if (value == null) return null;
         var persons = value.persons();
         return new LearningTaskBO.Audience(persons == null ? List.of() : persons.personIds(), value.accounts() == null ? List.of() : value.accounts().userIds(),
-                persons == null ? List.of() : persons.filters().stream().map(f -> new LearningTaskBO.Filter(f.organizationIds(), f.identityIds(), f.developmentStageIds())).toList(), persons == null ? null : persons.authorizedScopeId());
+                persons == null ? List.of() : persons.filters().stream().map(f -> new LearningTaskBO.Filter(f.organizationIds(), f.identityIds(), f.developmentStageIds())).toList(), persons == null ? null : persons.authorizedScopeId(),
+                persons == null || persons.organizationSelections() == null ? List.of() : persons.organizationSelections().stream()
+                        .map(g -> new LearningTaskBO.OrganizationSelection(g.organizationId(), g.personIds())).toList());
     }
 
     private LearningTaskAdminVO.Audience audienceVO(LearningTaskBO.Audience value) {
         if (value == null) return null;
         var filters = value.filters().stream().map(f -> new LearningTaskAdminVO.Filter(optional(f.organizationIds()), optional(f.identityIds()), optional(f.developmentStageIds()))).toList();
         boolean persons = !value.personIds().isEmpty() || !value.filters().isEmpty() || value.authorizedScopeId() != null;
-        return new LearningTaskAdminVO.Audience(persons ? new LearningTaskAdminVO.Persons(optional(value.personIds()), optional(filters), value.authorizedScopeId()) : null,
+        return new LearningTaskAdminVO.Audience(persons ? new LearningTaskAdminVO.Persons(optional(value.personIds()), optional(filters), value.authorizedScopeId(),
+                optional(value.organizationSelections().stream().map(g -> new LearningTaskAdminVO.OrganizationSelection(g.organizationId(), g.personIds())).toList())) : null,
                 value.accountUserIds().isEmpty() ? null : new LearningTaskAdminVO.Accounts(value.accountUserIds()));
     }
 
