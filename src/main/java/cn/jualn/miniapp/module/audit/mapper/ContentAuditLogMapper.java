@@ -44,7 +44,6 @@ public interface ContentAuditLogMapper extends BaseMapper<ContentAuditLog> {
 
     AdminReviewSummaryRow selectGrowthReviewSummary(@Param("namespaces") List<String> namespaces,@Param("growthType") String growthType,@Param("growthOrganizationId") String growthOrganizationId,@Param("growthOrganizations") List<String> growthOrganizations);
     AdminReviewSummaryRow selectAdminReviewSummary();
-    AdminReviewSummaryRow selectDashboardReviewSummary(@Param("namespaces") List<String> namespaces, @Param("dayStart") LocalDateTime dayStart, @Param("dayEnd") LocalDateTime dayEnd);
     AdminReviewSummaryRow selectScopedReviewSummary(@Param("namespaces") List<String> namespaces);
 
     AdminReviewRow selectAdminReviewDetail(@Param("taskId") Long taskId);

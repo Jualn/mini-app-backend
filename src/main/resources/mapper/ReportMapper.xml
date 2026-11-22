@@ -142,21 +142,6 @@
                 WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN report.target_type=1 THEN report.target_id ELSE (SELECT gc.target_id FROM comment gc WHERE report.target_type=4 AND gc.id=report.target_id AND gc.target_type=1) END) AND target_type IN (1, 4) AND handled_at &gt;= CURRENT_DATE) AS completed_today
         FROM case_base
     </select>
-    <select id="selectDashboardCaseSummary" resultType="cn.jualn.miniapp.module.report.mapper.AdminReportCaseSummaryRow">
-        WITH case_base AS (
-            SELECT target_type, target_id, COUNT(*) AS report_count, SUM(status = 0) AS pending_count
-            FROM report
-            WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN report.target_type=1 THEN report.target_id ELSE (SELECT gc.target_id FROM comment gc WHERE report.target_type=4 AND gc.id=report.target_id AND gc.target_type=1) END) AND target_type IN (1, 4)
-            GROUP BY target_type, target_id
-        )
-        SELECT COALESCE(SUM(pending_count &gt; 0), 0) AS pending_cases,
-               COALESCE(SUM(pending_count &gt; 0 AND report_count &gt;= 4), 0) AS urgent_cases,
-               (SELECT COUNT(*) FROM report
-                WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN report.target_type=1 THEN report.target_id ELSE (SELECT gc.target_id FROM comment gc WHERE report.target_type=4 AND gc.id=report.target_id AND gc.target_type=1) END) AND target_type IN (1, 4) AND created_at &gt;= #{dayStart} AND created_at &lt; #{dayEnd}) AS reports_today,
-               (SELECT COUNT(DISTINCT CONCAT(target_type, ':', target_id)) FROM report
-                WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN report.target_type=1 THEN report.target_id ELSE (SELECT gc.target_id FROM comment gc WHERE report.target_type=4 AND gc.id=report.target_id AND gc.target_type=1) END) AND target_type IN (1, 4) AND handled_at &gt;= #{dayStart} AND handled_at &lt; #{dayEnd}) AS completed_today
-        FROM case_base
-    </select>
 
     <select id="selectAdminCaseEvidence" resultType="cn.jualn.miniapp.module.report.mapper.AdminReportEvidenceRow">
         SELECT r.id AS report_id,

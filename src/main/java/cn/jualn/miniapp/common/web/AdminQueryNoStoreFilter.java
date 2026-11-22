@@ -18,7 +18,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class AdminQueryNoStoreFilter extends OncePerRequestFilter {
     public static boolean resource(String path) {
         return Set.of("/v1/admin/attachments/batch", "/v1/admin/users/names", "/v1/admin/organizations/names",
-                "/v1/admin/dashboard/summary", "/v1/admin/authorization/me/duty-summary").contains(path);
+                "/v1/admin/authorization/me/duty-summary").contains(path);
     }
 
     @Override

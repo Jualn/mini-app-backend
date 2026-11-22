@@ -140,15 +140,6 @@ public class AdminReviewServiceImpl implements AdminReviewService {
         return reviewAccess.readable(actor);
     }
 
-    @Override
-    public AdminReviewPageBO.Summary dashboardSummary(LocalDateTime dayStart, LocalDateTime dayEnd) {
-        var namespaces = readableNamespaces();
-        var summary = contentAuditLogMapper.selectDashboardReviewSummary(namespaces, dayStart, dayEnd);
-        long pending = summary == null ? 0L : valueOrZero(summary.getPending());
-        return AdminReviewPageBO.Summary.builder().pending(pending).highRisk(pending)
-                .todayCompleted(summary == null ? 0L : valueOrZero(summary.getTodayCompleted()))
-                .oldestWaitingMinutes(oldestWaitingMinutes(summary)).build();
-    }
 
     @Override
     public AdminReviewDetailBO getReviewDetail(Long taskId) {

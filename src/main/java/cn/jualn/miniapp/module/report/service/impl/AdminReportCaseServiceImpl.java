@@ -94,17 +94,6 @@ public class AdminReportCaseServiceImpl implements AdminReportCaseService {
                 .build();
     }
 
-    @Override
-    public AdminReportCasePageBO.Summary dashboardSummary(LocalDateTime dayStart, LocalDateTime dayEnd) {
-        authorization.require(cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong(), "report:read", "REPORT", "report:read");
-        AdminReportCaseSummaryRow summary = reportMapper.selectDashboardCaseSummary(dayStart, dayEnd);
-        return AdminReportCasePageBO.Summary.builder()
-                        .pendingCases(value(summary == null ? null : summary.getPendingCases()))
-                        .urgentCases(value(summary == null ? null : summary.getUrgentCases()))
-                        .reportsToday(value(summary == null ? null : summary.getReportsToday()))
-                        .completedToday(value(summary == null ? null : summary.getCompletedToday()))
-                        .build();
-    }
 
     @Override
     public AdminReportCaseDetailBO getCaseDetail(String targetType, Long targetId) {

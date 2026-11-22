@@ -33,7 +33,6 @@ public interface ReportMapper extends BaseMapper<Report> {
             @Param("targetId") Long targetId);
 
     AdminReportCaseSummaryRow selectAdminCaseSummary();
-    AdminReportCaseSummaryRow selectDashboardCaseSummary(@Param("dayStart") java.time.LocalDateTime dayStart, @Param("dayEnd") java.time.LocalDateTime dayEnd);
 
     List<AdminReportEvidenceRow> selectAdminCaseEvidence(
             @Param("targetType") String targetType,

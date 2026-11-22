@@ -99,11 +99,6 @@ public class AdminNotificationPlanServiceImpl implements AdminNotificationPlanSe
         return toItemBO(plan);
     }
 
-    @Override
-    public AdminNotificationPlanSummaryBO dashboardSummary(LocalDateTime dayStart, LocalDateTime dayEnd) {
-        authorization.require(cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong(), "notice:read", "NOTIFICATION", "notice:read");
-        return summary(dayStart, dayEnd);
-    }
 
     private AdminNotificationPlanSummaryBO loadSummary() {
         LocalDateTime todayStart = LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).atStartOfDay();

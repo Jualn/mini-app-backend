@@ -287,14 +287,6 @@ AND g.organization_id IN <foreach collection="growthOrganizations" item="org" op
         <include refid="GrowthReviewFilters"/>
     </select>
 
-    <select id="selectDashboardReviewSummary" resultType="cn.jualn.miniapp.module.audit.mapper.AdminReviewSummaryRow">
-        SELECT COALESCE(SUM(<include refid="Actionable"/>), 0) AS pending,
-               COALESCE(SUM(COALESCE(versioned.decided_at,manual_audit.created_at) &gt;= #{dayStart}
-                            AND COALESCE(versioned.decided_at,manual_audit.created_at) &lt; #{dayEnd}), 0) AS today_completed,
-               MIN(CASE WHEN (<include refid="Actionable"/>) THEN review.submitted_at END) AS oldest_pending_at
-        <include refid="ReviewFrom"/>
- WHERE 1 = 1 <include refid="ReviewScope"/>
-    </select>
     <sql id="reviewSummaryQuery">
         SELECT COALESCE(SUM(<include refid="Actionable"/>), 0) AS pending,
                COALESCE(SUM(COALESCE(versioned.decided_at,manual_audit.created_at) &gt;= DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR)

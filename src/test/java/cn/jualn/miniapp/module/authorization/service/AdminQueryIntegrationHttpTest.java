@@ -187,36 +187,6 @@ class AdminQueryIntegrationHttpTest extends PointsIntegrationHttpTest {
         assertTrue((int) measurements.get(1).get("mapperQueries") < (int) measurements.get(0).get("mapperQueries"));
     }
 
-    @Test void queryDashboardIndependentPartitionsAndErrors() throws Exception {
-        long actor = 930124;
-        syntheticUser(actor, true);
-        duty(actor, "USER_ACCOUNT_GOVERN", new UnifiedModels.Target("PLATFORM", null, null));
-        duty(actor, "REPORT_HANDLE", new UnifiedModels.Target("PLATFORM", null, null));
-        String token = qr(actor), path = "/v1/admin/dashboard/summary";
-        var rootSummary = expect(200, "GET", path, root, null);
-        for (var partition : List.of("users", "reviews", "reports", "notifications")) {
-            assertEquals("READY", rootSummary.path(partition).path("status").asText());
-        }
-        var initial = expect(200, "GET", path, token, null);
-        assertEquals("READY", initial.path("users").path("status").asText());
-        assertEquals("FORBIDDEN", initial.path("reviews").path("status").asText());
-        assertEquals("READY", initial.path("reports").path("status").asText());
-        assertEquals("FORBIDDEN", initial.path("notifications").path("status").asText());
-        assertEquals(86400, java.time.Duration.between(Instant.parse(initial.path("dayStart").asText()), Instant.parse(initial.path("dayEnd").asText())).getSeconds());
-        assertEquals(16, Instant.parse(initial.path("dayStart").asText()).atOffset(ZoneOffset.UTC).getHour());
-        db.execute("RENAME TABLE report TO query_report_unavailable");
-        try {
-            var failure = expect(200, "GET", path, token, null);
-            assertEquals("READY", failure.path("users").path("status").asText());
-            assertEquals("ERROR", failure.path("reports").path("status").asText());
-            assertEquals(503, failure.path("reports").path("problem").path("status").asInt());
-            assertFalse(failure.path("reports").has("summary"));
-        } finally {
-            db.execute("RENAME TABLE query_report_unavailable TO report");
-        }
-        checkedNoStore(401, call("GET", path, null, null, Map.of()));
-        checkedNoStore(401, call("GET", "/v1/admin/users/names?userId=1", null, null, Map.of()));
-    }
 
     private void checkedNoStore(int status, HttpResponse<String> response) throws Exception {
         checked(status, response);
