@@ -281,6 +281,21 @@ public class LearningTaskScopePolicy {
         return "PERSON".equals(type) ? personCovered(id, ceilings, now()) : accountCovered(Long.parseLong(id), ceilings, now());
     }
 
+    public String configurationOrganizationName(long actor, long task, String organization) {
+        if (organization == null) return null;
+        begin(actor);
+        var target = taskTarget(task);
+        boolean covered = organization.equals(target.organizationId()) ||
+                authorization.currentNow(actor).managementOwner("LEARNING_TASK", "learning-task:read") != null ||
+                sources(actor, "LEARNING_MANAGE", "learning-task:read").stream()
+                        .filter(s -> covers(selection(s).target(), target))
+                        .flatMap(s -> audience(selection(s)).stream())
+                        .anyMatch(t -> "PLATFORM".equals(t.type()) || organization.equals(t.organizationId()));
+        if (!covered) return null;
+        var fact = persons.organizationFact(organization);
+        return fact == null ? null : fact.name();
+    }
+
     public String articleOptionsVersion(long actor, Long task, String type, String org) {
         begin(actor);
         var d = authorization.currentNow(actor);

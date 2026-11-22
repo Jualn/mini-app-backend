@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /** Canonical dependency extension is local to LearningTask, not a new global error convention. */
 @Order(-1)
-@RestControllerAdvice(assignableTypes={LearningTaskController.class,LearningTaskDraftController.class,LearningTaskSliceController.class,LearningTaskSubmissionController.class,LearningTaskArticleOptionsController.class,LearningTaskOptionsController.class,LearningTaskSelectedRecipientsController.class})
+@RestControllerAdvice(assignableTypes={LearningTaskController.class,LearningTaskDraftController.class,LearningTaskSliceController.class,LearningTaskSubmissionController.class,LearningTaskArticleOptionsController.class,LearningTaskOptionsController.class,LearningTaskSelectedRecipientsController.class,LearningTaskConfigurationController.class})
 public class LearningTaskProblemAdvice {
     private final GlobalExceptionHandler errors;
     public LearningTaskProblemAdvice(GlobalExceptionHandler errors) { this.errors=errors; }

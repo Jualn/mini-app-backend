@@ -28,5 +28,7 @@ public interface ArticleReferenceReadService {
 
     void requirePublicReference(long articleId);
 
+    String publicTitle(long articleId);
+
     Set<Long> publiclyVisibleIds(Set<Long> ids);
 }

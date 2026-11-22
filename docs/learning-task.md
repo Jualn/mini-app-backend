@@ -12,6 +12,8 @@
 
 Controller/Converter 只处理正式请求和表示；`LearningTaskServiceImpl` 拥有任务、Assignment、Submission 与请求收据事务；`LearningTaskSubmissionQueries` 承接成果读取和审核上下文；`LearningTaskScopePolicy` 拥有任务管理归属与受众上限。User/Person、Article、私有媒体、安全检查、通知和异步调度保留各自 owner，不建立平行身份或审批模型。
 
+`LearningTaskConfigurationQueries` 在原任务READ授权和REPEATABLE_READ事务内提供配置显示摘要；负责方组织名称和保存的组织分组名称必须由同源读取来源覆盖。Article owner 的 `publicTitle` 只查公开可读文章标题；不扩展通用组织／文章管理权限。摘要独立no-store且不参与编辑ETag。`LearningTaskClosure` 由摘要查询与原持锁close操作共同使用，按全部有效分配判断截止、待审和补交窗口；该查询不授予生命周期操作权。依赖不可用保留真实错误，缺失可选名称不伪造ID名称；无数据库迁移。
+
 ## 候选准备与安全检查
 
 `LearningTaskServiceImpl.create/edit` 显式 NOT_SUPPORTED，短事务准备候选 → 事务外 `LearningTaskTextSafety` → 短事务重取锁并复核授权、状态、版本、候选全文、期限及条件资源。安全等待期间不持 task/request 行锁。创建首先查原收据，当前授权通过后恢复原结果，不因安全依赖随后故障而重新执行已成功事实；并发首次请求仍在最终事务竞争唯一请求身份。

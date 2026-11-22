@@ -122,4 +122,13 @@ public class ArticleReferenceReadServiceImpl implements ArticleReferenceReadServ
                 throw ArticleOrganizationPolicy.unavailable();
         }).map(Article::getId).collect(Collectors.toUnmodifiableSet());
     }
+
+    @Override
+    public String publicTitle(long articleId) {
+        var rows = articles.publicByIds(List.of(articleId));
+        if (rows.isEmpty()) return null;
+        var article = rows.get(0);
+        requireReadableIdentity(article);
+        return article.getTitle();
+    }
 }

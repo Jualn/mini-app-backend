@@ -43,6 +43,7 @@ import cn.jualn.miniapp.module.learningtask.mapper.LearningTaskLedgerMapper;
 import cn.jualn.miniapp.module.learningtask.mapper.LearningTaskMapper;
 import cn.jualn.miniapp.module.learningtask.service.LearningTaskProviders;
 import cn.jualn.miniapp.module.learningtask.service.LearningTaskService;
+import cn.jualn.miniapp.module.learningtask.service.LearningTaskClosure;
 import cn.jualn.miniapp.module.learningtask.service.LearningTaskStorageJson;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -506,14 +507,8 @@ public class LearningTaskServiceImpl implements LearningTaskService {
             checkTask(tag, t);
             published(t);
             LocalDateTime now = now();
-            if (now.isBefore(t.getFirstDeadline())) {
+            if (!LearningTaskClosure.evaluate(t.getStatus(), t.getFirstDeadline(), ledger.assignments(taskId), now).allowed()) {
                 throw conflict("outstanding-work");
-            }
-            for (var a : ledger.assignments(taskId)) {
-                if (active(a) && (Progress.PENDING_REVIEW.name().equals(a.getProgress()) ||
-                        (Progress.REJECTED.name().equals(a.getProgress()) && a.getSupplementDeadline() != null && now.isBefore(a.getSupplementDeadline())))) {
-                    throw conflict("outstanding-work");
-                }
             }
             t.setStatus(Status.CLOSED.name());
             t.setClosedAt(now);
