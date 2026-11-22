@@ -12,14 +12,13 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@RequiredArgsConstructor
 public class LearningTaskConfigurationQueries {
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
     private final LearningTaskService tasks;
@@ -28,6 +27,20 @@ public class LearningTaskConfigurationQueries {
     private final LearningTaskLedgerMapper ledger;
     private final ArticleReferenceReadService articles;
     private final Clock clock;
+
+    public LearningTaskConfigurationQueries(LearningTaskService tasks,
+                                            LearningTaskAuthorizationPolicy authorization,
+                                            LearningTaskScopePolicy scopes,
+                                            LearningTaskLedgerMapper ledger,
+                                            ArticleReferenceReadService articles,
+                                            @Qualifier("learningTaskClock") Clock clock) {
+        this.tasks = tasks;
+        this.authorization = authorization;
+        this.scopes = scopes;
+        this.ledger = ledger;
+        this.articles = articles;
+        this.clock = clock;
+    }
 
     public record Organization(String organizationId, String displayName) {}
     @JsonInclude(JsonInclude.Include.NON_NULL)
