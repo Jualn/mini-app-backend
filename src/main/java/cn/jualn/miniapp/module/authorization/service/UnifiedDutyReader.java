@@ -1,5 +1,7 @@
 package cn.jualn.miniapp.module.authorization.service;
 
+import cn.jualn.miniapp.module.authorization.model.DutyOperations;
+
 import cn.jualn.miniapp.module.authorization.mapper.RbacMapper;
 import cn.jualn.miniapp.module.authorization.model.RbacModels;
 import cn.jualn.miniapp.module.authorization.support.RbacProblems;
@@ -152,6 +154,13 @@ public class UnifiedDutyReader {
 
     public List<PersonBusinessScopes.Scope> effective(long user, String duty, LocalDateTime at) {
         return persons.forUser(user).stream().filter(s -> duty.equals(s.dutyCode()) && "EFFECTIVE".equals(reason(s, at))).toList();
+    }
+
+    public List<PersonBusinessScopes.Scope> effectiveOperations(long user, String family, LocalDateTime at, String... permissions) {
+        return persons.forUser(user).stream()
+                .filter(s -> DutyOperations.matches(family, s.dutyCode()))
+                .filter(s -> duties.template(s.dutyCode()).permissions().containsAll(java.util.Arrays.asList(permissions)))
+                .filter(s -> "EFFECTIVE".equals(reason(s, at))).toList();
     }
 
     public boolean bindings(String value, LocalDateTime at) {

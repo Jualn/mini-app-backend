@@ -23,6 +23,11 @@ public class AdminQaContextReader {
             :d.allows("content:read","POST");
         return project(relation,allowed);
     }
+    /** Report owner has authorized the case target; only return its fixed question/answer context. */
+    public QaContext reportEvidence(String type,long id) {
+        Relation relation="post".equals(type)?mapper.postRelation(id):mapper.commentRelation(id);
+        return relation==null?null:project(relation,true);
+    }
     /** Called by the safety owner only after same-source POST_SAFETY_REVIEW authorization. */
     public QaContext safety(Relation fixed) {return fixed==null || fixed.question()==null?null:project(fixed,true);}
     private QaContext project(Relation r,boolean allowed) {

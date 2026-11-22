@@ -97,8 +97,8 @@ public class LearningTaskScopePolicy {
         return authorization.now();
     }
 
-    private List<PersonBusinessScopes.Scope> sources(long actor, String code) {
-        return duties.effective(actor, code, now());
+    private List<PersonBusinessScopes.Scope> sources(long actor, String code, String... permissions) {
+        return duties.effectiveOperations(actor, code, now(), permissions);
     }
 
     private <T> T personFact(java.util.function.Supplier<T> read) {
@@ -157,7 +157,7 @@ public class LearningTaskScopePolicy {
         Target target = taskTarget(task);
         if (authorization.currentNow(actor).managementOwner("LEARNING_TASK", LearningTaskAuthorizationPolicy.permissions(action).toArray(String[]::new)) != null)
             return;
-        if (sources(actor, review(action) ? "LEARNING_REVIEW" : "LEARNING_MANAGE").stream().noneMatch(s -> covers(selection(s).target(), target)))
+        if (sources(actor, review(action) ? "LEARNING_REVIEW" : "LEARNING_MANAGE", LearningTaskAuthorizationPolicy.permissions(action).toArray(String[]::new)).stream().noneMatch(s -> covers(selection(s).target(), target)))
             throw missing();
     }
 
@@ -175,7 +175,7 @@ public class LearningTaskScopePolicy {
             return null;
         });
         if (authorization.currentNow(actor).managementOwner("LEARNING_TASK", "learning-task:edit") != null) return;
-        if (sources(actor, "LEARNING_MANAGE").stream().noneMatch(s -> covers(selection(s).target(), target)))
+        if (sources(actor, "LEARNING_MANAGE", "learning-task:edit").stream().noneMatch(s -> covers(selection(s).target(), target)))
             throw missing();
     }
 
@@ -227,7 +227,7 @@ public class LearningTaskScopePolicy {
         begin(actor);
         if (task != null) {
             if (type != null || org != null) throw invalid("managementTarget");
-            requireTask(actor, Action.EDIT, task);
+            requireTask(actor, Action.READ, task);
             var row = tasks.selectById(task);
             if (row == null) throw missing();
             if (!"DRAFT".equals(row.getStatus()) && !"PUBLISHED".equals(row.getStatus()))
@@ -235,7 +235,10 @@ public class LearningTaskScopePolicy {
             return taskTarget(task);
         }
         var target = new Target(type, null, org);
-        creation(actor, target);
+        if (target.personId() != null || !("PLATFORM".equals(target.type()) && target.organizationId() == null
+                || "ORGANIZATION".equals(target.type()) && target.organizationId() != null)) throw invalid("managementTarget");
+        if ("ORGANIZATION".equals(target.type())) personFact(() -> { persons.requireOrganization(target.organizationId()); return null; });
+        if (optionCeilings(actor, target, true).isEmpty()) throw missing();
         return target;
     }
 
@@ -246,15 +249,21 @@ public class LearningTaskScopePolicy {
     }
 
     // Options are a search of known candidates, not an expansion of the entire roster.
-    public List<Target> optionCeilings(long actor, Target target) {
-        return recipientCeilings(actor, target, "learning-task:assign");
+    public List<Target> optionCeilings(long actor, Target target, boolean draft) {
+        var result = new ArrayList<>(recipientCeilings(actor, target, "learning-task:assign"));
+        if (draft) result.addAll(recipientCeilings(actor, target, "learning-task:edit"));
+        return result.stream().distinct().toList();
+    }
+
+    public boolean draftOptions(Long task) {
+        return task == null || "DRAFT".equals(tasks.selectById(task).getStatus());
     }
 
     private List<Target> recipientCeilings(long actor, Target target, String permission) {
         begin(actor);
         if (authorization.currentNow(actor).managementOwner("LEARNING_TASK", permission) != null)
             return List.of(new Target("PLATFORM", null, null));
-        var result = sources(actor, "LEARNING_MANAGE").stream().filter(s -> covers(selection(s).target(), target))
+        var result = sources(actor, "LEARNING_MANAGE", permission).stream().filter(s -> covers(selection(s).target(), target))
                 .flatMap(s -> audience(selection(s)).stream()).distinct().toList();
         return result;
     }
@@ -294,7 +303,7 @@ public class LearningTaskScopePolicy {
         if (audience == null) throw invalid("audience");
         var at = now();
         var target = taskTarget(task);
-        var candidates = sources(actor, "LEARNING_MANAGE").stream().filter(s -> covers(selection(s).target(), target)).toList();
+        var candidates = sources(actor, "LEARNING_MANAGE", "learning-task:assign").stream().filter(s -> covers(selection(s).target(), target)).toList();
         var people = new TreeSet<String>(audience.personIds());
         var accounts = new TreeSet<Long>();
         for (var id : audience.accountUserIds())

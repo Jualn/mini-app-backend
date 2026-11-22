@@ -50,8 +50,7 @@ public class LearningTaskRecipientOptions {
 
     @Transactional(isolation = Isolation.REPEATABLE_READ)
     public Page list(Long task, String targetType, String org, String type, String q, List<String> orgs, List<String> stages, String cursor, int size) {
-        long actor = authorization.authorize(Action.PREVIEW, task, null);
-        authorization.authorize(Action.EDIT, task, null);
+        long actor = authorization.authorize(Action.READ, task, null);
         Target target = scopes.optionTarget(actor, task, targetType, org);
         if (!Set.of("PERSON", "ACCOUNT", "ORGANIZATION", "DEVELOPMENT_STAGE").contains(type) || size < 1 || size > 50 ||
                 q != null && (q.isBlank() || q.codePointCount(0, q.length()) > 120)) throw invalid("query");
@@ -59,7 +58,8 @@ public class LearningTaskRecipientOptions {
         validateIds(stages);
         if (!Set.of("PERSON", "ACCOUNT").contains(type) && (!orgs.isEmpty() || !stages.isEmpty()))
             throw invalid("query");
-        var ceilings = scopes.optionCeilings(actor, target);
+        var ceilings = scopes.optionCeilings(actor, target, scopes.draftOptions(task));
+        if (ceilings.isEmpty()) throw missing();
         boolean platform = ceilings.stream().anyMatch(t -> "PLATFORM".equals(t.type()));
         var visibleOrgs = ceilings.stream().filter(t -> "ORGANIZATION".equals(t.type())).map(Target::organizationId).distinct().sorted().toList();
         if (!platform && !visibleOrgs.containsAll(orgs)) throw missing();

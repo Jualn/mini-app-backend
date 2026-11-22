@@ -12,6 +12,12 @@ public class PostManagementQueries {
     private final org.springframework.beans.factory.ObjectProvider<PostEditingService> editing;
     private final CurrentAuthorization authorization;
     public record State(Lifecycle lifecycle,List<Management> history,String editableEtag,boolean restorable,boolean curatable) { }
+    /** Called only by the report owner after authorizing an existing case for this exact target. */
+    public State reportEvidence(long id) {
+        var p=posts.includingDeleted(id);
+        if(p==null || !java.util.Set.of("NORMAL","MENTOR_QA").contains(p.getPostType()))return null;
+        return new State(PostCommunityService.lifecycle(p,PostCommunityService.now()),community.historyFor(id),null,false,false);
+    }
     public State get(long id,long actor) {
         var p=posts.includingDeleted(id);if(p==null || !java.util.Set.of("NORMAL","MENTOR_QA").contains(p.getPostType()))return null;
         authorization.require(actor,"content:read","POST","content:read");

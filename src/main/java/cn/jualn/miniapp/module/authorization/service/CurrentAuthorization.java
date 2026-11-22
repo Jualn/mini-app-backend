@@ -78,7 +78,8 @@ public class CurrentAuthorization {
             String permission = "activity:registration:read";
             String namespace = "ACTIVITY";
             if (!decision.allowsWork("ACTIVITY_REGISTRATION_READ", namespace, permission)
-                    && !decision.allowsWork("ACTIVITY_REGISTRATION_EXPORT", namespace, permission)) {
+                    && !decision.allowsWork("ACTIVITY_REGISTRATION_EXPORT", namespace, permission)
+                    && !decision.allowsWork("ACTIVITY_REGISTRATION_DISPOSE", namespace, permission)) {
                 throw new BusinessException(ResultCode.FORBIDDEN);
             }
         };

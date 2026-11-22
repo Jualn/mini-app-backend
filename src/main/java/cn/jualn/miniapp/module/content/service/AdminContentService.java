@@ -16,4 +16,5 @@ public interface AdminContentService {
     AdminContentDetailBO getContentDetail(AdminContentType type, Long contentId);
 
     void executeAction(AdminContentActionBO command);
+    void executeReportTakeDown(AdminContentActionBO command);
 }

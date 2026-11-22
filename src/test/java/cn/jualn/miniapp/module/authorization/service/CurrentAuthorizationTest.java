@@ -29,7 +29,7 @@ class CurrentAuthorizationTest {
             new Grant("complete","USER_GOVERNOR","USER","GLOBAL",List.of("user:read","user:manage"),null,"USER_ACCOUNT_GOVERN",target))));
         assertDoesNotThrow(()->auth.requirePlatform(9,"user:manage","USER","USER_ACCOUNT_GOVERN","user:read","user:manage"));
         when(reader.read(9)).thenReturn(decision(Source.LEGACY,List.of("*"),List.of()));
-        assertDoesNotThrow(()->auth.requirePlatform(9,"user:manage","USER","USER_ACCOUNT_GOVERN","user:read","user:manage"));
+        assertThrows(BusinessException.class,()->auth.requirePlatform(9,"user:manage","USER","USER_ACCOUNT_GOVERN","user:read","user:manage"));
     }
 
     @Test void mediaPrefilterDoesNotAuthorizeEditingOrAnotherNamespace() {

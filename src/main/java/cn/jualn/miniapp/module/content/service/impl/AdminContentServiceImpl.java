@@ -159,11 +159,14 @@ public class AdminContentServiceImpl implements AdminContentService {
         return detail(type,contentId);
     }
     @Override public AdminContentDetailBO getContentDetailForReport(AdminContentType type,Long contentId) {
-        if(growthTargets.require(type.getCode(),contentId,cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong(),"REPORT_HANDLE","report:read"))return detail(type,contentId);
+        if(growthTargets.require(type.getCode(),contentId,cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong(),"REPORT_HANDLE","report:read"))return detail(type,contentId,true);
         authorization.require(cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong(),"report:read","REPORT","report:read");
-        return detail(type,contentId);
+        return detail(type,contentId,true);
     }
     private AdminContentDetailBO detail(AdminContentType type,Long contentId) {
+        return detail(type,contentId,false);
+    }
+    private AdminContentDetailBO detail(AdminContentType type,Long contentId,boolean reportEvidence) {
         if(type==AdminContentType.COMMENT && authorization.current(cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong()).source()
                 ==cn.jualn.miniapp.module.authorization.model.RbacModels.Source.ASSIGNMENT && "ARTICLE".equals(commentService.managementNamespace(contentId)))
             throw new BusinessException(ResultCode.FORBIDDEN);
@@ -188,14 +191,14 @@ public class AdminContentServiceImpl implements AdminContentService {
             detail.setPostOrganization(new AdminPostProjection.Organization(row.getPostType(),projection.categories().get(row.getCategoryId()),projection.topics().getOrDefault(row.getId(),List.of())));
         }
         if(growthLink==null && type==AdminContentType.POST && java.util.Set.of("NORMAL","MENTOR_QA").contains(row.getPostType())) {
-            var state=community.get(contentId,cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong());
+            var state=reportEvidence?community.reportEvidence(contentId):community.get(contentId,cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong());
             detail.setCommunityLifecycle(state.lifecycle());detail.setManagementHistory(state.history());detail.setEditableEtag(state.editableEtag());
             var actions=new ArrayList<>(detail.getAvailableActions());if(state.restorable())actions.add("restore");if(state.curatable())actions.add("change-category");detail.setAvailableActions(actions);
         }
-        if(type==AdminContentType.COMMENT)detail.setManagementHistory(growthLink==null || growthAccess.allowedAdmin(growthLink.postId(),cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong(),"POST_MODERATE","content:read")?commentService.managementHistory(contentId):List.of());
+        if(type==AdminContentType.COMMENT && !reportEvidence)detail.setManagementHistory(growthLink==null || growthAccess.allowedAdmin(growthLink.postId(),cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong(),"POST_MODERATE","content:read")?commentService.managementHistory(contentId):List.of());
         detail.setAttachments(buildAttachments(type, row));
         detail.setContext(buildContext(type, row));
-        detail.setQaContext(qa.management(type.getCode(),contentId));
+        detail.setQaContext(reportEvidence?qa.reportEvidence(type.getCode(),contentId):qa.management(type.getCode(),contentId));
         // 当前表结构没有统一的管理操作审计记录；不伪造历史。
         detail.setHistory(List.of());
         if(growthLink!=null){long operator=cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong();String duty=growthAccess.allowedAdmin(growthLink.postId(),operator,"POST_MODERATE","content:read")?"POST_MODERATE":"REPORT_HANDLE";
@@ -232,6 +235,15 @@ public class AdminContentServiceImpl implements AdminContentService {
             return;
         }
         executeCommentAction(command, reason);
+    }
+
+    @Override
+    public void executeReportTakeDown(AdminContentActionBO command) {
+        if(command==null || command.getAction()!=AdminContentAction.TAKE_DOWN) throw new BusinessException(ResultCode.INVALID_OPERATION);
+        if(command.getType()==AdminContentType.POST) postService.takeDownReportedPost(AdminPostActionBO.builder()
+                .operatorId(command.getOperatorId()).postId(command.getContentId()).reason(command.getReason()).build());
+        else commentService.takeDownReportedComment(AdminCommentActionBO.builder()
+                .operatorId(command.getOperatorId()).commentId(command.getContentId()).reason(command.getReason()).build());
     }
 
     private void executePostAction(AdminContentActionBO command, String reason) {

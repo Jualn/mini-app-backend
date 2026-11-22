@@ -1,5 +1,9 @@
 package cn.jualn.miniapp.module.post.service;
 
+import org.springframework.beans.factory.annotation.Autowired;
+
+import cn.jualn.miniapp.module.content.service.ReportTargetAuthorization;
+
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.ResultCode;
@@ -30,9 +34,10 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class PostGovernanceService {
-    @org.springframework.beans.factory.annotation.Autowired private org.springframework.beans.factory.ObjectProvider<MentorQuestions> mentorQuestions;
+    @Autowired private ObjectProvider<ReportTargetAuthorization> reportTargets;
+    @Autowired private ObjectProvider<MentorQuestions> mentorQuestions;
     private final CurrentAuthorization authorization;
-    @org.springframework.beans.factory.annotation.Autowired private GrowthRecordAccess growth;
+    @Autowired private GrowthRecordAccess growth;
     private final PostMapper postMapper;
     private final RedisService redisService;
     private final AdminAuditJournal managementAudit;
@@ -65,7 +70,16 @@ public class PostGovernanceService {
     @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public void takeDownPost(AdminPostActionBO command) {
         requireGrowthOrPlatform(command.getPostId(),command.getOperatorId(),"post:dispose");
+        hidePost(command);
+    }
 
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
+    public void takeDownReportedPost(AdminPostActionBO command) {
+        reportTargets.getObject().requireDisposal("post",command.getPostId(),command.getOperatorId());
+        hidePost(command);
+    }
+
+    private void hidePost(AdminPostActionBO command) {
         validateAdminAction(command, true);
         var post=postMapper.lockPost(command.getPostId());
         if(post==null) throw new BusinessException(ResultCode.POST_NOT_FOUND);

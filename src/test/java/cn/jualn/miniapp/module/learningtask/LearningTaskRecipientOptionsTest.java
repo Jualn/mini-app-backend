@@ -21,7 +21,7 @@ class LearningTaskRecipientOptionsTest {
     @BeforeEach void setup() {
         options=new LearningTaskRecipientOptions(authorization,scopes,persons,catalog,responsibilities,reader);
         when(authorization.authorize(any(),any(),any())).thenReturn(9L);
-        when(scopes.optionTarget(9L,42L,null,null)).thenReturn(target);when(scopes.optionCeilings(9,target)).thenReturn(List.of(target));
+        when(scopes.optionTarget(9L,42L,null,null)).thenReturn(target);when(scopes.optionCeilings(9,target,false)).thenReturn(List.of(target));
         when(scopes.articleOptionsVersion(9,42L,null,null)).thenReturn("current-authority-v1");
         when(persons.now()).thenReturn(LocalDateTime.of(2026,11,2,12,0));
         when(persons.organizationName("org-a")).thenReturn("可见组织");
@@ -38,7 +38,7 @@ class LearningTaskRecipientOptionsTest {
         assertEquals(List.of(new LearningTaskRecipientOptions.Organization("org-a","可见组织")),result.items().get(0).display().organizations());
         assertNull(result.items().get(0).display().developmentStage());assertFalse(result.items().get(1).selectable());assertEquals("NAME_UNAVAILABLE",result.items().get(1).unavailableReason());
         assertEquals("专业A班",result.items().get(0).display().disambiguation());
-        verify(persons,never()).organizationName("private-org");verify(authorization).authorize(Action.PREVIEW,42L,null);verify(authorization).authorize(Action.EDIT,42L,null);
+        verify(persons,never()).organizationName("private-org");verify(authorization).authorize(Action.READ,42L,null);verify(authorization,never()).authorize(Action.EDIT,42L,null);
         var json=new com.fasterxml.jackson.databind.ObjectMapper();json.writerWithDefaultPrettyPrinter().writeValue(java.nio.file.Path.of("target/learning-task-v1-recipient-wire.json").toFile(),List.of(Map.of("schema","LearningTaskRecipientOptionPage","status",200,"producer","Owning service with explicit policy and Person doubles","body",json.valueToTree(result))));
     }
     @Test void invisibleOrganizationAndDirectoryFiltersAreRejectedBeforeDirectoryRead() {

@@ -1,5 +1,7 @@
 package cn.jualn.miniapp.module.media.service;
 
+import org.springframework.beans.factory.annotation.Autowired;
+
 import cn.jualn.miniapp.module.media.entity.MediaUploadRecord;
 import cn.jualn.miniapp.module.media.mapper.MediaUploadRecordMapper;
 import cn.jualn.miniapp.module.media.mapper.MediaAttachmentMapper;
@@ -20,8 +22,9 @@ public class MediaContentService {
     private final MediaUploadRecordMapper records;
     private final MediaAttachmentMapper attachments;
     private final List<MediaContentPolicy> policies;
-    @org.springframework.beans.factory.annotation.Autowired private GrowthMediaService growth;
-    @org.springframework.beans.factory.annotation.Autowired private GrowthMediaAuthorization growthAuthorization;
+    @Autowired private List<MediaEvidencePolicy> evidencePolicies = List.of();
+    @Autowired private GrowthMediaService growth;
+    @Autowired private GrowthMediaAuthorization growthAuthorization;
 
     @org.springframework.transaction.annotation.Transactional(readOnly=true,isolation=org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public cn.jualn.miniapp.module.media.bo.MediaContentBO require(long id,Long actor,boolean admin) {
@@ -44,6 +47,7 @@ public class MediaContentService {
         if(matching.size()!=1)throw missing();
         boolean allowed=admin?actor!=null && matching.get(0).mayReadAdmin(file.getBoundTargetId(),file.getObjectKey(),actor)
                 :matching.get(0).mayRead(file.getBoundTargetId(),file.getObjectKey(),actor);
+        if(!allowed && admin && actor!=null) allowed=evidencePolicies.stream().anyMatch(p->p.mayReadEvidence(type,file.getBoundTargetId(),actor));
         if(!allowed)throw missing();return project(file);
     }
     private cn.jualn.miniapp.module.media.bo.MediaContentBO project(MediaUploadRecord file){return new cn.jualn.miniapp.module.media.bo.MediaContentBO(file.getObjectKey(),file.getDeclaredContentType(),file.getDeclaredSizeBytes());}

@@ -1,5 +1,9 @@
 package cn.jualn.miniapp.module.report.service.impl;
 
+import org.springframework.beans.factory.annotation.Autowired;
+
+import cn.jualn.miniapp.module.content.service.ReportTargetAuthorization;
+
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.pagination.AdminIdCursorCodec;
 import cn.jualn.miniapp.common.result.ResultCode;
@@ -34,12 +38,14 @@ import java.util.List;
 @Slf4j
 @RequiredArgsConstructor
 public class AdminReportCaseServiceImpl implements AdminReportCaseService {
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     private cn.jualn.miniapp.module.admin.operation.service.AdminAuditJournal managementAudit;
 
     private final cn.jualn.miniapp.module.authorization.service.CurrentAuthorization authorization;
-    @org.springframework.beans.factory.annotation.Autowired private cn.jualn.miniapp.module.content.service.GrowthManagementTargets growth;
-    @org.springframework.beans.factory.annotation.Autowired private cn.jualn.miniapp.module.post.service.GrowthRecordAccess growthAccess;
+    @Autowired private cn.jualn.miniapp.module.content.service.GrowthManagementTargets growth;
+    @Autowired private cn.jualn.miniapp.module.post.service.GrowthRecordAccess growthAccess;
+
+    @Autowired private ReportTargetAuthorization reportTargets;
 
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 50;
@@ -176,18 +182,21 @@ public class AdminReportCaseServiceImpl implements AdminReportCaseService {
         try {content=adminContentService.getContentDetailForReport(contentType,command.getTargetId());}
         catch(BusinessException failure) {if(failure.getResultCode()!=ResultCode.TARGET_NOT_FOUND && failure.getResultCode()!=ResultCode.POST_NOT_FOUND && failure.getResultCode()!=ResultCode.COMMENT_NOT_FOUND)throw failure;}
         boolean unavailable=content==null || "removed".equals(content.getStatus());
-        if("TAKE_DOWN".equals(command.getContentAction())) adminContentService.authorizeDisposal(contentType,command.getTargetId(),command.getOperatorId());
+        boolean reportDisposal=reportTargets.mayDispose(command.getTargetType(),command.getTargetId(),command.getOperatorId());
+        if("TAKE_DOWN".equals(command.getContentAction()) && !reportDisposal) adminContentService.authorizeDisposal(contentType,command.getTargetId(),command.getOperatorId());
         if (command.getDecision() == ReportStatus.VIOLATION_HANDLED && !"NONE".equals(command.getContentAction())) {
-            if (content!=null && content.getAvailableActions().contains(AdminContentAction.TAKE_DOWN.getCode())) {
+            if (content!=null && "published".equals(content.getStatus())) {
                 actualAction="TAKE_DOWN";
-                adminContentService.authorizeDisposal(contentType,command.getTargetId(),command.getOperatorId());
-                adminContentService.executeAction(AdminContentActionBO.builder()
+                if(!reportDisposal) adminContentService.authorizeDisposal(contentType,command.getTargetId(),command.getOperatorId());
+                var disposalCommand=AdminContentActionBO.builder()
                         .operatorId(command.getOperatorId())
                         .type(contentType)
                         .contentId(command.getTargetId())
                         .action(AdminContentAction.TAKE_DOWN)
                         .reason(remark)
-                        .build());
+                        .build();
+                if(reportDisposal) adminContentService.executeReportTakeDown(disposalCommand);
+                else adminContentService.executeAction(disposalCommand);
             }
         }
 

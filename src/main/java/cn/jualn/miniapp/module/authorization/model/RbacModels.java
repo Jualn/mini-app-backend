@@ -86,7 +86,7 @@ public final class RbacModels {
 
         public boolean allows(String permission, String space) {
             return "GLOBAL".equals(scopeType) && namespace.equals(space) && permissionCodes.contains(permission)
-                && (businessTarget==null || !"ORGANIZATION".equals(businessTarget.type()) || !java.util.Set.of("POST_MODERATE","POST_SAFETY_REVIEW","REPORT_HANDLE").contains(dutyCode));
+                && (businessTarget==null || !"ORGANIZATION".equals(businessTarget.type()) || !DutyOperations.growth(dutyCode));
         }
     }
 
@@ -142,7 +142,7 @@ public final class RbacModels {
 
         public boolean allowsWork(String duty, String namespace, String... permissions) {
             return accountEligible && source == Source.ASSIGNMENT && permissions.length > 0 && (managementOwner(namespace, permissions) != null || grants.stream().anyMatch(g ->
-                    duty.equals(g.dutyCode()) && g.businessTarget() != null && "PLATFORM".equals(g.businessTarget().type())
+                    DutyOperations.matches(duty, g.dutyCode()) && g.businessTarget() != null && "PLATFORM".equals(g.businessTarget().type())
                             && java.util.Arrays.stream(permissions).allMatch(p -> g.allows(p, namespace))));
         }
 

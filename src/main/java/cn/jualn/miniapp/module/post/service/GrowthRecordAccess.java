@@ -1,5 +1,7 @@
 package cn.jualn.miniapp.module.post.service;
 
+import cn.jualn.miniapp.module.authorization.model.DutyOperations;
+
 import cn.jualn.miniapp.module.post.GrowthProblems;
 import cn.jualn.miniapp.module.post.bo.GrowthRecordBO.Link;
 import cn.jualn.miniapp.module.post.entity.Post;
@@ -45,7 +47,7 @@ public class GrowthRecordAccess {
     }
     public boolean allowed(RbacModels.Decision d,Link link,String duty,String...permissions) {
         return d.accountEligible() && d.source()==RbacModels.Source.ASSIGNMENT && (d.managementOwner("REPORT_HANDLE".equals(duty)?"REPORT":"POST", permissions) != null || d.grants().stream().anyMatch(g->
-            duty.equals(g.dutyCode()) && g.businessTarget()!=null && "ORGANIZATION".equals(g.businessTarget().type())
+            DutyOperations.matches(duty,g.dutyCode()) && g.businessTarget()!=null && "ORGANIZATION".equals(g.businessTarget().type())
             && link.organizationId().equals(g.businessTarget().organizationId()) && ("REPORT_HANDLE".equals(duty)?"REPORT":"POST").equals(g.namespace())
             && Arrays.stream(permissions).allMatch(g.permissionCodes()::contains)));
     }
@@ -64,6 +66,6 @@ public class GrowthRecordAccess {
     public List<String> organizations(long actor,String duty,String permission) {
         var d=authorization.current(actor);if(!d.accountEligible() || d.source()!=RbacModels.Source.ASSIGNMENT)return List.of();
         if (d.managementOwner("REPORT_HANDLE".equals(duty)?"REPORT":"POST", permission) != null) return links.organizations(null).stream().sorted().toList();
-        return d.grants().stream().filter(g->duty.equals(g.dutyCode()) && g.businessTarget()!=null && "ORGANIZATION".equals(g.businessTarget().type()) && g.permissionCodes().contains(permission)).map(g->g.businessTarget().organizationId()).distinct().sorted().toList();
+        return d.grants().stream().filter(g->DutyOperations.matches(duty,g.dutyCode()) && g.businessTarget()!=null && "ORGANIZATION".equals(g.businessTarget().type()) && g.permissionCodes().contains(permission)).map(g->g.businessTarget().organizationId()).distinct().sorted().toList();
     }
 }

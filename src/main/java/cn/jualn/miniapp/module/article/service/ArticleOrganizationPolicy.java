@@ -142,7 +142,7 @@ public class ArticleOrganizationPolicy {
     }
     public List<String> readable(long actor) {
         if(authorization.currentNow(actor).managementOwner("ARTICLE","article:read")!=null) return persons.allOrganizations();
-        var ids=new TreeSet<String>();sources(actor,"ARTICLE_EDIT").forEach(s->ids.add(target(s)));sources(actor,"ARTICLE_PUBLISH").forEach(s->ids.add(target(s)));return List.copyOf(ids);
+        var ids=new TreeSet<String>();duties.effectiveOperations(actor,"ARTICLE_EDIT",authorization.now(),"article:read").forEach(s->ids.add(target(s)));sources(actor,"ARTICLE_PUBLISH").forEach(s->ids.add(target(s)));return List.copyOf(ids);
     }
     @Transactional(propagation=Propagation.REQUIRES_NEW,isolation=Isolation.REPEATABLE_READ)
     public Candidates candidates(int size,String cursor) {

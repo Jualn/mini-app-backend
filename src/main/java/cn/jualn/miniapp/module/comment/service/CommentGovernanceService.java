@@ -1,5 +1,9 @@
 package cn.jualn.miniapp.module.comment.service;
 
+import org.springframework.beans.factory.annotation.Autowired;
+
+import cn.jualn.miniapp.module.content.service.ReportTargetAuthorization;
+
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.module.admin.operation.service.AdminAuditJournal;
@@ -28,9 +32,10 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class CommentGovernanceService {
-    @org.springframework.beans.factory.annotation.Autowired private org.springframework.beans.factory.ObjectProvider<MentorAnswers> mentorAnswers;
+    @Autowired private ObjectProvider<ReportTargetAuthorization> reportTargets;
+    @Autowired private ObjectProvider<MentorAnswers> mentorAnswers;
     private final CurrentAuthorization authorization;
-    @org.springframework.beans.factory.annotation.Autowired private cn.jualn.miniapp.module.post.service.GrowthRecordAccess growth;
+    @Autowired private cn.jualn.miniapp.module.post.service.GrowthRecordAccess growth;
     private final CommentMapper commentMapper;
     private final CommentCounters counters;
     private final AdminAuditJournal managementAudit;
@@ -68,7 +73,16 @@ public class CommentGovernanceService {
     @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public void takeDownComment(AdminCommentActionBO command) {
         requireGrowthOrPlatform(command.getCommentId(),command.getOperatorId(),"comment:dispose");
+        hideComment(command);
+    }
 
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
+    public void takeDownReportedComment(AdminCommentActionBO command) {
+        reportTargets.getObject().requireDisposal("comment",command.getCommentId(),command.getOperatorId());
+        hideComment(command);
+    }
+
+    private void hideComment(AdminCommentActionBO command) {
         validateAdminAction(command);
         targets.lockForRemoval(command.getCommentId());
         AdminCommentStateRow state = commentMapper.selectAdminStateById(command.getCommentId());

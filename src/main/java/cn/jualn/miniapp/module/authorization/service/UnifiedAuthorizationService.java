@@ -1,5 +1,7 @@
 package cn.jualn.miniapp.module.authorization.service;
 
+import cn.jualn.miniapp.module.authorization.model.DutyOperations;
+
 import static cn.jualn.miniapp.module.authorization.support.UnifiedProblems.*;
 
 import cn.jualn.miniapp.module.admin.operation.service.AdminAuditJournal;
@@ -147,7 +149,7 @@ public class UnifiedAuthorizationService {
         var types=t.targetTypes().stream().filter(x->type==null||type.equals(x)).sorted().toList();
         if(types.isEmpty()) throw RbacProblems.invalidQuery("targetType");
         var ceilings=source.ceilings()==null?null:source.ceilings().stream().map(x->new cn.jualn.miniapp.module.person.service.access.DutyCandidateDirectory.Ceiling(x.target().type(),x.target().personId(),x.target().organizationId())).toList();
-        if(source.ceilings()!=null && !Set.of("POST_MODERATE","POST_SAFETY_REVIEW","REPORT_HANDLE").contains(duty) && source.ceilings().stream().anyMatch(x->"PLATFORM".equals(x.target().type())))ceilings=null;
+        if(source.ceilings()!=null && !DutyOperations.growth(duty) && source.ceilings().stream().anyMatch(x->"PLATFORM".equals(x.target().type())))ceilings=null;
         String binding=candidateBinding(source,List.of("targets",authority,duty,type==null?"":type,q==null?"":q,size));
         long offset=candidateOffset(actor,binding,cursor,c.at());
         var rows=candidates.targets(ceilings,types,"POINTS_CORRECTION".equals(duty),(duty.startsWith("PARTY_PERSONNEL_") || "PARTY_ORG_PERSONNEL_MANAGE".equals(duty)),"MENTOR".equals(t.namespace()),
@@ -168,7 +170,7 @@ public class UnifiedAuthorizationService {
         String until=source.authority()==null?"9999-12-31T23:59:59Z":RbacTime.wire(source.authority().getExpiresAt());
         var selection=new Selection(duty,target,until,null);
         if(!duties.template(duty).targetTypes().contains(target.type())) throw RbacProblems.invalidQuery("targetType");
-        if(source.ceilings()!=null && source.ceilings().stream().noneMatch(x->Set.of("POST_MODERATE","POST_SAFETY_REVIEW","REPORT_HANDLE").contains(duty)?x.target().equals(target):targetCovers(x.target(),target))) throw missing();
+        if(source.ceilings()!=null && source.ceilings().stream().noneMatch(x->DutyOperations.growth(duty)?x.target().equals(target):targetCovers(x.target(),target))) throw missing();
         selection(selection,c.at(),false);
         boolean independent=source.authority()==null || "INDEPENDENT_APPROVAL".equals(source.authority().getRecipientRule());
         if(!independent && !"ORGANIZATION".equals(target.type())) throw missing();
@@ -586,7 +588,7 @@ public class UnifiedAuthorizationService {
             if("PERSON".equals(s.target().type()) && persons.lifecycle(s.target().personId())==null
                     || "ORGANIZATION".equals(s.target().type()) && persons.organizationFact(s.target().organizationId())==null) throw missing();
         } else checkTarget(s.target());
-        if (!"LEARNING_MANAGE".equals(s.dutyCode()) && s.audienceTargets() != null)
+        if (!DutyOperations.audience(s.dutyCode()) && s.audienceTargets() != null)
             throw RbacProblems.invalid("audienceTargets");
         if (s.audienceTargets() != null) for (var target : s.audienceTargets()) checkTarget(target);
     }
@@ -599,10 +601,10 @@ public class UnifiedAuthorizationService {
     }
 
     private boolean covers(Selection ceiling, Selection requested) {
-        if(java.util.Set.of("POST_MODERATE","POST_SAFETY_REVIEW","REPORT_HANDLE").contains(requested.dutyCode()) && !ceiling.target().equals(requested.target()))return false;
+        if(DutyOperations.growth(requested.dutyCode()) && !ceiling.target().equals(requested.target()))return false;
         if (!ceiling.dutyCode().equals(requested.dutyCode()) || !targetCovers(ceiling.target(), requested.target())
                 || expiry(requested.expiresAt()).isAfter(expiry(ceiling.expiresAt()))) return false;
-        if (!"LEARNING_MANAGE".equals(ceiling.dutyCode())) return requested.audienceTargets() == null;
+        if (!DutyOperations.audience(ceiling.dutyCode())) return requested.audienceTargets() == null;
         var allowed = ceiling.audienceTargets() == null ? List.of(ceiling.target()) : ceiling.audienceTargets();
         var wanted = requested.audienceTargets() == null ? List.of(requested.target()) : requested.audienceTargets();
         return wanted.stream().allMatch(t -> allowed.stream().anyMatch(a -> targetCovers(a, t)));

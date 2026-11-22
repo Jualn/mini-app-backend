@@ -1,5 +1,5 @@
 {
-  "catalogVersion": "rbac-v1-unified-final-r12",
+  "catalogVersion": "rbac-v1-unified-final-r13",
   "description": "正式后台授权仅ASSIGNMENT；静态状态为登记/验收快照，不证明目标数据库发布。Provider支持、运行Role/Permission ENABLED/READY及真实来源共同决定可用性，不批量启用。已退役或没有管理实现的权限和角色退出当前目录；历史授权与审计事实受迁移保护。",
   "namespaces": [
     "AUTHORIZATION",
@@ -899,6 +899,17 @@
       "readiness": "READY",
       "grantable": true,
       "unavailableReason": null
+    },
+    {
+      "code": "report:target-dispose",
+      "description": "只处置当前获准举报案件的目标，与结案同事务；不授予其他内容管理权",
+      "namespaces": [
+        "REPORT"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
     }
   ],
   "roles": [
@@ -1524,6 +1535,445 @@
       ],
       "permissionCodes": [
         "party-personnel:binding-manage"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "ACTIVITY_READ_V1",
+      "name": "查看活动",
+      "namespaces": [
+        "ACTIVITY"
+      ],
+      "permissionCodes": [
+        "activity:read",
+        "media:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "ACTIVITY_EDIT_V1",
+      "name": "编辑活动",
+      "namespaces": [
+        "ACTIVITY"
+      ],
+      "permissionCodes": [
+        "activity:edit",
+        "activity:read",
+        "media:read",
+        "media:write"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "ACTIVITY_PUBLICATION_MANAGE_V1",
+      "name": "活动发布管理",
+      "namespaces": [
+        "ACTIVITY"
+      ],
+      "permissionCodes": [
+        "activity:publish",
+        "activity:read",
+        "activity:unpublish",
+        "media:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "ACTIVITY_LIFECYCLE_MANAGE_V1",
+      "name": "活动生命周期管理",
+      "namespaces": [
+        "ACTIVITY"
+      ],
+      "permissionCodes": [
+        "activity:lifecycle",
+        "activity:read",
+        "media:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "PUBLIC_EVENT_READ_V1",
+      "name": "查看公共事项",
+      "namespaces": [
+        "PUBLIC_EVENT"
+      ],
+      "permissionCodes": [
+        "media:read",
+        "public-event:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "PUBLIC_EVENT_EDIT_V1",
+      "name": "编辑公共事项",
+      "namespaces": [
+        "PUBLIC_EVENT"
+      ],
+      "permissionCodes": [
+        "media:read",
+        "media:write",
+        "public-event:edit",
+        "public-event:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "PUBLIC_EVENT_PUBLICATION_MANAGE_V1",
+      "name": "公共事项发布管理",
+      "namespaces": [
+        "PUBLIC_EVENT"
+      ],
+      "permissionCodes": [
+        "media:read",
+        "public-event:publish",
+        "public-event:read",
+        "public-event:unpublish"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "PUBLIC_EVENT_LIFECYCLE_MANAGE_V1",
+      "name": "公共事项生命周期管理",
+      "namespaces": [
+        "PUBLIC_EVENT"
+      ],
+      "permissionCodes": [
+        "media:read",
+        "public-event:lifecycle",
+        "public-event:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "POST_READ_V1",
+      "name": "查看帖子",
+      "namespaces": [
+        "POST"
+      ],
+      "permissionCodes": [
+        "content:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "POST_CURATE_V1",
+      "name": "帖子置顶与推荐",
+      "namespaces": [
+        "POST"
+      ],
+      "permissionCodes": [
+        "content:read",
+        "post:curate"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "POST_DISPOSE_V1",
+      "name": "帖子下架与恢复",
+      "namespaces": [
+        "POST"
+      ],
+      "permissionCodes": [
+        "content:read",
+        "post:dispose"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "POST_COMMENT_MODERATE_V1",
+      "name": "帖子评论下架与恢复",
+      "namespaces": [
+        "POST"
+      ],
+      "permissionCodes": [
+        "comment:dispose",
+        "content:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "OFFICIAL_CONTENT_READ_V1",
+      "name": "查看官方宣传",
+      "namespaces": [
+        "OFFICIAL_CONTENT"
+      ],
+      "permissionCodes": [
+        "content:read",
+        "media:read",
+        "official-content:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "ARTICLE_READ_V1",
+      "name": "查看文章",
+      "namespaces": [
+        "ARTICLE"
+      ],
+      "permissionCodes": [
+        "article-category:read",
+        "article:read",
+        "media:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "ARTICLE_CATEGORY_READ_V1",
+      "name": "查看文章分类",
+      "namespaces": [
+        "ARTICLE"
+      ],
+      "permissionCodes": [
+        "article-category:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "POST_DICTIONARY_READ_V1",
+      "name": "查看帖子分类与话题",
+      "namespaces": [
+        "POST"
+      ],
+      "permissionCodes": [
+        "post-dictionary:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "USER_ACCOUNT_READ_V1",
+      "name": "查看用户账号",
+      "namespaces": [
+        "USER"
+      ],
+      "permissionCodes": [
+        "user:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "LEARNING_READ_V1",
+      "name": "查看学习任务",
+      "namespaces": [
+        "LEARNING_TASK"
+      ],
+      "permissionCodes": [
+        "learning-task:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "LEARNING_EDIT_V1",
+      "name": "编辑学习任务",
+      "namespaces": [
+        "LEARNING_TASK"
+      ],
+      "permissionCodes": [
+        "learning-task:edit",
+        "learning-task:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "LEARNING_AUDIENCE_MANAGE_V1",
+      "name": "分配学习任务受众",
+      "namespaces": [
+        "LEARNING_TASK"
+      ],
+      "permissionCodes": [
+        "learning-task:assign",
+        "learning-task:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "LEARNING_PUBLISH_V1",
+      "name": "发布学习任务",
+      "namespaces": [
+        "LEARNING_TASK"
+      ],
+      "permissionCodes": [
+        "learning-task:assign",
+        "learning-task:publish",
+        "learning-task:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "LEARNING_LIFECYCLE_MANAGE_V1",
+      "name": "学习任务生命周期管理",
+      "namespaces": [
+        "LEARNING_TASK"
+      ],
+      "permissionCodes": [
+        "learning-task:lifecycle",
+        "learning-task:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "LEARNING_ASSIGNMENT_REVOKE_V1",
+      "name": "撤回学习任务分配",
+      "namespaces": [
+        "LEARNING_TASK"
+      ],
+      "permissionCodes": [
+        "learning-task:read",
+        "learning-task:revoke"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "LEARNING_SUBMISSION_READ_V1",
+      "name": "查看学习成果",
+      "namespaces": [
+        "LEARNING_TASK"
+      ],
+      "permissionCodes": [
+        "learning-submission:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "REPORT_READ_V1",
+      "name": "查看举报事项",
+      "namespaces": [
+        "REPORT"
+      ],
+      "permissionCodes": [
+        "report:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "POST_SAFETY_READ_V1",
+      "name": "查看帖子安全审核",
+      "namespaces": [
+        "POST"
+      ],
+      "permissionCodes": [
+        "review:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "ACTIVITY_SAFETY_READ_V1",
+      "name": "查看活动安全审核",
+      "namespaces": [
+        "ACTIVITY"
+      ],
+      "permissionCodes": [
+        "review:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "PUBLIC_EVENT_COMMENT_REVIEW_READ_V1",
+      "name": "查看公共事项评论审核",
+      "namespaces": [
+        "PUBLIC_EVENT"
+      ],
+      "permissionCodes": [
+        "review:read"
+      ],
+      "lifecycle": "ENABLED",
+      "readiness": "READY",
+      "grantable": true,
+      "unavailableReason": null
+    },
+    {
+      "code": "REPORT_RESOLVER_V1",
+      "name": "举报结案与处置",
+      "namespaces": [
+        "REPORT"
+      ],
+      "permissionCodes": [
+        "report:read",
+        "report:handle",
+        "report:target-dispose"
       ],
       "lifecycle": "ENABLED",
       "readiness": "READY",

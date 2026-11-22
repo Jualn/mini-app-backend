@@ -1,5 +1,9 @@
 # 数据库演进入口
 
+## 日常业务独立操作 V101
+
+`V101__add_independent_business_operations.sql` 发布29项细分操作角色及举报目标处置权限，更新受控目录摘要，不改写旧角色成员、既有授权或委派上限。与对应Provider和管理端目录投影匹配发布；旧Provider不能与新摘要混用。新增角色仍依赖其使用权限在目标环境真实可用，不能由静态READY推定数据库已经发布。
+
 ## 通知首版 V98
 
 `V98__add_notification_first_release.sql` 新建27组合的稀疏偏好事实 `notification_preference_v1`，不导入旧字段、旧owner或旧偏好；旧表保留。Delivery新增通知类型和接收偏好类别用于去个人化监测，未知历史保持NULL并使涉及的汇总返回503，不猜测回填。新写入Notification使用V1标记，旧行不进入首版V/R；无通知历史迁移、删除或重建授权。
