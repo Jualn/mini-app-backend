@@ -1,5 +1,9 @@
 package cn.jualn.miniapp.module.report.service.impl;
 
+import org.springframework.beans.factory.annotation.Autowired;
+
+import cn.jualn.miniapp.module.content.service.ReportTargetAuthorization;
+
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.pagination.AdminIdCursorCodec;
 import cn.jualn.miniapp.common.result.ResultCode;
@@ -34,19 +38,35 @@ import java.util.List;
 @Slf4j
 @RequiredArgsConstructor
 public class AdminReportCaseServiceImpl implements AdminReportCaseService {
+    @Autowired
+    private cn.jualn.miniapp.module.admin.operation.service.AdminAuditJournal managementAudit;
+
+    private final cn.jualn.miniapp.module.authorization.service.CurrentAuthorization authorization;
+    @Autowired private cn.jualn.miniapp.module.content.service.GrowthManagementTargets growth;
+    @Autowired private cn.jualn.miniapp.module.post.service.GrowthRecordAccess growthAccess;
+
+    @Autowired private ReportTargetAuthorization reportTargets;
+
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 50;
     private static final String SORT = "latest";
 
     private final ReportMapper reportMapper;
+    private final cn.jualn.miniapp.module.report.service.ReportResolutionFacts facts;
     private final AdminContentService adminContentService;
 
     @Override
     public AdminReportCasePageBO pageCases(AdminReportCaseQueryBO query) {
+        boolean growthQuery=query!=null && cn.jualn.miniapp.module.post.service.GrowthRecordAccess.growthFilter(query.getGrowthType(),query.getGrowthOrganizationId());
+        long actor=cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong();var growthOrgs=growthQuery?growthAccess.organizations(actor,"REPORT_HANDLE","report:read"):List.<String>of();
+        if(growthQuery && (growthOrgs.isEmpty() || query.getGrowthOrganizationId()!=null && !growthOrgs.contains(query.getGrowthOrganizationId())))throw cn.jualn.miniapp.module.post.GrowthProblems.missing();
+        if(!growthQuery)authorization.require(actor,"report:read","REPORT","report:read");
+
         AdminReportCaseQueryBO actual = query == null ? AdminReportCaseQueryBO.builder().build() : query;
         int pageSize = normalizePageSize(actual.getPageSize());
-        Long cursorId = AdminIdCursorCodec.decode(actual.getCursor(), SORT);
-        List<AdminReportCaseRow> rows = reportMapper.selectAdminCasePage(
+        String cursorContext=SORT+":"+cn.jualn.miniapp.module.article.service.ArticleCursor.fingerprint(java.util.Arrays.asList(actor,actual.getKeyword(),actual.getStatus(),actual.getTargetType(),actual.getReason(),actual.getGrowthType(),actual.getGrowthOrganizationId()));
+        Long cursorId = AdminIdCursorCodec.decode(actual.getCursor(), cursorContext);
+        List<AdminReportCaseRow> rows = growthQuery?reportMapper.selectGrowthCasePage(trimToNull(actual.getKeyword()),actual.getStatus(),actual.getTargetType(),actual.getReason(),cursorId,pageSize+1,actual.getGrowthType(),actual.getGrowthOrganizationId(),growthOrgs):reportMapper.selectAdminCasePage(
                 trimToNull(actual.getKeyword()),
                 actual.getStatus(),
                 actual.getTargetType(),
@@ -69,22 +89,25 @@ public class AdminReportCaseServiceImpl implements AdminReportCaseService {
                 .hasMore(hasMore)
                 .nextCursor(!hasMore || rows.isEmpty()
                         ? null
-                        : AdminIdCursorCodec.encode(SORT, rows.get(rows.size() - 1).getLatestReportId()))
+                        : AdminIdCursorCodec.encode(cursorContext, rows.get(rows.size() - 1).getLatestReportId()))
                 .pageSize(pageSize)
                 .build();
     }
 
+
     @Override
     public AdminReportCaseDetailBO getCaseDetail(String targetType, Long targetId) {
+        if(!growth.require(targetType,targetId,cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong(),"REPORT_HANDLE","report:read"))authorization.require(cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong(),"report:read","REPORT","report:read");
+
         AdminReportCaseRow row = reportMapper.selectAdminCase(targetType, targetId);
         if (row == null) {
             throw new BusinessException(ResultCode.REPORT_NOT_FOUND, "举报案件不存在");
         }
         AdminContentType contentType = AdminContentType.fromCode(targetType);
-        AdminContentDetailBO content = adminContentService.getContentDetail(contentType, targetId);
+        AdminContentDetailBO content = adminContentService.getContentDetailForReport(contentType, targetId);
         AdminReportCaseDetailBO detail = new AdminReportCaseDetailBO();
         BeanUtils.copyProperties(toItem(row), detail);
-        detail.setContent(content.getContent());
+        detail.setContent(content.getContent());detail.setGrowthMedia(content.getGrowthMedia());
 
         AdminReportCaseDetailBO.Author author = new AdminReportCaseDetailBO.Author();
         author.setNickname(content.getAuthorName());
@@ -104,13 +127,17 @@ public class AdminReportCaseServiceImpl implements AdminReportCaseService {
             target.setValue(item.getValue());
             return target;
         }).toList());
+        detail.setResolutions(facts.history(targetType,targetId));
         detail.setRelatedAudit(buildAudit(row));
         return detail;
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation=org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public void resolveCase(AdminReportCaseDecisionBO command) {
+        if(command==null || command.getOperatorId()==null) throw new BusinessException(ResultCode.INVALID_OPERATION);
+        if(!growth.require(command.getTargetType(),command.getTargetId(),command.getOperatorId(),"REPORT_HANDLE","report:read","report:handle"))authorization.require(command.getOperatorId(),"report:handle","REPORT","report:handle");
+
         if (command == null || command.getOperatorId() == null || command.getTargetId() == null
                 || command.getDecision() == null) {
             throw new BusinessException(ResultCode.INVALID_OPERATION, "举报案件结案参数不完整");
@@ -128,27 +155,41 @@ public class AdminReportCaseServiceImpl implements AdminReportCaseService {
             throw new BusinessException(ResultCode.INVALID_OPERATION, "结案备注长度必须在4到500个字符之间");
         }
 
+        adminContentService.lockReportTarget(contentType,command.getTargetId());
         Integer targetTypeCode = contentType.getTargetType().getCode();
         List<Long> pendingIds = reportMapper.selectPendingReportIdsForUpdate(
                 targetTypeCode, command.getTargetId());
+        if (!pendingIds.isEmpty()) managementAudit.confirmed(command.getOperatorId(),"resolveAdminReportCase","REPORT_CASE",command.getTargetType()+":"+command.getTargetId());
         if (pendingIds.isEmpty()) {
             throw new BusinessException(ResultCode.REPORT_ALREADY_HANDLED, "举报案件已结案");
         }
 
-        if (command.getDecision() == ReportStatus.VIOLATION_HANDLED) {
-            AdminContentDetailBO content = adminContentService.getContentDetail(contentType, command.getTargetId());
-            if (content.getAvailableActions().contains(AdminContentAction.TAKE_DOWN.getCode())) {
-                adminContentService.executeAction(AdminContentActionBO.builder()
+        if(command.getContentAction()!=null && !java.util.Set.of("NONE","TAKE_DOWN").contains(command.getContentAction())) throw new BusinessException(ResultCode.INVALID_OPERATION);
+        if("TAKE_DOWN".equals(command.getContentAction()) && command.getDecision()!=ReportStatus.VIOLATION_HANDLED) throw new BusinessException(ResultCode.INVALID_OPERATION);
+        String actualAction="NONE";
+        AdminContentDetailBO content=null;
+        try {content=adminContentService.getContentDetailForReport(contentType,command.getTargetId());}
+        catch(BusinessException failure) {if(failure.getResultCode()!=ResultCode.TARGET_NOT_FOUND && failure.getResultCode()!=ResultCode.POST_NOT_FOUND && failure.getResultCode()!=ResultCode.COMMENT_NOT_FOUND)throw failure;}
+        boolean unavailable=content==null || "removed".equals(content.getStatus());
+        boolean reportDisposal=reportTargets.mayDispose(command.getTargetType(),command.getTargetId(),command.getOperatorId());
+        if("TAKE_DOWN".equals(command.getContentAction()) && !reportDisposal) adminContentService.authorizeDisposal(contentType,command.getTargetId(),command.getOperatorId());
+        if (command.getDecision() == ReportStatus.VIOLATION_HANDLED && !"NONE".equals(command.getContentAction())) {
+            if (content!=null && "published".equals(content.getStatus())) {
+                actualAction="TAKE_DOWN";
+                if(!reportDisposal) adminContentService.authorizeDisposal(contentType,command.getTargetId(),command.getOperatorId());
+                var disposalCommand=AdminContentActionBO.builder()
                         .operatorId(command.getOperatorId())
                         .type(contentType)
                         .contentId(command.getTargetId())
                         .action(AdminContentAction.TAKE_DOWN)
                         .reason(remark)
-                        .build());
+                        .build();
+                if(reportDisposal) adminContentService.executeReportTakeDown(disposalCommand);
+                else adminContentService.executeAction(disposalCommand);
             }
         }
 
-        LocalDateTime handledAt = LocalDateTime.now();
+        LocalDateTime handledAt = LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"));
         int updated = reportMapper.resolvePendingCase(
                 targetTypeCode,
                 command.getTargetId(),
@@ -159,6 +200,9 @@ public class AdminReportCaseServiceImpl implements AdminReportCaseService {
         if (updated != pendingIds.size()) {
             throw new BusinessException(ResultCode.DATA_CONFLICT, "举报案件状态已变化，请刷新后重试");
         }
+        String outcome=unavailable?"TARGET_UNAVAILABLE":command.getDecision()==ReportStatus.NORMAL_HANDLED?"NOT_UPHELD":"TAKE_DOWN".equals(actualAction)?"UPHELD_HIDDEN":"UPHELD_RETAINED";
+        facts.accept(command.getTargetType(),command.getTargetId(),pendingIds,command.getDecision()==ReportStatus.VIOLATION_HANDLED?"violation":"normal",actualAction,outcome,command.getOperatorId(),remark,handledAt);
+        managementAudit.operation(java.util.UUID.randomUUID().toString(),command.getOperatorId(),"resolveAdminReportCase","REPORT_CASE",String.valueOf(command.getTargetType()+":"+command.getTargetId()),java.time.LocalDateTime.now(java.time.ZoneOffset.UTC));
         log.info("[AdminReportCaseService.resolveCase][完成] operatorId={}, targetType={}, targetId={}, decision={}, reports={}",
                 command.getOperatorId(), command.getTargetType(), command.getTargetId(),
                 command.getDecision(), updated);
@@ -180,6 +224,7 @@ public class AdminReportCaseServiceImpl implements AdminReportCaseService {
 
     private AdminReportCaseItemBO toItem(AdminReportCaseRow row) {
         AdminReportCaseItemBO item = new AdminReportCaseItemBO();
+        item.setGrowthRecord(growth.link(row.getTargetType(),row.getTargetId()));
         item.setLatestReportId(row.getLatestReportId());
         item.setCaseId(row.getTargetType() + ":" + row.getTargetId());
         item.setTargetId(row.getTargetId().toString());
@@ -195,7 +240,7 @@ public class AdminReportCaseServiceImpl implements AdminReportCaseService {
         item.setFirstReportedAt(row.getFirstReportedAt());
         item.setLastReportedAt(row.getLastReportedAt());
         item.setWaitingMinutes("pending".equals(row.getStatus())
-                ? Math.max(0, Duration.between(row.getFirstReportedAt(), LocalDateTime.now()).toMinutes())
+                ? Math.max(0, Duration.between(row.getFirstReportedAt(), LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))).toMinutes())
                 : 0L);
         item.setPreviousAuditLabel(previousAuditLabel(row));
         return item;

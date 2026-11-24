@@ -28,13 +28,13 @@ public class AdminReportCaseConverter {
                 .decision("violation".equals(request.getDecision())
                         ? ReportStatus.VIOLATION_HANDLED
                         : ReportStatus.NORMAL_HANDLED)
-                .remark(request.getRemark().trim())
+                .contentAction(request.getContentAction()).remark(request.getRemark().trim())
                 .build();
     }
 
     public AdminReportCaseQueryBO toQueryBO(AdminReportCasePageQuery query) {
         return AdminReportCaseQueryBO.builder()
-                .keyword(query.getKeyword())
+                .keyword(query.getKeyword()).growthType(query.getGrowthType()).growthOrganizationId(query.getGrowthOrganizationId())
                 .status(query.getStatus())
                 .targetType(query.getTargetType())
                 .reason(query.getReason())
@@ -61,7 +61,8 @@ public class AdminReportCaseConverter {
     public AdminReportCaseDetailVO toDetailVO(AdminReportCaseDetailBO detail) {
         AdminReportCaseDetailVO vo = new AdminReportCaseDetailVO();
         copyItem(detail, vo);
-        vo.setContent(detail.getContent());
+        vo.setResolutions(detail.getResolutions());
+        vo.setContent(detail.getContent());vo.setGrowthMedia(detail.getGrowthMedia());
         AdminReportCaseDetailVO.Author author = new AdminReportCaseDetailVO.Author();
         BeanUtils.copyProperties(detail.getAuthor(), author);
         vo.setAuthor(author);

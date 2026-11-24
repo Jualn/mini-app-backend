@@ -39,7 +39,7 @@ HTTP 使用 `X-Trace-Id`：只接受 1–64 位 ASCII 字母、数字、下划�
 
 日志回答“某一次具体执行为何失败或发生了什么重要边界事件”。数量、比例、时延分布、积压量和容量趋势属于 metric。
 
-Logback 每行提供 timestamp、thread、level、logger 与存在时的 `traceId/operationId/messageId/jobId/attempt`。事件消息按需增加稳定键值：
+Logback 每条事件提供 timestamp、thread、level、logger 与存在时的 `traceId/operationId/messageId/jobId/attempt`。`prod` 使用 Spring Boot 原生 Logstash JSON 编码器，一条事件占一物理行；时间戳固定 `+08:00`。开发/默认 profile 使用可读文本，时间与可选文件的按日滚动边界使用 `Asia/Shanghai`，不依赖主机默认时区；已有业务字段的 UTC / 北京时间映射仍由 [架构 §1.1](architecture.md#11-时间语义与存储边界) 和所属契约定义。事件消息按需增加稳定键值：
 
 ```text
 result=success|rejected|failure|retry|dead
@@ -51,13 +51,43 @@ durationMs=<单次重要边界时延；高频分布应使用 Timer>
 
 不是每条日志都必须包含所有字段。不要在每层或每一步打印“开始/查询完成/Redis 完成/ACK 完成”。正常高频请求、普通 CRUD、缓存命中/未命中和循环内成功默认不打 INFO。INFO 用于低频重要状态边界、管理动作、恢复完成和部署/生命周期事件；WARN 用于需要关注但已被当前边界处理的异常状态；ERROR 用于需要运维处理的非预期或终止失败。
 
-日志格式是便于 grep/采集的稳定文本键值，不宣称已经接入 JSON 日志平台。不得用日志替代 `admin_operation_log` 等持久审计事实。
+业务继续使用 SLF4J 参数化调用，不增加通用日志服务。现有消息中的 `result=...` 等键值仍在 JSON `message` 内，不自动解析业务字符串。需要独立 JSON 字段时使用标准 fluent `addKeyValue`，仅允许 `method/route/status/durationMs/result/errorCategory/exceptionType` 标量；扩展先在本规范登记。JSON 基础字段为 `@timestamp/@version/message/logger_name/thread_name/level/level_value/stack_trace?`。原生任意 context 输出关闭，`LoggingJsonCustomizer` 只添加五个受控关联字段及上述事件字段，禁止通过外部配置打开任意 MDC 输出或覆盖固定字段。关联 ID 为 1–64 位 ASCII 字母/数字/下划线/连字符；attempt 为正 int。其他 MDC 字段不传播、不导出。
+
+RequestLogFilter 始终校验并回传 traceId，安装在业务 Filter 之前；同步出口、ASYNC redispatch 和 Servlet async completion 共用同一请求状态。请求完成摘要仅含白名单 HTTP method、MVC route template（未匹配为 `unmatched`）、status、durationMs、result。正常及预期 4xx 为 DEBUG；5xx、执行失败及同步耗时达到 `app.logging.slow-request-ms`（默认 2000ms）为 WARN。长连接/异步等待不按同步慢请求阈值告警，其摘要在完成时仍为 DEBUG；失败仍为 WARN。非失败的慢请求摘要明确使用 `HTTP slow request completed`，保留原 HTTP status/result；失败摘要仍使用 `HTTP request completed`。2 秒是可配置的初始观测阈值，不等同于已校准的业务 SLA。摘要是独立 outcome 事件，不重复异常堆栈。异常逃出 Filter 且响应未提交时，容器最终 status 尚不可知，摘要使用 `status=0,result=failure`；已提交 SSE 的传输 200 与执行失败分别表示，不能伪造 HTTP 500。正常流量数量/时延继续复用 HTTP metrics，不默认逐请求 INFO。
+
+未接入日志采集平台；不得用日志替代 `admin_operation_log` 等持久审计事实。
+
+### 3.1 开发与生产等级
+
+开发/默认控制台使用基于 Boot `%clr` 的控制台调色：时间和线程淡色，TRACE 淡色、DEBUG 蓝色、INFO 青色、WARN 品红、ERROR 亮红，logger 蓝色，线程/logger 列对齐，正文保持清晰；关联字段放在行尾，仅省略未设置的空字段。已存在的 trace/operation/message/job/attempt、事件键值与安全异常输出均保留。颜色由 `spring.output.ansi.enabled=detect` 自动检测；终端支持但未识别时可临时选 `always`，重定向/不支持 ANSI 时可选 `never`。不使用图标、调用栈定位或行号采集，不增加日志事件。配色只用于控制台文本，生产 JSON/stdout 与可选 JSON 文件不含颜色控制码。
+
+等级统一归 Boot `logging.level`，公共规则在 `application.yaml`，差异在 `application-dev.yaml/application-prod.yaml`；Logback XML 只管理编码、输出和保留，使用同一 root 属性作初始化值，不再维护另一份包等级。采用 [Boot 官方等级和日志组机制](https://docs.spring.io/spring-boot/3.5/reference/features/logging.html#features.logging.log-levels)，下表是结合本项目依赖与输出成本的选择，不是上游对所有项目的统一等级要求。
+
+| 类别 | dev / 无 prod 的默认环境 | prod | 原因 |
+|---|---|---|---|
+| root | INFO | WARN | 开发允许未知依赖的低频信息；生产未知依赖需明确选择 INFO |
+| `cn.jualn.miniapp` | INFO | INFO | 保留状态边界、恢复、异常；不默认全包 DEBUG |
+| `org.springframework.boot` | INFO | INFO | 保留服务启动、监听端口和优雅停机证据 |
+| `com.zaxxer.hikari` | INFO | INFO | 保留连接池启动/关闭，配置转储与池状态 DEBUG 不开启 |
+| `org.apache.catalina/org.apache.coyote` | INFO（仅显式 dev） | WARN | 开发查看容器/connector；生产由 Boot 记录主要生命周期，避免同义启动信息 |
+| Spring 其余包、Apache（含 POI/PDFBox/HttpClient） | WARN | WARN | 不输出常规请求分发、解析、内部管理信息；保留 WARN/ERROR |
+| MyBatis-Plus / MyBatis、Sa-Token | WARN | WARN | 不输出框架调试和常规内部细节；SQL 参数另由 NoLoggingImpl 禁止 |
+| Lettuce、Netty、Reactor Netty、COS/STS SDK | WARN | WARN | 不输出连接/命令/网络调试；依赖恢复由既有应用 owner 记录 |
+| Apache HttpClient wire / headers | OFF | OFF | 字节与 header 转储可能包含 Authorization、签名 URL、上传内容 |
+| 正常请求与安全 Provider 摘要 | DEBUG（默认不输出） | DEBUG（默认不输出） | 调试时显式开启，避免轮询/健康检查逐条刷屏；失败与慢同步请求仍由既有 WARN/ERROR 路径体现 |
+
+不把 root 改为 ERROR，也不为了安静屏蔽依赖 WARN/ERROR。正常 INFO 是否应降级须看事件含义，不能把整个业务模块提到 WARN 隐藏其恢复或重要边界。无新证据时不批量改写调用等级。
+
+按需排障使用两个小范围原生日志组：`requestlog` 只包含 `RequestLogFilter`，`providerlog` 只包含本项目 `WebClientConfig`。例如启动参数 `--logging.level.requestlog=DEBUG`，或环境变量 `LOGGING_LEVEL_REQUESTLOG=DEBUG`；Provider 安全摘要对应 `LOGGING_LEVEL_PROVIDERLOG=DEBUG`。这些组不开放框架 HTTP body、wiretap、SQL 或其他业务 DEBUG。特定业务可按包/类使用原生 `--logging.level.<完整名称>=DEBUG`；不要用环境变量直接设置区分大小写的类名，Boot 会将环境变量名称转成小写。
+
+排障结束移除临时覆盖并按原部署流程恢复；不开启公开 Actuator loggers endpoint。`--debug` 是 Boot 的一组选定框架 DEBUG，不是业务调试总开关，也不是正常开发/生产启动参数；禁止常驻 root DEBUG/TRACE、Boot web/sql 日志组 TRACE、Hikari 配置 DEBUG 或 HTTP wiretap。Reactor Netty 的 [wire logger](https://projectreactor.io/docs/netty/release/reference/http-client.html#_wire_logger) 会输出网络事件和内容，不能用它替代受控 Provider 摘要。
 
 ## 4. 异常记录责任
 
 - 参数错误、未登录/无权限、资源不存在、状态冲突、容量已满等预期业务拒绝不默认打印 stack trace，也不默认打印 WARN。HTTP status/自动指标已经提供总量信号；有明确运营需求时增加低基数 metric。
 - Controller、Service、Mapper 在将同一异常继续向上抛出时不重复记录。翻译异常时保留 cause。
-- 未预期异常到达 `GlobalExceptionHandler` 时，由该 HTTP 失败边界记录一次 ERROR 和完整 Throwable，客户端只得到脱敏 Problem Details + traceId。
+- Points 的 `points-dependency-unavailable` 503 由其 HTTP Advice 记录一次无堆栈 WARN，包含受控 dependency、异常类别、本地业务调用位置（跳过异常工厂）及符合固定格式的内部 Problem type，沿用当前 MDC traceId。内部 cause 保留但不输出异常消息、人员/组织事实、SQL或供应商载荷；普通400/403/404/409拒绝不因此新增日志。该诊断不改变对外Problem表示，也不代表依赖已恢复。
+- 未预期异常到达 `GlobalExceptionHandler` 时，由该 HTTP 失败边界记录一次 ERROR 并传入 Throwable，客户端只得到脱敏 Problem Details + traceId。`SafeStackTracePrinter` 在 Logback/Boot 原生扩展点统一保留类型、调用位置、cause/suppressed 关系，排除全部异常 message，避免 SQL、绑定值、供应商 URL/body 泄漏；每个 throwable 最多 48 个独立 frame，每条最多 16 个 throwable、约 8Ki 字符，重复 frame 省略。这不是完整原始异常转储。
 - Filter、Security、SSE 完成回调、`@Async`、scheduler、consumer、启动/关闭等不一定到达 MVC Advice，各自由实际观察最终 outcome 的适配器负责一次记录。
 - 中间 retry 默认用 metric；确需日志时使用无堆栈 DEBUG/WARN，并带 messageId/jobId、attempt、分类和下次计划。terminal/permanent/DEAD 在最终责任边界记录一次 ERROR，可带完整堆栈。禁止每次 retry 都打印相同完整堆栈。
 
@@ -146,7 +176,9 @@ MySQL Gauge 使用两条聚合查询而不是七次独立 COUNT；Redis 只执�
 
 ## 7. 同步与异步传播
 
-HTTP → Controller → Service → Mapper 的同步调用共享当前 MDC trace。`@Async` 的现有装饰器仅复制本规范列出的关联字段，并在 finally 恢复 worker 线程原上下文；它不传播事务，也不能把 `UserContext` 的历史复制行为解释为跨消息授权。
+HTTP → Controller → Service → Mapper 的同步调用共享当前 MDC trace。`@Async`、AI/SSE 任务和 Job executor 的现有装饰器仅复制本规范列出的关联字段，执行前隔离线程残留 MDC，在 finally 恢复 worker 原完整 MDC；无父 trace 的进程内任务新建 trace。MVC Callable 复用该 executor。普通 Future 的失败仍由读取 Future 的 owner 处理，装饰器不额外打印异常；void `@Async` 的未捕获失败由 AsyncUncaughtExceptionHandler 记录一次。它不传播事务，也不能把 `UserContext` 的历史复制行为解释为跨消息授权。
+
+ThreadPoolTaskScheduler 使用 Spring 6.2 TaskDecorator，在每次真实执行（包括同一个周期任务的下一次执行）内生成新 trace；不捕获应用启动/注册线程上下文。scheduler ErrorHandler 在该作用域内记录未捕获失败，任务结束恢复原上下文。Job、Outbox 和 Stream 的持久 attempt 继续覆盖为各自新 trace；不可解码的 Stream 消息也有独立 trace/attempt。WebClient 的 DEBUG 响应回调仅在日志调用期间恢复选定关联字段，不把 MDC 长期留在 Reactor 线程；不提供通用 Reactor 链或第三方自建线程的隐式传播保证。
 
 跨持久消息或延迟 Job 时不捕获线程 MDC 作为未来执行上下文。生产者将 operationId（若有）和稳定 messageId/jobId 写入受版本治理的消息/持久状态；消费者验证后为本次 attempt 新建 traceId，再安装关联字段。结束时按作用域恢复/清理。
 
@@ -158,7 +190,13 @@ HTTP → Controller → Service → Mapper 的同步调用共享当前 MDC trace
 
 URL 日志不得包含 query/fragment；动态路径先归一化。异常 message、远端响应和 Bean Validation 文本都可能携带输入，未审查前不进入日志。日志中的不可信文本还须限制长度并防止换行伪造。
 
-生产不默认开启 SQL 全量日志、请求/响应 body 日志或同步高频磁盘写。本项目只保留一个异步应用文件 appender：单分片 50MB、14 天、总量 1GB；不再将异步 ERROR 同时复制到 app/error/queue 三份文件。队列满、进程崩溃时日志仍可能丢失，因此它不能承担可靠审计。仓库不存在 Compose，Docker `json-file` 的 `max-size/max-file` 必须在下一轮部署事实核验中确认，不能由应用配置推断。
+开发与生产按 §3.1 配置应用 INFO、依赖 WARN，并保留选定生命周期 INFO；MyBatis 显式 `NoLoggingImpl`，即使临时开启业务 DEBUG 也不输出 SQL 参数。禁止启用 HTTP wiretap、body/access-token 日志。WebClient 仅记录 method/host/status，排除路径、query、fragment 和 user-info。Redis 错误排除完整 key，文件清理使用内部 uploadRecordId，业务调用排除自由文本版本等字段。JSON message 最多 2048 字符并替换控制字符；文本 message 同样截断并清理 CR/LF/TAB。调用点仍须选择安全字段；编码器无法可靠判断任意业务文字是否包含个人信息或凭据，不是通用内容脱敏器。
+
+生产默认只有一个 `AsyncAppender -> JSON stdout` 链路，队列 512、discardingThreshold=0、neverBlock=true、停机最多 flush 5 秒。队列满时包括 ERROR 在内的新事件会丢弃，不能阻塞业务线程；Docker non-blocking buffer 满时也会丢弃。崩溃、强杀、磁盘故障和外部重定向均不能保证日志可靠交付。正常失败应有安全诊断，持久审计仍走原所属存储。
+
+Docker Compose 日志覆盖配置在 `config/logging/compose.logging.yaml`，需按实际服务名合并：`local` driver，20m × 3、压缩、non-blocking、4m buffer。约 60MiB 是每容器名义文件预算，不是整机硬配额/14 天保留承诺；高流量会提前淘汰，轮转、压缩与读取存在额外临时空间。用 Docker logs 读取，不直接改写 daemon-owned 日志文件。仓库的 `compose.local.yaml` 只运行本地 Flyway，不等于生产 Compose。
+
+非容器/已有文件采集部署可显式选 `prod,log-file`：只写一个异步 JSON 文件链路，不再写 stdout；默认 `LOG_DIR=/app/mini-app/logs`，50MB 分片、14 天、压缩归档总量 1GB、启动清理过期归档。可用 `LOG_MAX_FILE_SIZE/LOG_MAX_HISTORY/LOG_TOTAL_SIZE` 在隔离验证后调整。归档 cap 不包含活动文件；清理为滚动/启动触发且异步，压缩与 cap 清理可短暂交错，不是磁盘硬配额；框架扫描窗口外的久远遗留文件需运维核对处理。保留旧部署日志的清理由运维按访问/取证责任执行，不在应用启动时删除旧 app/error/queue 文件。
 
 ## 9. Health 语义
 
@@ -176,17 +214,22 @@ URL 日志不得包含 query/fragment；动态路径先归一化。异常 messag
 
 核心面板若未来接入 Prometheus/Grafana，只做 HTTP、JVM/process、Hikari、Redis 和 Async 五个区块；当前资源预算和消费方不足以授权部署额外常驻服务。
 
-### 10.1 Resource-cost result
+### 10.1 资源预算与测量边界
 
 - 固定成本：每 30 秒两条 MySQL 聚合查询；每 30 秒一次 Redis XLEN、XINFO GROUPS、XPENDING summary 和最多一条 oldest pending；不扫描完整 PEL，不按业务 ID 建 gauge。
-- 日志磁盘：单一生产文件链路，50MB 分片、14 天、总量 1GB；异步 appender 队列 512，最多等待 5 秒 flush。
+- 日志预算：默认 stdout + Docker local，20m × 3/容器，4m buffer；应用异步队列 512、最多等待 5 秒 flush。可选单一文件模式 50MB 活动分片 + 最多 1GB 归档/14 天。该预算以代码中 2 核 2GB 的选型为参考，服务器真实空闲磁盘/CPU/内存尚须部署时核实；不声称已验证线上容量。
 - 事件成本：Counter/Timer 只在 publish、Job attempt、Stream delivery/reclaim 边界更新；没有 HTTP 重复计时和逐条成功 INFO。
-- 本 checkout 未启动完整应用/Redis，也没有稳定的 before baseline，因此 CPU、heap、HTTP latency 与 Worker throughput 对比是 **NOT RUN**，不能用单元测试耗时伪装成性能测量。上线前在相同流量和数据量下采样这些指标；若两条聚合查询进入慢查询，先把 refresh 降至 60 秒并检查执行计划。
+- CPU、heap、HTTP latency 与 Worker throughput 需要同流量、同数据量的 before/after baseline；单元测试耗时不构成性能测量。上线前采样这些指标；若两条聚合查询进入慢查询，先把 refresh 降至 60 秒并检查执行计划。
 
 ## 11. 变更检查与后续边界
 
 修改 HTTP pipeline、异常处理、日志、metrics、remote client、SSE、`@Async`、scheduler、consumer/retry、health 时必须阅读本文。新增 ID 类型、MDC 字段、error category 或 metric 命名约定先更新本权威边界，不在业务模块自行发明。
 
-后续 Deployment / Runtime 阶段仍负责：监控 backend 与 alert evaluator 的选择、management endpoint 网络/鉴权、Nginx/进程 probe 接线、Docker logging driver 限额、MySQL slow-query 生产参数、实际容量/阈值校准和生产故障演练。它不得重写这里的 ID、meter 或 health 语义。
+后续 Deployment / Runtime 阶段仍负责：监控 backend 与 alert evaluator 的选择、management endpoint 网络/鉴权、Nginx/进程 probe 接线、实际应用 Docker logging 覆盖与限额核验、MySQL slow-query 生产参数、实际容量/阈值校准和生产故障演练。它不得重写这里的 ID、meter 或 health 语义。
 
 新增 observability 行为的验证按 [Backend §9.12–9.13](../standards/backend-engineering.md#912-verification-scope-and-escalation) 选择真实边界。至少覆盖上下文安装/非法输入/作用域恢复、异常单点责任及敏感字段；若新增自定义 meter，再覆盖 tag 白名单与基数边界。不要为测试一个尚不存在的自定义 metrics API 而先实现该 API。
+
+
+通知内容清理使用 `jualn.notification.cleanup` Counter，result 有界为 `processed/expired_delivery/disposed/redacted/failure`，单位为处理行数（failure 为轮次）。`jualn.notification.cleanup.backlog` Gauge 在每轮扫描后采样逾期已入箱记录数，包含受保护项；`jualn.notification.cleanup.unclassified` 单独统计逾期、有站内资格且 sourceKey 为 NULL/纯空白的受保护行。两者 -1 表示尚未成功采样，失败保留上次样本。owner 是 NotificationLifecycleService，每分钟一次范围统计，不按用户/来源/异常文本加标签；未决明细用受控 SQL 排障。以上 meter 只证明进程内采集，不代表外部 dashboard/告警已部署。
+
+账号安全补充：auth记录login/logout成功的内部userId与既有operation/result字段，Admin记录当前会话注销结果，不包含Token、QR秘密、code或完整外部标识。生产应用INFO沿现有策略采集，失败由对应HTTP/存储边界观察。此类事件仍是best-effort运行日志，不构成持久会话收据；账号限制、绑定及授权成功事实继续由各owner同事务审计，不能用日志替代。认证header/body和客户端登录响应必须隐藏，错误采集也不得上传它们。

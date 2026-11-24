@@ -1,11 +1,18 @@
 package cn.jualn.miniapp.module.notify.controller;
+import cn.jualn.miniapp.module.notify.service.inbox.PersonalNotificationInbox;
+import cn.jualn.miniapp.module.notify.service.preference.NotificationPreferences;
+import cn.jualn.miniapp.module.notify.service.capability.NotificationCapabilityQueries;
+import cn.jualn.miniapp.module.notify.converter.NotificationPersonalConverter;
+import cn.jualn.miniapp.module.notify.bo.NotificationInboxBO;
+import cn.jualn.miniapp.module.notify.bo.NotificationPreferencesBO;
+
 
 import cn.jualn.miniapp.common.exception.GlobalExceptionHandler;
 import cn.jualn.miniapp.config.JacksonConfig;
 import cn.jualn.miniapp.module.notify.bo.NotificationCenterBO;
 import cn.jualn.miniapp.module.notify.converter.NotificationCenterConverter;
-import cn.jualn.miniapp.module.notify.service.CanonicalNotificationService;
-import cn.jualn.miniapp.module.notify.service.NotificationCenterService;
+
+import cn.jualn.miniapp.module.notify.service.inbox.NotificationCenterService;
 import cn.jualn.miniapp.module.notify.vo.CanonicalNotificationPageVO;
 import org.junit.jupiter.api.Test;
 import org.mapstruct.factory.Mappers;
@@ -26,10 +33,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 class NotificationCenterMvcTest {
-    private final CanonicalNotificationService legacy = mock(CanonicalNotificationService.class);
+    private final PersonalNotificationInbox legacy = mock(PersonalNotificationInbox.class);
     private final NotificationCenterService center = mock(NotificationCenterService.class);
-    private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new CanonicalNotificationController(legacy, center,
-            Mappers.getMapper(NotificationCenterConverter.class)))
+    private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new CanonicalNotificationController(legacy,mock(NotificationPreferences.class),mock(NotificationCapabilityQueries.class),new NotificationPersonalConverter(), center,
+            Mappers.getMapper(NotificationCenterConverter.class),org.mockito.Mockito.mock(cn.jualn.miniapp.module.notify.service.capability.NotificationCatalogQueries.class),org.mapstruct.factory.Mappers.getMapper(cn.jualn.miniapp.module.notify.converter.NotificationCatalogConverter.class)))
             .setControllerAdvice(new GlobalExceptionHandler())
             .setMessageConverters(new MappingJackson2HttpMessageConverter(
                     new JacksonConfig().objectMapper(new Jackson2ObjectMapperBuilder()))).build();
@@ -40,9 +47,9 @@ class NotificationCenterMvcTest {
     }
     @Test void optInStructuredPreservesNullReadAtAndOmitsUnknownOptionalValues() throws Exception {
         when(center.list(any())).thenReturn(new NotificationCenterBO.Page(List.of(item()), null, false, "opaque-head"));
-        mvc.perform(get("/v1/users/me/notifications").param("representation", "structured").param("boxCategory", "INTERACTION"))
+        mvc.perform(get("/v1/users/me/notifications").param("boxCategory", "INTERACTION"))
                 .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
-                .andExpect(jsonPath("$.representation").value("structured"))
+                .andExpect(jsonPath("$.representation").doesNotExist())
                 .andExpect(jsonPath("$.items[0].id").value("7"))
                 .andExpect(jsonPath("$.items[0].readAt").hasJsonPath())
                 .andExpect(jsonPath("$.items[0].target.type").value("POST_DETAIL"))
@@ -56,7 +63,7 @@ class NotificationCenterMvcTest {
                 new NotificationCenterBO.Actor("9", "actor", null), null, null, null, "2026-10-07T12:00:00+08:00");
         when(center.list(any())).thenReturn(new NotificationCenterBO.Page(List.of(row), null, false, "head"));
         when(center.get("7")).thenReturn(row);
-        mvc.perform(get("/v1/users/me/notifications").param("representation", "structured"))
+        mvc.perform(get("/v1/users/me/notifications"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].presentation.subjectTitle").value("post title"))
                 .andExpect(jsonPath("$.items[0].presentation.quote").value("original comment"))
                 .andExpect(jsonPath("$.items[0].presentation.context").value("old context"))
@@ -70,13 +77,8 @@ class NotificationCenterMvcTest {
                 .andExpect(jsonPath("$.presentation.quote").doesNotExist()).andExpect(jsonPath("$.actor").doesNotExist());
     }
 
-    @Test void defaultLegacyShapeRemainsUnchanged() throws Exception {
-        when(legacy.list(any())).thenReturn(new CanonicalNotificationPageVO(List.of(
-                new CanonicalNotificationPageVO.Item("7", "COMMENTED_ME", null, "t", "c", null, false, "2026-09-30T12:00:00+08:00")), null));
-        mvc.perform(get("/v1/users/me/notifications")).andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].notificationId").value("7"))
-                .andExpect(jsonPath("$.items[0].isRead").value(false))
-                .andExpect(jsonPath("$.representation").doesNotExist());
+    @Test void oldRepresentationIsRejected() throws Exception {
+        mvc.perform(get("/v1/users/me/notifications").param("representation","legacy")).andExpect(status().isBadRequest());
     }
     @Test void summaryRecoveryAndReadResultsUseContractRoutesAndNumericCounts() throws Exception {
         when(center.summary(null)).thenReturn(new NotificationCenterBO.Summary(3, "head", 0, null));
@@ -100,7 +102,7 @@ class NotificationCenterMvcTest {
             mvc.perform(get("/v1/users/me/notifications").param("representation", representation).param("boxCategory", "ACTIVITY"))
                     .andExpect(status().isBadRequest()).andExpect(jsonPath("$.type").value("/problems/validation-error"));
         }
-        mvc.perform(get("/v1/users/me/notifications").param("representation", "structured")
+        mvc.perform(get("/v1/users/me/notifications")
                 .param("boxCategory", "ACTIVITY").param("category", "ACTIVITY")).andExpect(status().isBadRequest());
         mvc.perform(post("/v1/users/me/notifications:batch-read").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"notificationIds\":[]}")).andExpect(status().isBadRequest());

@@ -1,0 +1,65 @@
+{
+  "catalogVersion": "identity-organization-v1-r3",
+  "technicalDesignStatus": "DEFINED",
+  "policyConfirmationStatus": "CONFIRMED",
+  "approvalEvidence": "user-confirmation:2026-10-19:four-party-stages-v1",
+  "identityKind": "PARTY_DEVELOPMENT",
+  "stages": [
+    {
+      "stageId": "PARTY_ACTIVIST",
+      "displayName": "入党积极分子",
+      "confirmationStatus": "CONFIRMED"
+    },
+    {
+      "stageId": "PARTY_DEVELOPMENT_CANDIDATE",
+      "displayName": "发展对象",
+      "confirmationStatus": "CONFIRMED"
+    },
+    {
+      "stageId": "PROBATIONARY_PARTY_MEMBER",
+      "displayName": "预备党员",
+      "confirmationStatus": "CONFIRMED"
+    },
+    {
+      "stageId": "FULL_PARTY_MEMBER",
+      "displayName": "正式党员",
+      "confirmationStatus": "CONFIRMED"
+    }
+  ],
+  "pointsEligibilityPolicy": {
+    "policyId": "points-local-party-v1",
+    "confirmationStatus": "CONFIRMED",
+    "approvalEvidence": "user-confirmation:2026-10-19:four-party-stages-v1",
+    "eligibleStageIds": [
+      "PARTY_ACTIVIST",
+      "PARTY_DEVELOPMENT_CANDIDATE",
+      "PROBATIONARY_PARTY_MEMBER",
+      "FULL_PARTY_MEMBER"
+    ],
+    "requirements": [
+      "VERIFIED",
+      "ACTIVE",
+      "WITHIN_VALIDITY",
+      "ACCOUNT_AVAILABLE",
+      "VERIFIED_ACTIVE_MEMBERSHIP",
+      "ACTIVE_ACCEPTING_ORGANIZATION"
+    ],
+    "unknownOutcome": "INDETERMINATE"
+  },
+  "domainActions": {
+    "IDENTITY": [
+      "READ",
+      "MAINTAIN"
+    ],
+    "ORGANIZATION": [
+      "READ",
+      "MAINTAIN"
+    ],
+    "POINTS": [
+      "READ",
+      "REVIEW",
+      "REVERSE"
+    ]
+  },
+  "description": "已确认四阶段；新Points申报还需合法受理组织及当前有效成员周期。局部成员事实、完整个人成员集合、完整组织花名册独立；普通无组织用户正常校园功能不受影响。"
+}

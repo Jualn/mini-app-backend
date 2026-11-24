@@ -20,6 +20,12 @@ A durable fact changed.
 
 This file does **not** duplicate the fact itself.
 
+## Reading vs updating: two different routes
+
+- **Read route (before a decision):** locate the affected code/current capability first, then read only the necessary current authority or relevant section. Reading an authority does not imply editing it.
+- **Write route (when a durable fact changes):** identify its owning document and executable representations, inspect semantically affected dependents, and update the current authority in place. Code changes without durable semantic changes normally need no documentation diff.
+- Authority follows **responsibility**, not document age, file length, change frequency or the fact that an agent happened to read it. Stable engineering standards, evolving project infrastructure, business domains, accepted contracts and operational procedures are separate kinds of knowledge. Actual folder/file locations are discovered from the repository and project AGENTS routing; do not introduce an additional full-document index by default.
+
 ---
 
 ## 2. Core Rule
@@ -215,10 +221,10 @@ Broad dependent inspection and compatibility analysis required.
 | Backend correctness/reliability guarantee | Backend Engineering Standard | application/persistence/messaging implementation |
 | Java engineering/baseline policy | Java Engineering Standard | build config, source, runtime image |
 | Spring integration/baseline policy | Spring Boot Engineering Standard | build config, Spring configuration/code |
-| Database engineering rules | Database Standard | migrations, SQL, repositories |
+| Database engineering rules | [Database Standard](../standards/database-engineering.md) | migrations, SQL, repositories |
 | Current reconstructable DB schema | migration history | running database |
-| Redis/cache rules | Redis Standard | Redis keys/TTL/read-write logic |
-| Messaging delivery/recovery rules | Messaging Standard | producer/consumer/state implementation |
+| Redis/cache rules | Existing project architecture and applicable reliability/async decisions (see project AGENTS routing; no separate Redis standard presumed) | Redis keys/TTL/read-write logic |
+| Messaging delivery/recovery rules | Project Async Processing Architecture for mechanism; Reliability/Backend for outcome and recovery meaning | producer/consumer/state implementation |
 | Reminder / Notification / Delivery semantics | `docs/reminder-notification.md` | business policies, intent generation/expiry, recipient timing, Timeline semantic preflight, expand/preflight/owner gates, notify services, preference/inbox/delivery tables, async ownership/terminal repair, WeChat mapping, retention/replay, runbook and implementation handoff |
 | WeChat capability/account/message-product boundary and enablement evidence | `docs/wechat-integration.md` | account/config references, identity/permission/template adapters, callback routing, delivery handler, `WxClient`; inspect affected auth/audit/notify owners and environment evidence; COS remains separate |
 | Media lifecycle ownership and COS integration boundary | `docs/architecture.md` §2.1; media retention in `docs/domain.md`; reconstructable schema in migration history | media Services/Mapper, business save/replacement callers, `third/cos` adapters, upload cleanup; inspect DB README/preflight/repair, runbook cutover and commands' focused verification; bucket configuration requires environment evidence |
@@ -433,7 +439,7 @@ commands if build procedure changes
 
 For the current reconstructable schema: migration history.
 
-Database Standard governs how schema evolution should be designed.
+[Database Standard §9](../standards/database-engineering.md#9-migration-compatibility-and-repair) governs how schema evolution should be designed; migration history remains the authority for reconstructable schema.
 
 ## Inspect
 
@@ -598,7 +604,7 @@ Client UI visibility is a dependent, not authorization authority.
 
 ## Authority
 
-Security Standard.
+Existing project authentication/security decisions located through root AGENTS routing and project architecture; Accepted Contract owns external login protocol. Do not presume a standalone Security Standard.
 
 ## Inspect
 
@@ -619,7 +625,7 @@ deployment
 
 ## Authority
 
-Redis Standard.
+Current project Redis/cache decisions located through root AGENTS routing; Backend/Reliability own consistency guarantees, and Async Processing Architecture owns work/stream protocol where applicable. Do not presume a standalone Redis Standard.
 
 ## Inspect
 
@@ -1079,22 +1085,15 @@ Before deletion:
 
 ---
 
-# 42. Creating a New Durable Artifact
+# 42. Creating or updating a durable document
 
-Before creating one:
+Apply these checks only when a durable fact or independently maintained responsibility actually changes:
 
-```text
-Does an authority already exist?
-        ↓ yes
-use/extend it
-
-        ↓ no
-Is this fact durable and worth governing?
-        ↓ yes
-define authority and dependents
-```
-
-Avoid documentation proliferation.
+1. Identify **kind and owner**: cross-client protocol → contracts; business rules/state/permission matrix → corresponding domain; reusable infrastructure/local architecture → existing project architecture or subsystem design; cross-project technical mechanism → existing engineering standard; invocation/prerequisites → commands; operations/recovery → runbook; reconstructable DB schema → migrations. Check the repository's actual current layout rather than prescribing a file for every subfeature.
+2. **Look for an existing authority first.** Update the relevant section in place, replacing obsolete text and correcting links. A new rule should not be appended as another "latest override" at the end.
+3. **Create a new file only** when the information is durable, has no reasonable existing home, and has an independently maintainable long-lived subject. Use a stable topic name (normally lowercase-kebab-case), consistent placement and route links. Do not split by small request, phase, date or version, and do not pile unrelated domains into one file.
+4. Do not create permanent plans, handoffs, audit-of-the-development-process, test-run summaries or historical copies of docs. Ordinary documentation history belongs to version control; mandatory business/audit records and immutable applied migrations remain governed by their own specifications.
+5. Verify only affected links/anchors and any duplicate authority; a document inspection that finds no change requires no diff and no maintenance report.
 
 ---
 
@@ -1172,12 +1171,10 @@ They route to those authorities.
 
 ## 46.1 本项目代码与文档同步约束
 
-- 持久规则、接口、配置、数据演进、命令或部署流程变化时，在同一任务内同步检查代码及所属文档；无语义影响的局部实现修改不要求文档变更。
-- 适合共同维护的内容放在同一主题文档，用章节组织；不同长期职责才拆分。不按小需求、版本或阶段另建文件，也不把无关内容堆入一个大文档。新增、拆分或合并时同步受影响的索引、路由和引用。
-- 文档只保留关键规则、边界、配置、操作及必要示例。删除重复、过时和无维护价值的内容，不写整理理由、过程记录或新增文件论证；跨文档引用，不复制整套规则和配置表。
-- 规范、实现和运行证据分别维护。冲突按所属权威及本次需求处理，不以现状替代规格或放宽规则掩盖缺口；更新当前正文，清理被替代结论和失效引用。
-- 生产内容归 runbook 的排障与恢复、commands 的命令及前提、数据库 README 的迁移使用与兼容限制；Flyway 保留可执行历史。环境记录保留目标、时间和证据来源，不含秘密，不将发布日志写成规范。
-- 完成前检查受影响的路径、锚点、引用与重复来源，简要报告同步结果；必需同步未完成不能宣称整体完成。不另建维护报告，不扫描无关文档。
+- **双向路由**：需要作决定时只读相关权威；仅持久业务/权限、契约、架构能力、配置、迁移或操作语义变化时写入相关文档。读取不意味着修改，局部实现无语义影响不要求文档 diff。
+- **归属与粒度**：按技术标准、项目基础能力、业务领域、Contract、命令、runbook 的职责归属维护；实际目录自行定位。优先原位更新现有主题，替换失效正文；新建、拆分和命名按 §42 判断，不按小需求、阶段、日期或版本拆文件。
+- **不积累过程文档**：当前正文只保留有效规则、配置、操作与必要示例，依赖引用而不复制；历史依赖版本控制。不能因此改写已应用的 Flyway 迁移或删除业务必需的审计/恢复事实。
+- **增量同步**：只检查实际受影响代码、规范、路径、锚点和依赖，未受影响的不改；同步缺失不能宣称全部完成。简要说明同步结果，不另建维护报告。
 
 ```text
 normative authority

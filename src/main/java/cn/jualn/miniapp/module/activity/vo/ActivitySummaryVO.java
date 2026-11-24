@@ -8,6 +8,8 @@ import lombok.Data;
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class ActivitySummaryVO {
+    private Boolean allowRegistrationAfterStart;
+    private Availability stage;
     private String activityId;
     private String title;
     private String summary;
@@ -26,7 +28,10 @@ public class ActivitySummaryVO {
     private Availability availability;
     private PlatformRegistrationCount platformRegistrationCount;
     private Attachment cover;
-    public record Attachment(String attachmentId, String kind, String name, String url) {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Attachment(String attachmentId, String kind, String name, String url,
+            String retention, java.time.OffsetDateTime expiresAt) {
+        public Attachment(String id,String kind,String name,String url) {this(id,kind,name,url,null,null);}
     }
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record AudienceScope(String type, List<String> departmentIds) {

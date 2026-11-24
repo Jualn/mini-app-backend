@@ -24,6 +24,6 @@ public class OutboxOperations {
 
     @Transactional
     public boolean manualRetryDead(long eventId) {
-        return mapper.retryDead(eventId, LocalDateTime.now()) == 1;
+        return mapper.retryDead(eventId, LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))) == 1;
     }
 }

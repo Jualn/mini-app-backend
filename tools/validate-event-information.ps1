@@ -2,7 +2,9 @@ param(
     [string]$Maven = "mvn.cmd",
     [string]$JavaHome = $env:JAVA_HOME,
     [string]$JdbcUrl = "",
-    [string[]]$TestNames = @()
+    [string[]]$TestNames = @(),
+    [string]$TestSelector = "",
+    [hashtable]$SystemProperties = @{}
 )
 $ErrorActionPreference = "Stop"
 # Only a disposable local database with V1..V7 applied, root and empty password.
@@ -15,7 +17,7 @@ $temporaryPom = Join-Path $projectDirectory (".event-validation-" + [guid]::NewG
 $tests = @('ActivityFormPolicyTest','ActivityRegistrationDatabaseTest','EventContentServiceImplTest','MediaAttachmentIdentityTest','TimelineIdentityTest',
     'AdminActivityConverterTest','MediaServiceImplTest','TimelineServiceImplTest',
     'EventTimePolicyTest','EventInformationDatabaseTest','OperationsPublishingTest','OperationsRequestContractTest','OperationsReminderTest','ActivityAuditCallbackTest','OperationsEventDatabaseTest',
-    'ActivityServiceImplTest','ExamServiceImplTest','ActivityEnrollmentServiceImplTest','ExamSubscriptionServiceImplTest')
+    'ActivityServiceImplTest','PublicEventServiceImplTest','ActivityEnrollmentServiceImplTest','PublicEventSubscriptionServiceImplTest')
 if ($TestNames.Count -gt 0) {
     foreach ($testName in $TestNames) {
         if ($testName -notmatch '^[A-Za-z][A-Za-z0-9_]*Tests?$') {
@@ -50,8 +52,14 @@ try {
     }
     [void]$config.AppendChild($includes)
     $pom.Save($temporaryPom)
-    $arguments = @('-f', $temporaryPom, "-Dtest=$($tests -join ',')")
+    if ($TestSelector -and $TestSelector -notmatch '^[A-Za-z][A-Za-z0-9_]*(#[A-Za-z0-9_*]+)?(,[A-Za-z][A-Za-z0-9_]*(#[A-Za-z0-9_*]+)?)*$') { throw "Invalid test selector." }
+    $selected = if ($TestSelector) { $TestSelector } else { $tests -join ',' }
+    $arguments = @('-f', $temporaryPom, "-Dtest=$selected")
     if ($JdbcUrl) { $arguments += "-Devent.test.jdbcUrl=$JdbcUrl" }
+    foreach ($property in $SystemProperties.GetEnumerator()) {
+        if ($property.Key -notmatch '^[A-Za-z][A-Za-z0-9_.-]*$') { throw "Invalid test property." }
+        $arguments += "-D$($property.Key)=$($property.Value)"
+    }
     $arguments += 'test'
     & $Maven @arguments
     if ($LASTEXITCODE -ne 0) { throw "Event information validation failed ($LASTEXITCODE)." }

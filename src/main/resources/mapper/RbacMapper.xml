@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.authorization.mapper.RbacMapper">
+    <!-- Offline personnel control preparation also requires an exclusive persisted grant origin.
+         Known offline receipt/snapshot contents are verified by the existing RbacOfflineAudit. -->
+    <select id="initialControlGrantOrigin"
+            resultType="cn.jualn.miniapp.module.authorization.model.RbacModels$InitialControlOrigin" flushCache="true"
+            useCache="false">
+        SELECT
+        (SELECT COUNT(*) FROM rbac_authorization_change c WHERE c.id=#{grantChangeId} AND c.assignment_id=#{id}
+        AND c.target_user_id=#{userId} AND c.action='GRANT' AND c.snapshot_version=1
+        AND JSON_UNQUOTE(JSON_EXTRACT(c.after_snapshot,'$.id'))=#{id}
+        AND JSON_UNQUOTE(JSON_EXTRACT(c.after_snapshot,'$.userId'))=CAST(#{userId} AS CHAR)
+        AND JSON_UNQUOTE(JSON_EXTRACT(c.after_snapshot,'$.roleCode'))=#{roleCode}
+        AND JSON_UNQUOTE(JSON_EXTRACT(c.after_snapshot,'$.namespace'))=#{namespace}
+        AND JSON_UNQUOTE(JSON_EXTRACT(c.after_snapshot,'$.scopeType'))=#{scopeType}
+        AND JSON_UNQUOTE(JSON_EXTRACT(c.after_snapshot,'$.version'))=#{version}
+        AND JSON_UNQUOTE(JSON_EXTRACT(c.after_snapshot,'$.grantChangeId'))=#{grantChangeId}
+        AND JSON_EXTRACT(c.receipt,'$.assignment')=c.after_snapshot
+        AND JSON_UNQUOTE(JSON_EXTRACT(c.receipt,'$.assignment.id'))=#{id}
+        AND JSON_UNQUOTE(JSON_EXTRACT(c.receipt,'$.changeId'))=#{grantChangeId}
+        AND JSON_UNQUOTE(JSON_EXTRACT(c.receipt,'$.action'))='GRANT') ordinary_grants,
+        (SELECT COUNT(*) FROM rbac_offline_effect e WHERE e.id=#{grantChangeId} AND e.assignment_id=#{id} AND
+        e.user_id=#{userId}) offline_grants
+    </select>
+    <insert id="initializeAssignment">
+        INSERT INTO rbac_authorization_authority(user_id,source,version,updated_at)
+        VALUES(#{userId},'ASSIGNMENT',#{version},UTC_TIMESTAMP(6))
+    </insert>
+    <insert id="backfillLegacy">
+        INSERT INTO rbac_authorization_authority(user_id,source,version,updated_at)
+        SELECT u.id,'LEGACY',#{version},UTC_TIMESTAMP(6) FROM user_profile u ORDER BY u.id
+        ON DUPLICATE KEY UPDATE user_id=rbac_authorization_authority.user_id
+    </insert>
+    <select id="initializedInBatch" resultType="long" flushCache="true" useCache="false">
+        SELECT COUNT(*) FROM rbac_authorization_authority WHERE source='LEGACY' AND version=#{version}
+    </select>
+    <select id="coverage" resultType="cn.jualn.miniapp.module.authorization.model.RbacModels$AuthorityCoverage"
+            flushCache="true" useCache="false">
+        SELECT COUNT(*) users,COALESCE(SUM(a.user_id IS NULL),0) missing,
+        COALESCE(SUM(a.source='LEGACY'),0) legacy,COALESCE(SUM(a.source='ASSIGNMENT'),0) assignment,
+        COALESCE(SUM(a.user_id IS NOT NULL AND (a.source NOT IN ('LEGACY','ASSIGNMENT') OR a.version NOT REGEXP
+        '[^[:space:]]')),0) corrupt
+        FROM user_profile u LEFT JOIN rbac_authorization_authority a ON a.user_id=u.id
+    </select>
+    <select flushCache="true" useCache="false" id="now" resultType="java.time.LocalDateTime">
+        SELECT UTC_TIMESTAMP(6)
+    </select>
+    <select flushCache="true" useCache="false" id="subject"
+            resultType="cn.jualn.miniapp.module.authorization.model.RbacModels$Subject">
+        SELECT u.id user_id,u.status,u.role legacy_role,u.ban_expire_at,u.deleted_at,a.source,a.version
+        FROM user_profile u LEFT JOIN rbac_authorization_authority a ON a.user_id=u.id WHERE u.id=#{userId}
+    </select>
+    <select id="subjects" resultType="cn.jualn.miniapp.module.authorization.model.RbacModels$Subject" flushCache="true"
+            useCache="false">
+        SELECT u.id user_id,u.status,u.ban_expire_at,u.deleted_at,a.source,a.version
+        FROM user_profile u LEFT JOIN rbac_authorization_authority a ON a.user_id=u.id
+        WHERE u.id IN
+        <foreach collection="users" item="u" open="(" separator="," close=")">
+            #{u}
+        </foreach>
+    </select>
+    <!-- Commutative 256-bit set digest, salted by unique User ID and monotonic owner versions.
+         Prevents continuation across account/name/source changes without exposing directory data. -->
+    <select id="candidateDirectoryVersion" resultType="string" flushCache="true" useCache="false">
+        SELECT CONCAT(COUNT(*),':',
+        BIT_XOR(CAST(CONV(SUBSTRING(d,1,16),16,10) AS UNSIGNED)),':',
+        BIT_XOR(CAST(CONV(SUBSTRING(d,17,16),16,10) AS UNSIGNED)),':',
+        BIT_XOR(CAST(CONV(SUBSTRING(d,33,16),16,10) AS UNSIGNED)),':',
+        BIT_XOR(CAST(CONV(SUBSTRING(d,49,16),16,10) AS UNSIGNED)))
+        FROM (SELECT
+        SHA2(CAST(JSON_ARRAY(u.id,u.profile_revision,u.session_version,u.status,u.ban_expire_at,u.deleted_at,a.source,a.version)
+        AS CHAR),256) d
+        FROM user_profile u LEFT JOIN rbac_authorization_authority a ON a.user_id=u.id) directory
+    </select>
+    <select id="lockSubject" resultType="cn.jualn.miniapp.module.authorization.model.RbacModels$Subject"
+            flushCache="true" useCache="false">
+        SELECT u.id user_id,u.status,u.role legacy_role,u.ban_expire_at,u.deleted_at,a.source,a.version
+        FROM user_profile u LEFT JOIN rbac_authorization_authority a ON a.user_id=u.id WHERE u.id=#{userId} FOR UPDATE
+    </select>
+    <select flushCache="true" useCache="false" id="permissions"
+            resultType="cn.jualn.miniapp.module.authorization.model.RbacModels$Definition">
+        SELECT code,namespaces,lifecycle,readiness,grantable,unavailable_reason,catalog_digest FROM
+        rbac_permission_definition ORDER BY code
+    </select>
+    <select flushCache="true" useCache="false" id="roles"
+            resultType="cn.jualn.miniapp.module.authorization.model.RbacModels$Definition">
+        SELECT code,namespaces,lifecycle,readiness,grantable,unavailable_reason,catalog_digest FROM rbac_role ORDER BY
+        code
+    </select>
+    <select flushCache="true" useCache="false" id="members"
+            resultType="cn.jualn.miniapp.module.authorization.model.RbacModels$Member">
+        SELECT role_code,permission_code FROM rbac_role_permission ORDER BY role_code,permission_code
+    </select>
+    <sql id="assignmentColumns">
+        id,user_id,role_code,namespace,scope_type,granted_at,expires_at,revoked_at,version,grant_change_id,revoke_change_id,origin_kind
+    </sql>
+    <!-- Both independent persisted references matter: a deleted effect must not erase its receipt origin.
+         Ordinary Change remains a separate audit owner, not a fabricated offline proof. -->
+    <select id="offlineGrantProofs"
+            resultType="cn.jualn.miniapp.module.authorization.model.RbacModels$OfflineGrantProof" flushCache="true"
+            useCache="false">
+        <choose>
+            <!-- Keep the original constant-parameter plan for one reference; no CTE setup on normal decisions. -->
+            <when test="assignments.size() == 1">
+                SELECT #{assignments[0].id} requested_id,#{assignments[0].grantChangeId} requested_grant_id,
+                e.id effect_id,e.user_id,e.assignment_id,e.before_snapshot,e.after_snapshot,
+                o.id operation_id,o.kind,o.snapshot_version,o.receipt,o.occurred_at
+                FROM rbac_offline_effect e LEFT JOIN rbac_offline_operation o ON o.id=e.operation_id
+                WHERE e.assignment_id=#{assignments[0].id} OR e.id=#{assignments[0].grantChangeId}
+                UNION ALL
+                SELECT #{assignments[0].id},#{assignments[0].grantChangeId},NULL,NULL,j.assignment_id,NULL,NULL,
+                o.id,o.kind,o.snapshot_version,o.receipt,o.occurred_at
+                FROM rbac_offline_operation o
+                JOIN JSON_TABLE(o.receipt,'$.effects[*]' COLUMNS(assignment_id VARCHAR(36) PATH '$.assignmentId' NULL ON
+                EMPTY)) j
+                WHERE j.assignment_id=#{assignments[0].id}
+                AND NOT EXISTS(SELECT 1 FROM rbac_offline_effect e WHERE e.assignment_id=#{assignments[0].id})
+            </when>
+            <otherwise>
+                WITH requested AS (
+                <foreach collection="assignments" item="a" separator=" UNION ALL ">
+                    SELECT CAST(#{a.id} AS CHAR(36)) COLLATE utf8mb4_0900_bin requested_id,
+                    CAST(#{a.grantChangeId} AS CHAR(36)) COLLATE utf8mb4_0900_bin requested_grant_id
+                </foreach>
+                ), unresolved AS (
+                SELECT r.requested_id,r.requested_grant_id FROM requested r
+                WHERE NOT EXISTS(SELECT 1 FROM rbac_offline_effect e WHERE e.assignment_id=r.requested_id)
+                )
+                SELECT r.requested_id,r.requested_grant_id,e.id
+                effect_id,e.user_id,e.assignment_id,e.before_snapshot,e.after_snapshot,
+                o.id operation_id,o.kind,o.snapshot_version,o.receipt,o.occurred_at
+                FROM requested r JOIN rbac_offline_effect e ON e.assignment_id=r.requested_id
+                LEFT JOIN rbac_offline_operation o ON o.id=e.operation_id
+                UNION ALL
+                SELECT
+                r.requested_id,r.requested_grant_id,e.id,e.user_id,e.assignment_id,e.before_snapshot,e.after_snapshot,
+                o.id,o.kind,o.snapshot_version,o.receipt,o.occurred_at
+                FROM requested r JOIN rbac_offline_effect e ON e.id=r.requested_grant_id
+                LEFT JOIN rbac_offline_operation o ON o.id=e.operation_id
+                WHERE NOT(e.assignment_id &lt;=> r.requested_id)
+                UNION ALL
+                SELECT
+                r.requested_id,r.requested_grant_id,NULL,NULL,j.assignment_id,NULL,NULL,o.id,o.kind,o.snapshot_version,o.receipt,o.occurred_at
+                FROM rbac_offline_operation o
+                STRAIGHT_JOIN JSON_TABLE(o.receipt,'$.effects[*]' COLUMNS(assignment_id VARCHAR(36) PATH
+                '$.assignmentId' NULL ON EMPTY)) j
+                STRAIGHT_JOIN unresolved r ON j.assignment_id COLLATE utf8mb4_0900_ai_ci=r.requested_id COLLATE
+                utf8mb4_0900_ai_ci
+                WHERE EXISTS(SELECT 1 FROM unresolved)
+            </otherwise>
+        </choose>
+    </select>
+    <select id="assignmentPage" resultType="cn.jualn.miniapp.module.authorization.model.RbacModels$Assignment"
+            flushCache="true" useCache="false">
+        SELECT
+        <include refid="assignmentColumns"/>
+        FROM rbac_user_role_assignment
+        WHERE user_id=#{userId} AND granted_at &lt;= #{evaluatedAt}
+        <if test="status == 'REVOKED'">
+            AND revoked_at IS NOT NULL
+        </if>
+        <if test="status == 'EXPIRED'">
+            AND revoked_at IS NULL AND expires_at &lt;= #{evaluatedAt}
+        </if>
+        <if test="status == 'ACTIVE'">
+            AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > #{evaluatedAt})
+        </if>
+        <if test="roleCode != null">
+            AND role_code=#{roleCode}
+        </if>
+        <if test="namespace != null">
+            AND namespace=#{namespace}
+        </if>
+        <if test="highTime != null">
+            AND (granted_at &lt; #{highTime} OR (granted_at=#{highTime} AND id &lt;= #{highId}))
+        </if>
+        <if test="lastTime != null">
+            AND (granted_at &lt; #{lastTime} OR (granted_at=#{lastTime} AND id &lt; #{lastId}))
+        </if>
+        ORDER BY granted_at DESC,id DESC LIMIT #{limit}
+    </select>
+    <select id="auditHighWater" resultType="long" flushCache="true" useCache="false">
+        SELECT COALESCE(MAX(publication_order),0) FROM rbac_authorization_change
+    </select>
+    <select id="changePage" resultType="cn.jualn.miniapp.module.authorization.model.RbacModels$Change" flushCache="true"
+            useCache="false">
+        SELECT id,operation_id,actor_user_id,target_user_id,assignment_id,action,reason,snapshot_version,
+        before_snapshot,after_snapshot,occurred_at
+        FROM rbac_authorization_change WHERE publication_order &lt;= #{highWater}
+        <if test="actor != null">
+            AND actor_user_id=#{actor}
+        </if>
+        <if test="target != null">
+            AND target_user_id=#{target}
+        </if>
+        <if test="assignment != null">
+            AND assignment_id=#{assignment}
+        </if>
+        <if test="action != null">
+            AND action=#{action}
+        </if>
+        <if test="after != null">
+            AND occurred_at &gt;= #{after}
+        </if>
+        <if test="before != null">
+            AND occurred_at &lt; #{before}
+        </if>
+        <if test="lastTime != null">
+            AND (occurred_at &lt; #{lastTime} OR (occurred_at=#{lastTime} AND id &lt; #{lastId}))
+        </if>
+        ORDER BY occurred_at DESC,id DESC LIMIT #{limit}
+    </select>
+    <select id="currentAssignments" resultType="cn.jualn.miniapp.module.authorization.model.RbacModels$Assignment"
+            flushCache="true" useCache="false">
+        SELECT
+        <include refid="assignmentColumns"/>
+        FROM rbac_user_role_assignment
+        WHERE user_id=#{userId} AND revoked_at IS NULL AND granted_at &lt;= #{now} AND (expires_at IS NULL OR expires_at
+        > #{now})
+        ORDER BY id
+    </select>
+    <select flushCache="true" useCache="false" id="assignments"
+            resultType="cn.jualn.miniapp.module.authorization.model.RbacModels$Assignment">
+        SELECT
+        <include refid="assignmentColumns"/>
+        FROM rbac_user_role_assignment WHERE user_id=#{userId} ORDER BY granted_at DESC,id DESC
+    </select>
+    <select id="assignment" resultType="cn.jualn.miniapp.module.authorization.model.RbacModels$Assignment"
+            flushCache="true" useCache="false">
+        SELECT
+        <include refid="assignmentColumns"/>
+        FROM rbac_user_role_assignment WHERE id=#{id}
+    </select>
+    <!-- All future governance/account/source writers must take this same mutex first. -->
+    <select flushCache="true" useCache="false" id="lockGovernance" resultType="string">
+        SELECT code FROM rbac_role WHERE code='ROOT' FOR UPDATE
+    </select>
+    <update id="releaseExpired">
+        UPDATE rbac_user_role_assignment SET current_slot=NULL WHERE user_id=#{userId} AND current_slot=1 AND expires_at
+        &lt;= #{now}
+    </update>
+    <insert id="insertAssignment">
+        INSERT INTO
+        rbac_user_role_assignment(id,user_id,role_code,namespace,scope_type,granted_at,expires_at,version,grant_change_id)
+        VALUES(#{id},#{userId},#{roleCode},#{namespace},#{scopeType},#{grantedAt},#{expiresAt},#{version},#{grantChangeId})
+    </insert>
+    <update id="revoke">
+        UPDATE rbac_user_role_assignment SET
+        revoked_at=#{now},revoke_change_id=#{changeId},version=#{nextVersion},current_slot=NULL
+        WHERE id=#{id} AND version=#{version} AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > #{now})
+    </update>
+    <update id="revise">
+        UPDATE rbac_authorization_authority SET version=#{nextVersion},updated_at=#{now}
+        WHERE user_id=#{userId} AND source='ASSIGNMENT' AND version=#{version}
+    </update>
+    <select flushCache="true" useCache="false" id="receipt"
+            resultType="cn.jualn.miniapp.module.authorization.model.RbacModels$Change">
+        SELECT
+        id,operation_id,actor_user_id,target_user_id,assignment_id,action,idempotency_key,request_fingerprint,reason,snapshot_version,
+        before_snapshot,after_snapshot,receipt,occurred_at
+        FROM rbac_authorization_change WHERE actor_user_id=#{actor} AND idempotency_key=#{key}
+    </select>
+    <insert id="insertChange">
+        INSERT INTO
+        rbac_authorization_change(id,operation_id,actor_user_id,target_user_id,assignment_id,action,idempotency_key,
+        request_fingerprint,reason,snapshot_version,before_snapshot,after_snapshot,receipt,occurred_at)
+        VALUES(#{id},#{operationId},#{actorUserId},#{targetUserId},#{assignmentId},#{action},#{idempotencyKey},
+        #{requestFingerprint},#{reason},1,#{beforeSnapshot},#{afterSnapshot},#{receipt},#{occurredAt})
+    </insert>
+    <select flushCache="true" useCache="false" id="rootUsers" resultType="long">
+        SELECT DISTINCT user_id FROM rbac_user_role_assignment WHERE role_code='ROOT' AND revoked_at IS NULL ORDER BY
+        user_id
+    </select>
+</mapper>

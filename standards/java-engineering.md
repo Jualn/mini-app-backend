@@ -8,6 +8,21 @@ This document defines Java-language engineering rules for backend implementation
 
 Normative terms: **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are used in their ordinary standards sense.
 
+## Quick routing — read only the affected concerns
+
+Start with the changed Java code and actual call sites; use this map to inspect the relevant sections rather than preloading the whole standard. Project/business/Contract authority remains separate.
+
+| Actual decision | Read as needed |
+|---|---|
+| Naming, imports, comments or Javadoc | §1 |
+| Values, IDs, temporal types and serialization mapping | §2–3 |
+| Collection ownership, mutability, encapsulation or control flow | §4–6 |
+| Exceptions, resource lifecycle or cleanup | §7–8 |
+| Concurrency, visibility, cancellation or `ThreadLocal` | §9 |
+| JDK/Java 17 APIs, reflection or compatibility | §0 and §10 |
+
+Do not reread unaffected chapters just because a task uses Java. Code-only refactors do not create a standalone architecture or documentation obligation; project documentation updates follow the maintenance map.
+
 ---
 
 # 0. Scope, Baseline & Authority
@@ -130,7 +145,11 @@ Generic packages such as `common`, `misc`, `utils`, or `helpers` SHOULD be avoid
 
 ## 1.3 Imports
 
-Wildcard imports MUST NOT be used.
+Types SHOULD normally be referenced by simple name with an explicit `import` rather than by fully qualified name.
+
+When class names conflict, use a fully qualified name to disambiguate. Prefer importing the more commonly used class and qualifying the other class.
+
+Use explicit imports for readability and maintainability. Wildcard imports (`import ...*;` and `import static ...*;`) MUST NOT be used.
 
 Unused imports MUST be removed.
 

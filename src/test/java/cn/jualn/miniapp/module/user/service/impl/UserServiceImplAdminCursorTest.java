@@ -1,11 +1,11 @@
 package cn.jualn.miniapp.module.user.service.impl;
 
-import cn.jualn.miniapp.common.enums.UserRole;
-import cn.jualn.miniapp.common.enums.UserStatus;
+import cn.jualn.miniapp.module.user.enums.UserRole;
+import cn.jualn.miniapp.module.user.enums.UserStatus;
 import cn.jualn.miniapp.common.pagination.AdminIdCursorCodec;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.module.admin.operation.service.AdminOperationLogService;
-import cn.jualn.miniapp.module.media.service.MediaService;
+import cn.jualn.miniapp.module.media.TestMediaService;
 import cn.jualn.miniapp.module.user.bo.AdminUserPageBO;
 import cn.jualn.miniapp.module.user.bo.AdminUserQueryBO;
 import cn.jualn.miniapp.module.user.converter.UserConverter;
@@ -26,6 +26,13 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceImplAdminCursorTest {
+    @org.junit.jupiter.api.BeforeEach void adminIdentity() {
+        cn.dev33.satoken.context.mock.SaTokenContextMockUtil.setMockContext();
+        cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.switchTo(9L);
+    }
+    @org.junit.jupiter.api.AfterEach void clearIdentity() {
+        cn.dev33.satoken.context.mock.SaTokenContextMockUtil.clearContext();
+    }
 
     @Mock
     private UserProfileMapper userProfileMapper;
@@ -38,20 +45,21 @@ class UserServiceImplAdminCursorTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
     @Mock
-    private MediaService mediaService;
+    private TestMediaService mediaService;
     @Mock
     private AdminOperationLogService adminOperationLogService;
 
     @Test
     void pageAdminUsers_shouldDecodeAndReturnOpaqueCursor() {
-        UserServiceImpl service = new UserServiceImpl(
-                userProfileMapper,
-                userAgreementMapper,
+        UserServiceImpl service = new UserServiceImpl(userProfileMapper,
+                org.mockito.Mockito.mock(cn.jualn.miniapp.module.user.service.UserAccountService.class),
+                org.mockito.Mockito.mock(cn.jualn.miniapp.module.user.service.UserWechatIdentityService.class),
                 redisService,
                 userConverter,
-                eventPublisher,
                 mediaService,
-                adminOperationLogService, org.mockito.Mockito.mock(cn.jualn.miniapp.module.audit.service.ProfileSafetyCheckService.class), org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
+                org.mockito.Mockito.mock(cn.jualn.miniapp.module.audit.service.ProfileSafetyCheckService.class),
+                org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class),
+                org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class));
         String cursor = AdminIdCursorCodec.encode("latest-login", 200L);
         AdminUserListRow row = new AdminUserListRow();
         row.setId(101L);

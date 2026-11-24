@@ -8,6 +8,8 @@ import lombok.Data;
 
 @Data
 public class AdminActivityPageQuery {
+    private boolean deleted;
+
 
     @Size(min = 1, max = 200, message = "关键词长度必须为1至200字")
     private String q;

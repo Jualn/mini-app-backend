@@ -1,0 +1,22 @@
+name: jualncampus-local
+
+services:
+  # One-shot local migration runner. MySQL stays on Windows; Redis is reused by local-dev.ps1.
+  flyway:
+    image: flyway/flyway:13.4.0
+    container_name: jualncampus-flyway
+    restart: "no"
+    environment:
+      FLYWAY_URL: jdbc:mysql://host.docker.internal:3306/jualncampus?sslMode=DISABLED&allowPublicKeyRetrieval=true&connectionTimeZone=%2B08:00&forceConnectionTimeZoneToSession=true
+      FLYWAY_USER: ${MYSQL_USER:?Load the local .env.dev MYSQL_USER}
+      FLYWAY_PASSWORD: ${MYSQL_PASSWORD:?Load the local .env.dev MYSQL_PASSWORD}
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql
+      FLYWAY_INIT_SQL: "SET time_zone = '+08:00'"
+      FLYWAY_CLEAN_DISABLED: "true"
+      FLYWAY_BASELINE_ON_MIGRATE: "false"
+      FLYWAY_VALIDATE_MIGRATION_NAMING: "true"
+      FLYWAY_BASELINE_VERSION: ${LOCAL_FLYWAY_BASELINE_VERSION:-0}
+      FLYWAY_CONNECT_RETRIES: "3"
+    volumes:
+      - ./src/main/resources/db/migration:/flyway/sql:ro
+    command: ["${LOCAL_FLYWAY_ACTION:-migrate}", "info"]

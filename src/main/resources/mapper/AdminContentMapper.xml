@@ -5,7 +5,7 @@
 
     <sql id="postStatus">
         CASE
-            WHEN p.deleted_at IS NOT NULL OR p.status = 4 THEN 'removed'
+            WHEN p.admin_hidden=TRUE OR p.deleted_at IS NOT NULL OR p.status = 4 THEN 'removed'
             WHEN p.status = 3 THEN 'rejected'
             WHEN p.status IN (0, 1) THEN 'pending'
             ELSE 'published'
@@ -23,7 +23,8 @@
 
     <sql id="contentListUnion">
         SELECT p.id,
-               'post' AS type,
+               p.post_type,p.category_id,
+               'post' AS type, 'POST' AS authorization_namespace,
                COALESCE(p.title, '') AS title,
                LEFT(p.content, 160) AS content_preview,
                p.user_id AS author_id,
@@ -34,8 +35,8 @@
                p.is_featured AS featured,
                COALESCE(reports.report_count, 0) AS report_count,
                COALESCE(p.view_count, 0) AS view_count,
-               COALESCE(p.like_count, 0) AS like_count,
-               COALESCE(p.comment_count, 0) AS comment_count,
+               CASE WHEN p.post_type IN('NORMAL','MENTOR_QA') THEN (SELECT COUNT(*) FROM like_record lr WHERE lr.target_type=1 AND lr.target_id=p.id) ELSE COALESCE(p.like_count,0) END AS like_count,
+               CASE WHEN p.post_type IN('NORMAL','MENTOR_QA') THEN (SELECT COUNT(*) FROM comment n WHERE n.target_type=1 AND n.target_id=p.id AND n.status=1 AND n.deleted_at IS NULL AND (n.parent_id IS NULL OR EXISTS(SELECT 1 FROM comment root WHERE root.id=n.parent_id AND root.parent_id IS NULL AND root.target_id=n.target_id AND root.target_type=1 AND ((root.status=1 AND root.deleted_at IS NULL) OR (root.status IN(3,4) AND n.community_thread=TRUE))))) ELSE COALESCE(p.comment_count,0) END AS comment_count,
                COALESCE(p.share_count, 0) AS share_count,
                p.published_at,
                p.updated_at,
@@ -53,7 +54,8 @@
         UNION ALL
 
         SELECT c.id,
-               'comment' AS type,
+               NULL AS post_type,NULL AS category_id,
+               'comment' AS type, CASE c.target_type WHEN 1 THEN 'POST' WHEN 2 THEN 'ACTIVITY' WHEN 3 THEN 'PUBLIC_EVENT' ELSE 'UNSUPPORTED' END AS authorization_namespace,
                '' AS title,
                LEFT(c.content, 160) AS content_preview,
                c.user_id AS author_id,
@@ -82,7 +84,7 @@
     </sql>
 
     <select id="selectPage" resultType="cn.jualn.miniapp.module.content.mapper.AdminContentListRow">
-        SELECT content.id,
+        SELECT content.post_type,content.category_id,content.id,
                content.type,
                content.title,
                content.content_preview,
@@ -102,10 +104,119 @@
                content.deleted_at,
                content.raw_status
         FROM (<include refid="contentListUnion"/>) content
-        WHERE 1 = 1
+        WHERE 1 = 1 AND NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN content.type='post' THEN content.id ELSE (SELECT c.target_id FROM comment c WHERE c.id=content.id AND c.target_type=1) END)
+        <if test="namespaces != null">
+            AND content.authorization_namespace IN <foreach collection="namespaces" item="space" open="(" separator="," close=")">#{space}</foreach>
+        </if>
         <if test="type != null">
             AND content.type = #{type}
         </if>
+        <if test="postType != null">AND content.type='post' AND content.post_type=#{postType}</if>
+        <if test="categoryId != null">AND content.type='post' AND content.category_id=#{categoryId}</if>
+        <if test="topicId != null">AND content.type='post' AND EXISTS(SELECT 1 FROM post_topic pt WHERE pt.post_id=content.id AND pt.topic_id=#{topicId})</if>
+        <if test="status != null">
+            AND content.status = #{status}
+        </if>
+        <if test="feature == 'pinned'">
+            AND content.pinned = TRUE
+        </if>
+        <if test="feature == 'featured'">
+            AND content.featured = TRUE
+        </if>
+        <if test="feature == 'reported'">
+            AND content.report_count &gt; 0
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (
+                <if test="keywordId != null">
+                    content.id = #{keywordId} OR
+                </if>
+                content.title LIKE CONCAT('%', #{keyword}, '%')
+                OR content.content_preview LIKE CONCAT('%', #{keyword}, '%')
+                OR content.author_name LIKE CONCAT('%', #{keyword}, '%')
+                OR CAST(content.author_id AS CHAR) = #{keyword}
+            )
+        </if>
+        <if test="cursorUpdatedAt != null and cursorId != null and cursorType != null and sort == 'latest'">
+            AND (
+                content.updated_at &lt; #{cursorUpdatedAt}
+                OR (content.updated_at = #{cursorUpdatedAt} AND content.type &gt; #{cursorType})
+                OR (content.updated_at = #{cursorUpdatedAt} AND content.type = #{cursorType}
+                    AND content.id &lt; #{cursorId})
+            )
+        </if>
+        <if test="cursorUpdatedAt != null and cursorMetric != null and cursorId != null and cursorType != null and sort == 'most-viewed'">
+            AND (
+                COALESCE(content.view_count, 0) &lt; #{cursorMetric}
+                OR (COALESCE(content.view_count, 0) = #{cursorMetric}
+                    AND content.updated_at &lt; #{cursorUpdatedAt})
+                OR (COALESCE(content.view_count, 0) = #{cursorMetric}
+                    AND content.updated_at = #{cursorUpdatedAt} AND content.type &gt; #{cursorType})
+                OR (COALESCE(content.view_count, 0) = #{cursorMetric}
+                    AND content.updated_at = #{cursorUpdatedAt} AND content.type = #{cursorType}
+                    AND content.id &lt; #{cursorId})
+            )
+        </if>
+        <if test="cursorUpdatedAt != null and cursorMetric != null and cursorId != null and cursorType != null and sort == 'most-reported'">
+            AND (
+                content.report_count &lt; #{cursorMetric}
+                OR (content.report_count = #{cursorMetric} AND content.updated_at &lt; #{cursorUpdatedAt})
+                OR (content.report_count = #{cursorMetric}
+                    AND content.updated_at = #{cursorUpdatedAt} AND content.type &gt; #{cursorType})
+                OR (content.report_count = #{cursorMetric}
+                    AND content.updated_at = #{cursorUpdatedAt} AND content.type = #{cursorType}
+                    AND content.id &lt; #{cursorId})
+            )
+        </if>
+        <choose>
+            <when test="sort == 'most-viewed'">
+                ORDER BY COALESCE(content.view_count, 0) DESC,
+                         content.updated_at DESC, content.type ASC, content.id DESC
+            </when>
+            <when test="sort == 'most-reported'">
+                ORDER BY content.report_count DESC,
+                         content.updated_at DESC, content.type ASC, content.id DESC
+            </when>
+            <otherwise>
+                ORDER BY content.updated_at DESC, content.type ASC, content.id DESC
+            </otherwise>
+        </choose>
+        LIMIT #{limit}
+    </select>
+    <select id="selectGrowthPage" resultType="cn.jualn.miniapp.module.content.mapper.AdminContentListRow">
+        SELECT content.post_type,content.category_id,content.id,
+               content.type,
+               content.title,
+               content.content_preview,
+               content.author_id,
+               content.author_name,
+               content.status,
+               content.audit_status,
+               content.pinned,
+               content.featured,
+               content.report_count,
+               content.view_count,
+               content.like_count,
+               content.comment_count,
+               content.share_count,
+               content.published_at,
+               content.updated_at,
+               content.deleted_at,
+               content.raw_status
+        FROM (<include refid="contentListUnion"/>) content
+        WHERE EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN content.type='post' THEN content.id ELSE (SELECT c.target_id FROM comment c WHERE c.id=content.id AND c.target_type=1) END
+        <if test="growthType != null and growthType != 'ALL'">AND g.record_type=#{growthType}</if>
+        <if test="growthOrganizationId != null">AND g.organization_id=#{growthOrganizationId}</if>
+        AND g.organization_id IN <foreach collection="growthOrganizations" item="org" open="(" separator="," close=")">#{org}</foreach>)
+        <if test="namespaces != null">
+            AND content.authorization_namespace IN <foreach collection="namespaces" item="space" open="(" separator="," close=")">#{space}</foreach>
+        </if>
+        <if test="type != null">
+            AND content.type = #{type}
+        </if>
+        <if test="postType != null">AND content.type='post' AND content.post_type=#{postType}</if>
+        <if test="categoryId != null">AND content.type='post' AND content.category_id=#{categoryId}</if>
+        <if test="topicId != null">AND content.type='post' AND EXISTS(SELECT 1 FROM post_topic pt WHERE pt.post_id=content.id AND pt.topic_id=#{topicId})</if>
         <if test="status != null">
             AND content.status = #{status}
         </if>
@@ -176,14 +287,14 @@
         LIMIT #{limit}
     </select>
 
-    <select id="selectSummary" resultType="cn.jualn.miniapp.module.content.mapper.AdminContentSummaryRow">
+    <sql id="summaryQuery">
         SELECT COALESCE(SUM(content.status = 'published'), 0) AS published,
                COALESCE(SUM(content.status = 'pending'), 0) AS pending,
                COALESCE(SUM(content.report_count &gt; 0), 0) AS reported,
                COALESCE(SUM(content.status = 'removed'
                     AND content.deleted_at &gt;= CURRENT_DATE), 0) AS removed_today
         FROM (
-            SELECT <include refid="postStatus"/> AS status,
+            SELECT 'post' AS type, 'POST' AS authorization_namespace, <include refid="postStatus"/> AS status,
                    p.deleted_at,
                    EXISTS(
                        SELECT 1 FROM report post_report
@@ -191,11 +302,11 @@
                          AND post_report.target_id = p.id
                          AND post_report.status = 0
                    ) AS report_count
-            FROM post p
+            FROM post p WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=p.id)
 
             UNION ALL
 
-            SELECT <include refid="commentStatus"/> AS status,
+            SELECT 'comment' AS type, CASE c.target_type WHEN 1 THEN 'POST' WHEN 2 THEN 'ACTIVITY' WHEN 3 THEN 'PUBLIC_EVENT' ELSE 'UNSUPPORTED' END AS authorization_namespace, <include refid="commentStatus"/> AS status,
                    c.deleted_at,
                    EXISTS(
                        SELECT 1 FROM report comment_report
@@ -203,33 +314,48 @@
                          AND comment_report.target_id = c.id
                          AND comment_report.status = 0
                    ) AS report_count
-            FROM comment c
+            FROM comment c WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE c.target_type=1 AND g.post_id=c.target_id)
         ) content
+    </sql>
+    <select id="selectGrowthSummary" resultType="cn.jualn.miniapp.module.content.mapper.AdminContentSummaryRow">
+        SELECT COALESCE(SUM(content.status='published'),0) published,COALESCE(SUM(content.status='pending'),0) pending,
+          COALESCE(SUM(content.report_count&gt;0),0) reported,COALESCE(SUM(content.status='removed' AND content.deleted_at&gt;=CURRENT_DATE),0) removed_today
+        FROM (<include refid="contentListUnion"/>) content
+        WHERE EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN content.type='post' THEN content.id ELSE (SELECT c.target_id FROM comment c WHERE c.id=content.id AND c.target_type=1) END
+        <if test="growthType!=null and growthType!='ALL'">AND g.record_type=#{growthType}</if>
+        <if test="growthOrganizationId!=null">AND g.organization_id=#{growthOrganizationId}</if>
+        AND g.organization_id IN <foreach collection="growthOrganizations" item="o" open="(" separator="," close=")">#{o}</foreach>)
+        <if test="type!=null">AND content.type=#{type}</if>
+    </select>
+    <select id="selectSummary" resultType="cn.jualn.miniapp.module.content.mapper.AdminContentSummaryRow"><include refid="summaryQuery"/></select>
+    <select id="selectScopedSummary" resultType="cn.jualn.miniapp.module.content.mapper.AdminContentSummaryRow">
+        <include refid="summaryQuery"/> WHERE content.authorization_namespace IN <foreach collection="namespaces" item="space" open="(" separator="," close=")">#{space}</foreach>
+        <if test="type != null">AND content.type=#{type}</if>
     </select>
 
     <sql id="authorPublishedCount">
         (SELECT COUNT(*) FROM post published_post
-         WHERE published_post.user_id = author.id
+         WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=published_post.id) AND published_post.user_id = author.id
            AND published_post.status = 2 AND published_post.deleted_at IS NULL)
         +
         (SELECT COUNT(*) FROM comment published_comment
-         WHERE published_comment.user_id = author.id
+         WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE published_comment.target_type=1 AND g.post_id=published_comment.target_id) AND published_comment.user_id = author.id
            AND published_comment.status = 1 AND published_comment.deleted_at IS NULL)
     </sql>
 
     <sql id="authorViolationCount">
         (SELECT COUNT(*) FROM post violation_post
-         WHERE violation_post.user_id = author.id
+         WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=violation_post.id) AND violation_post.user_id = author.id
            AND violation_post.audit_status = 2)
         +
         (SELECT COUNT(*) FROM comment violation_comment
-         WHERE violation_comment.user_id = author.id
+         WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE violation_comment.target_type=1 AND g.post_id=violation_comment.target_id) AND violation_comment.user_id = author.id
            AND violation_comment.audit_status = 2)
     </sql>
 
     <select id="selectPostDetail"
             resultType="cn.jualn.miniapp.module.content.mapper.AdminContentDetailRow">
-        SELECT p.id,
+        SELECT p.post_type,p.category_id,p.id,
                'post' AS type,
                COALESCE(p.title, '') AS title,
                LEFT(p.content, 160) AS content_preview,
@@ -243,8 +369,8 @@
                (SELECT COUNT(*) FROM report r
                 WHERE r.target_type = 1 AND r.target_id = p.id AND r.status = 0) AS report_count,
                COALESCE(p.view_count, 0) AS view_count,
-               COALESCE(p.like_count, 0) AS like_count,
-               COALESCE(p.comment_count, 0) AS comment_count,
+               CASE WHEN p.post_type IN('NORMAL','MENTOR_QA') THEN (SELECT COUNT(*) FROM like_record lr WHERE lr.target_type=1 AND lr.target_id=p.id) ELSE COALESCE(p.like_count,0) END AS like_count,
+               CASE WHEN p.post_type IN('NORMAL','MENTOR_QA') THEN (SELECT COUNT(*) FROM comment n WHERE n.target_type=1 AND n.target_id=p.id AND n.status=1 AND n.deleted_at IS NULL AND (n.parent_id IS NULL OR EXISTS(SELECT 1 FROM comment root WHERE root.id=n.parent_id AND root.parent_id IS NULL AND root.target_id=n.target_id AND root.target_type=1 AND ((root.status=1 AND root.deleted_at IS NULL) OR (root.status IN(3,4) AND n.community_thread=TRUE))))) ELSE COALESCE(p.comment_count,0) END AS comment_count,
                COALESCE(p.share_count, 0) AS share_count,
                p.published_at,
                p.updated_at,

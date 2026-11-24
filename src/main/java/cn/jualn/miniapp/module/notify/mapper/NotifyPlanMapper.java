@@ -12,6 +12,25 @@ import java.util.List;
  */
 public interface NotifyPlanMapper extends BaseMapper<NotifyPlan> {
 
+	int freezeRecipientUpperBound(@org.apache.ibatis.annotations.Param("id") long id,
+            @org.apache.ibatis.annotations.Param("upperUserId") long upperUserId);
+
+    int refreshPresentation(@org.apache.ibatis.annotations.Param("id") Long id,
+            @org.apache.ibatis.annotations.Param("title") String title,
+            @org.apache.ibatis.annotations.Param("content") String content,
+            @org.apache.ibatis.annotations.Param("location") String location,
+            @org.apache.ibatis.annotations.Param("timelineId") long timelineId);
+
+    boolean hasCompletedOccurrence(@org.apache.ibatis.annotations.Param("sourceType") int sourceType,
+            @org.apache.ibatis.annotations.Param("sourceId") long sourceId,
+            @org.apache.ibatis.annotations.Param("ruleKey") String ruleKey,
+            @org.apache.ibatis.annotations.Param("anchor") java.time.LocalDateTime anchor);
+
+    long maxGeneration(@org.apache.ibatis.annotations.Param("sourceType") int sourceType,
+            @org.apache.ibatis.annotations.Param("sourceId") long sourceId,
+            @org.apache.ibatis.annotations.Param("timelineId") long timelineId,
+            @org.apache.ibatis.annotations.Param("ruleKey") String ruleKey);
+
 	/**
 	 * 查询所有待发（status=0 且 send_at > now）的计划，用于启动恢复。
 	 */

@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.activity.bo;
 
-import cn.jualn.miniapp.common.enums.ActivityCategory;
+import cn.jualn.miniapp.module.activity.enums.ActivityCategory;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,15 +14,16 @@ import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ActivityListBO {
-    private cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO cardTimeline;
+    private Boolean allowRegistrationAfterStart;
+    private String stageState;
+
+    private cn.jualn.miniapp.module.timeline.bo.TimelineFactBO cardTimeline;
     private Integer lifecycleStatus;
     private String audienceDepartmentIds;
     private String participationState;
     private Long submittedCount;
     private java.time.LocalDateTime evaluatedAt;
     private Integer publishStatus;
-    private String activityPhase;
-    private String registrationStatus;
 
     private String summary;
     private String audienceSummary;
@@ -37,6 +38,5 @@ public class ActivityListBO {
     private String location;
     private ActivityCategory category;
     private String organizer;
-    private Integer audienceScope;
     private LocalDateTime publishedAt;
 }

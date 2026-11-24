@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.post.mapper.MentorQuestionMapper">
+ <sql id="unknown">(<include refid="cn.jualn.miniapp.module.comment.mapper.CommunityCommentMapper.invalidProof"/>) OR c.first_published_at IS NULL OR c.question_version IS NULL OR c.question_version&lt;&gt;p.question_version</sql>
+ <select id="unknownFiltered" resultType="int">
+ SELECT COUNT(*) FROM post p WHERE p.post_type='MENTOR_QA' AND p.status=2 AND p.admin_hidden=FALSE AND p.deleted_at IS NULL
+ AND (p.audit_status=1 OR p.community_version=TRUE AND p.temporary_visible_until&gt;NOW(6))
+ <if test="categoryId != null">AND p.category_id=#{categoryId}</if>
+ <if test="topicId != null">AND EXISTS(SELECT 1 FROM post_topic pt WHERE pt.post_id=p.id AND pt.topic_id=#{topicId})</if>
+ <if test="userId != null">AND p.user_id=#{userId}</if>
+ <if test="keyword != null and keyword != ''">AND MATCH(p.content) AGAINST(#{keyword} IN BOOLEAN MODE)</if>
+ AND (p.question_version IS NULL OR EXISTS(SELECT 1 FROM comment c WHERE c.target_type=1 AND c.target_id=p.id AND c.parent_id IS NULL AND c.status=1 AND c.deleted_at IS NULL AND (<include refid="unknown"/>)))
+ </select>
+ <select id="unknownAnswers" resultType="int">
+ SELECT COUNT(*) FROM comment c JOIN post p ON p.id=c.target_id WHERE c.target_type=1 AND c.target_id=#{id} AND c.parent_id IS NULL AND c.status=1 AND c.deleted_at IS NULL AND (<include refid="unknown"/>)
+ </select>
+ <select id="publicAnswers" resultType="int">
+ SELECT COUNT(*) FROM comment c WHERE c.target_type=1 AND c.target_id=#{id} AND c.parent_id IS NULL AND c.status=1 AND c.audit_status=1 AND c.deleted_at IS NULL
+ AND NOT (<include refid="cn.jualn.miniapp.module.comment.mapper.CommunityCommentMapper.invalidProof"/>) AND c.first_published_at IS NOT NULL AND c.question_version=#{version}
+ </select>
+</mapper>

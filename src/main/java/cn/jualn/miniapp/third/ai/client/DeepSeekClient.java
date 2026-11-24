@@ -13,6 +13,8 @@ import java.util.Map;
 
 @Component
 public class DeepSeekClient {
+    private static final String MODEL = "deepseek-v4-flash";
+    public String modelName() { return MODEL; }
     private final DeepSeekProperties properties;
     private final ObjectMapper objectMapper;
     private final WebClient webClient;
@@ -28,7 +30,7 @@ public class DeepSeekClient {
     /** Collect one provider stream; callers validate the complete document before exposing it. */
     public String generate(String prompt) {
         Map<String, Object> body = Map.of(
-                "model", "deepseek-v4-flash",
+                "model", MODEL,
                 "messages", List.of(Map.of("role", "user", "content", prompt)),
                 "stream", true);
         String value = webClient.post()

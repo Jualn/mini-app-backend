@@ -5,10 +5,10 @@
 <mapper namespace="cn.jualn.miniapp.module.activity.mapper.ActivityMapper">
 
     <select id="selectByIdNotDeleted" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
-        SELECT contract_version, lifecycle_status, form_version, audience_department_ids, contacts_json,
+        SELECT allow_registration_after_start, frozen_form_fields, last_public_summary, deleted_by, contract_version, lifecycle_status, form_version, audience_department_ids, contacts_json,
                form_schema, cancelled_at, cancel_reason, publish_status, summary,
                audience_summary, registration_mode, participant_mode, capacity, capacity_unit,
-               cover_attachment_id, id, user_id, title, location, category, organizer, audience_scope,
+               cover_attachment_id, id, user_id, title, location, category, organizer,
                comment_count, like_count, view_count, published_at,
                created_at, updated_at, deleted_at
         FROM activity
@@ -24,14 +24,40 @@
           AND deleted_at IS NULL
     </select>
 
+    <sql id="publicActivity">publish_status = 1 AND deleted_at IS NULL</sql>
+    <sql id="campusAudience">
+        (audience_department_ids IS NULL OR JSON_LENGTH(audience_department_ids) = 0)
+    </sql>
+    <sql id="publicOptionFilter">
+        WHERE <include refid="publicActivity"/>
+        <if test="campusOnly">AND <include refid="campusAudience"/></if>
+        <if test="id != null">AND id = #{id}</if>
+        <if test="q != null">AND LOCATE(#{q}, title) &gt; 0</if>
+    </sql>
+    <select id="publicOptions" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
+        SELECT id, title, cover_attachment_id, published_at
+        FROM activity <include refid="publicOptionFilter"/>
+        ORDER BY published_at DESC, id DESC LIMIT #{size} OFFSET #{offset}
+        <if test="lock">FOR UPDATE</if>
+    </select>
+    <select id="countPublicOptions" resultType="long">
+        SELECT COUNT(*) FROM activity <include refid="publicOptionFilter"/>
+    </select>
+    <select id="publicStageCandidates" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
+        SELECT id, title, cover_attachment_id, lifecycle_status
+        FROM activity
+        WHERE <include refid="publicActivity"/> AND <include refid="campusAudience"/>
+          AND lifecycle_status = 0 AND id &gt; #{afterId}
+        ORDER BY id LIMIT #{limit}
+    </select>
+
     <select id="selectPageActivities" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
-        SELECT audience_department_ids, contract_version, lifecycle_status, form_version, form_schema,
+        SELECT allow_registration_after_start, audience_department_ids, contract_version, lifecycle_status, form_version, form_schema,
                cancelled_at, cancel_reason, publish_status, summary, audience_summary, registration_mode,
                participant_mode, capacity, capacity_unit, cover_attachment_id, id, title, category,
-               organizer, audience_scope, published_at, location
+               organizer, published_at, location
         FROM activity
-        WHERE publish_status = 1
-          AND deleted_at IS NULL
+        WHERE <include refid="publicActivity"/>
         <if test="category != null">
             AND category = #{category}
         </if>
@@ -42,8 +68,13 @@
             AND (title LIKE CONCAT('%', #{keyword}, '%') OR summary LIKE CONCAT('%', #{keyword}, '%'))
         </if>
         <if test="campusAudienceOnly">
-            AND (audience_department_ids IS NULL OR JSON_LENGTH(audience_department_ids) = 0)
-            AND (audience_scope IS NULL OR audience_scope = 0 OR (audience_scope &amp; 1) = 1)
+            AND <include refid="campusAudience"/>
+        </if>
+        <if test="departmentId != null">
+            AND (
+                (audience_department_ids IS NULL OR JSON_LENGTH(audience_department_ids) = 0)
+                OR JSON_CONTAINS(audience_department_ids, JSON_QUOTE(#{departmentId}))
+            )
         </if>
         <if test="departmentId != null">
             AND (
@@ -68,18 +99,18 @@
 
     <select id="selectAdminActivityPage"
             resultType="cn.jualn.miniapp.module.activity.mapper.AdminActivityListRow">
-          SELECT a.publish_status, a.lifecycle_status, a.id, a.title, a.summary, a.category,
-               a.organizer, a.location, a.audience_scope,
+          SELECT a.deleted_at, a.publish_status, a.lifecycle_status, a.id, a.title, a.summary, a.category,
+               a.organizer, a.location,
                COALESCE(enrollment.subscriber_count, 0) AS subscriber_count,
                a.capacity,
                a.view_count,
                a.updated_at
         FROM (
-              SELECT publish_status, lifecycle_status, id, title, summary, category,
-                     organizer, location, audience_scope, capacity,
+              SELECT deleted_at, publish_status, lifecycle_status, id, title, summary, category,
+                     organizer, location, capacity,
                      view_count, updated_at
               FROM activity
-            WHERE deleted_at IS NULL
+            WHERE <choose><when test="deleted">deleted_at IS NOT NULL</when><otherwise>deleted_at IS NULL</otherwise></choose>
             <if test="keyword != null and keyword != ''">
                 AND (
                     <if test="keywordId != null">
@@ -109,7 +140,7 @@
       <select id="countAdminActivities" resultType="java.lang.Long">
           SELECT COUNT(*)
           FROM activity
-          WHERE deleted_at IS NULL
+          WHERE <choose><when test="deleted">deleted_at IS NOT NULL</when><otherwise>deleted_at IS NULL</otherwise></choose>
           <if test="publishStatus != null">
               AND publish_status = #{publishStatus}
           </if>
@@ -138,15 +169,15 @@
 
     <select id="selectAdminActivityById"
             resultType="cn.jualn.miniapp.module.activity.entity.Activity">
-        SELECT contract_version, lifecycle_status, form_version, audience_department_ids, contacts_json,
+        SELECT allow_registration_after_start, frozen_form_fields, last_public_summary, deleted_by, contract_version, lifecycle_status, form_version, audience_department_ids, contacts_json,
                form_schema, cancelled_at, cancel_reason, publish_status, summary,
                audience_summary, registration_mode, participant_mode, capacity, capacity_unit,
-               cover_attachment_id, id, user_id, title, location, category, organizer, audience_scope,
+               cover_attachment_id, id, user_id, title, location, category, organizer,
                comment_count, like_count, view_count,
-               published_at, created_at, updated_at
+               published_at, created_at, updated_at, deleted_at
         FROM activity
         WHERE id = #{activityId}
-          AND deleted_at IS NULL
+
     </select>
 
     <update id="cancelAdminActivity">
@@ -184,10 +215,10 @@
     </update>
 
     <select id="selectForUpdate" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
-        SELECT contract_version, lifecycle_status, form_version, audience_department_ids, contacts_json,
+        SELECT allow_registration_after_start, frozen_form_fields, last_public_summary, deleted_by, contract_version, lifecycle_status, form_version, audience_department_ids, contacts_json,
                form_schema, cancelled_at, cancel_reason, publish_status, summary, audience_summary,
                registration_mode, participant_mode, capacity_unit, capacity, cover_attachment_id,
-               id, user_id, title, location, category, organizer, audience_scope,
+               id, user_id, title, location, category, organizer,
                comment_count, like_count, view_count, published_at,
                created_at, updated_at, deleted_at
         FROM activity WHERE id = #{id} AND deleted_at IS NULL FOR UPDATE
@@ -196,12 +227,13 @@
         UPDATE activity SET publish_status = 1,
             contract_version = contract_version + 1,
             form_version = COALESCE(form_version, #{formVersion}),
-            published_at = COALESCE(published_at, NOW())
+            frozen_form_fields = CASE WHEN #{formVersion} IS NOT NULL THEN COALESCE(frozen_form_fields, JSON_EXTRACT(form_schema, '$.fields')) ELSE frozen_form_fields END,
+            published_at = NOW(3)
         WHERE id = #{id} AND publish_status IN (0, 2) AND deleted_at IS NULL
     </update>
     <update id="initializeFormVersionIfAbsent">
         UPDATE activity
-        SET form_version = #{formVersion}
+        SET form_version = #{formVersion}, frozen_form_fields = COALESCE(frozen_form_fields, JSON_EXTRACT(form_schema, '$.fields'))
         WHERE id = #{id} AND form_version IS NULL AND deleted_at IS NULL
     </update>
     <update id="takeDownDirectly">
@@ -213,18 +245,58 @@
         SET publish_status = #{publishStatus}, lifecycle_status = #{lifecycleStatus},
             contract_version = contract_version + 1,
             form_version = COALESCE(form_version, #{formVersion}),
-            published_at = CASE WHEN #{publish} THEN COALESCE(published_at, NOW()) ELSE published_at END,
+            frozen_form_fields = CASE WHEN #{formVersion} IS NOT NULL THEN COALESCE(frozen_form_fields, JSON_EXTRACT(form_schema, '$.fields')) ELSE frozen_form_fields END,
+            published_at = CASE WHEN #{publish} THEN NOW(3) ELSE published_at END,
             cancelled_at = CASE WHEN #{lifecycleStatus} = 2 THEN COALESCE(cancelled_at, NOW()) ELSE cancelled_at END
         WHERE id = #{id} AND contract_version = #{version} AND deleted_at IS NULL
     </update>
     <select id="selectRegistrationActivity" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
-        SELECT id, contract_version, lifecycle_status, form_version, form_schema, capacity,
-               capacity_unit, registration_mode, participant_mode, publish_status, deleted_at
+        SELECT allow_registration_after_start, frozen_form_fields, last_public_summary, deleted_by, id, contract_version, lifecycle_status, form_version, form_schema, capacity,
+               capacity_unit, registration_mode, participant_mode, publish_status, deleted_at, title, category, organizer, location
         FROM activity WHERE id = #{id}
     </select>
     <select id="lockRegistrationActivity" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
-        SELECT id, contract_version, lifecycle_status, form_version, form_schema, capacity,
-               capacity_unit, registration_mode, participant_mode, publish_status, deleted_at
+        SELECT allow_registration_after_start, frozen_form_fields, last_public_summary, deleted_by, id, contract_version, lifecycle_status, form_version, form_schema, capacity,
+               capacity_unit, registration_mode, participant_mode, publish_status, deleted_at, title, category, organizer, location
         FROM activity WHERE id = #{id} FOR UPDATE
     </select>
+    <select id="lockReminderStatus" resultType="cn.jualn.miniapp.module.activity.entity.Activity">
+        SELECT allow_registration_after_start, id, title, registration_mode, publish_status, lifecycle_status, contract_version
+        FROM activity WHERE id = #{id} AND deleted_at IS NULL FOR UPDATE
+    </select>
+    <sql id="registrationCandidateFilter">
+        <where>
+            <if test="q != null">LOCATE(#{q}, title) &gt; 0</if>
+        </where>
+    </sql>
+    <select id="registrationCandidates" resultType="cn.jualn.miniapp.module.activity.bo.ActivityRegistrationCandidatePageBO$Item">
+        SELECT id AS activity_id, title, publish_status, lifecycle_status
+        FROM activity
+        <include refid="registrationCandidateFilter"/>
+        ORDER BY id DESC LIMIT #{limit} OFFSET #{offset}
+    </select>
+    <select id="countRegistrationCandidates" resultType="long">
+        SELECT COUNT(*) FROM activity
+        <include refid="registrationCandidateFilter"/>
+    </select>
+    <select id="statistics" resultType="cn.jualn.miniapp.module.activity.bo.ActivityStatisticsBO">
+        SELECT (SELECT COUNT(*) FROM activity_registration WHERE activity_id = a.id AND status = 1) AS submitted_count,
+            (SELECT COUNT(*) FROM activity_registration WHERE activity_id = a.id AND status IN (2,3)) AS cancelled_count,
+            (SELECT COUNT(*) FROM activity_registration WHERE activity_id = a.id) AS registration_total,
+            (SELECT COUNT(*) FROM activity_enrollment WHERE activity_id = a.id AND status = 1) AS subscriber_count,
+            NOW(3) AS as_of FROM activity a WHERE a.id = #{id}
+    </select>
+    <select id="hasRegistrationHistory" resultType="boolean">
+        SELECT EXISTS(SELECT 1 FROM activity_registration WHERE activity_id = #{id})
+    </select>
+    <update id="recycle">
+        UPDATE activity SET deleted_at = <choose><when test="restore">NULL</when><otherwise>NOW(3)</otherwise></choose>,
+            deleted_by = <choose><when test="restore">NULL</when><otherwise>#{operator}</otherwise></choose>,
+            publish_status = CASE WHEN #{restore} THEN 2 ELSE publish_status END,
+            contract_version = contract_version + 1, updated_at = NOW(3)
+        WHERE id = #{id}
+    </update>
+    <update id="savePublicSummary">
+        UPDATE activity SET last_public_summary = #{summary} WHERE id = #{id} AND publish_status = 1 AND deleted_at IS NULL
+    </update>
 </mapper>

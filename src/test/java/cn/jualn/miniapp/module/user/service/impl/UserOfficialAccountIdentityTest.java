@@ -1,18 +1,12 @@
 package cn.jualn.miniapp.module.user.service.impl;
 
 import cn.jualn.miniapp.common.exception.BusinessException;
-import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.module.admin.operation.service.AdminOperationLogService;
-import cn.jualn.miniapp.module.media.service.MediaService;
-import cn.jualn.miniapp.module.user.converter.UserConverter;
-import cn.jualn.miniapp.module.user.mapper.UserAgreementMapper;
 import cn.jualn.miniapp.module.user.mapper.UserProfileMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.List;
 
@@ -25,13 +19,7 @@ import static org.mockito.Mockito.when;
 class UserOfficialAccountIdentityTest {
 
     @Mock UserProfileMapper profileMapper;
-    @Mock UserAgreementMapper agreementMapper;
-    @Mock RedisService redisService;
-    @Mock UserConverter converter;
-    @Mock ApplicationEventPublisher eventPublisher;
-    @Mock MediaService mediaService;
-    @Mock AdminOperationLogService operationLogService;
-    @InjectMocks UserServiceImpl service;
+    @InjectMocks cn.jualn.miniapp.module.user.service.UserWechatIdentityService service;
 
     @Test
     void bind_isIdempotentForSameIdentity() {

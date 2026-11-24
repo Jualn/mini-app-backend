@@ -15,7 +15,8 @@ public record AdminActivityRegistrationResourceVO(
         List<Answer> answers,
         OffsetDateTime submittedAt,
         OffsetDateTime updatedAt,
-        OffsetDateTime cancelledAt) {
+        OffsetDateTime cancelledAt, String registrationEtag, Invalidation invalidation) {
+    public record Invalidation(String operatorUserId, OffsetDateTime invalidatedAt, String reason) {}
     public record Answer(String fieldKey, JsonNode value) {
     }
 }

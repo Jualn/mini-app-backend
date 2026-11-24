@@ -2,7 +2,7 @@ package cn.jualn.miniapp.module.timeline.service.impl;
 
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
-import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
+import cn.jualn.miniapp.module.subject.service.SubjectExistenceService;
 import cn.jualn.miniapp.module.timeline.bo.*;
 import cn.jualn.miniapp.module.timeline.converter.TimelineConverter;
 import cn.jualn.miniapp.module.timeline.entity.Timeline;
@@ -24,7 +24,7 @@ class TimelineIdentityTest {
     @BeforeEach void setup() {
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), Timeline.class);
         mapper = mock(TimelineMapper.class);
-        service = new TimelineServiceImpl(mapper, Mappers.getMapper(TimelineConverter.class), mock(TargetValidator.class));
+        service = new TimelineServiceImpl(mapper, Mappers.getMapper(TimelineConverter.class), mock(SubjectExistenceService.class));
     }
     @Test void refusesForeignNodeId() {
         when(mapper.selectList(any())).thenReturn(List.of());

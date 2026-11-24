@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.wx.notice.builder;
 
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.module.notify.payload.NotifyPayload;
 import org.springframework.stereotype.Component;
 
@@ -20,8 +20,8 @@ public class CommentNoticeBuilder implements WxNoticeBuilder {
         Map<String, Object> data = new HashMap<>();
         data.put("title", payload.getTitle());
         data.put("content", payload.getContent());
-        if (payload.getWxData() != null) {
-            data.putAll(payload.getWxData().toMap());
+        if (payload.getContentData() != null) {
+            data.putAll(payload.getContentData().toMap());
         }
         putCommonFields(data, payload);
         return data;

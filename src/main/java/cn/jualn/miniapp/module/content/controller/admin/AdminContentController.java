@@ -50,7 +50,11 @@ public class AdminContentController {
             @PathVariable @Positive(message = "内容ID必须大于0") Long id,
             @PathVariable @Pattern(regexp = ACTION_PATTERN, message = "内容动作不合法") String action,
             @Valid @RequestBody(required = false) AdminContentActionRequest request) {
-        AdminStpUtil.STP_LOGIC.checkPermission(AdminPermissionPolicy.CONTENT_MANAGE);
+        String permission = "comment".equals(type) ? "comment:dispose" : switch (action) {
+            case "pin", "unpin", "feature", "unfeature" -> "post:curate";
+            default -> "post:dispose";
+        };
+        AdminStpUtil.STP_LOGIC.checkPermission(permission);
         adminContentService.executeAction(adminContentConverter.toActionBO(
                 AdminStpUtil.STP_LOGIC.getLoginIdAsLong(), type, id, action, request));
         return Result.ok(null);

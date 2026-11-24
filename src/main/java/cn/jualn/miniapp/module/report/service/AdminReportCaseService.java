@@ -6,6 +6,7 @@ import cn.jualn.miniapp.module.report.bo.AdminReportCasePageBO;
 import cn.jualn.miniapp.module.report.bo.AdminReportCaseQueryBO;
 
 public interface AdminReportCaseService {
+
     AdminReportCasePageBO pageCases(AdminReportCaseQueryBO query);
 
     AdminReportCaseDetailBO getCaseDetail(String targetType, Long targetId);

@@ -18,12 +18,15 @@ public interface ActivityRegistrationService {
     ActivityRegistrationWriteBO submitContract(Long activityId, String formVersion, JsonNode answers, RegistrationVersionBO expectedVersion);
     ActivityRegistrationBO replaceMineContract(Long activityId, String formVersion, JsonNode answers, RegistrationVersionBO expectedVersion);
     ActivityRegistrationBO cancelMineContract(Long activityId, RegistrationVersionBO expectedVersion);
+    cn.jualn.miniapp.module.activity.bo.MyActivityRegistrationPageBO pageMine(String cursor, Integer status, int pageSize);
     ActivityRegistrationBO getMine(Long activityId);
     void cancelMine(Long activityId);
     ActivityRegistrationPageBO pageAdmin(Long activityId, Integer status, String cursor, int pageSize);
+    cn.jualn.miniapp.module.activity.bo.ActivityRegistrationCandidatePageBO pageCandidates(long operator, String q, int page, int pageSize);
     ActivityRegistrationContractPageBO pageAdminContract(Long activityId, Integer status, int page, int pageSize);
     ActivityRegistrationBO getAdminRegistration(Long activityId, Long registrationId);
     void invalidate(Long activityId, Long registrationId, String reason);
+    ActivityRegistrationBO invalidateContract(Long activityId, Long registrationId, String reason, RegistrationVersionBO expected);
     byte[] exportXlsx(Long activityId, Integer status);
     byte[] exportCsv(Long activityId, Integer status);
     Map<Long, Long> countSubmittedByActivityIds(Collection<Long> activityIds);

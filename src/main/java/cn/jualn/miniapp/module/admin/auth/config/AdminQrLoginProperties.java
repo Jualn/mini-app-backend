@@ -13,7 +13,6 @@ import java.util.Set;
 @ConfigurationProperties(prefix = "admin-auth.qr-login-v2")
 public class AdminQrLoginProperties {
     public static final String PAGE = "subpkg_setting/pages/admin-login-confirm/index";
-    private boolean enabled;
     private String envVersion;
     private boolean checkPath = true;
     private Duration sessionTtl = Duration.ofMinutes(2);
@@ -31,8 +30,8 @@ public class AdminQrLoginProperties {
                 || createIpLimit < 1 || createGlobalLimit < 1 || generationConcurrency < 1) {
             throw new IllegalArgumentException("Invalid admin QR login v2 limits");
         }
-        if (enabled && !Set.of("release", "trial", "develop").contains(envVersion == null ? "" : envVersion)) {
-            throw new IllegalArgumentException("Enabled admin QR login v2 requires env-version");
+        if (!Set.of("release", "trial", "develop").contains(envVersion == null ? "" : envVersion)) {
+            throw new IllegalArgumentException("Admin QR login v2 requires env-version");
         }
     }
 }

@@ -9,7 +9,7 @@ import java.util.List;
 public record PersonalRegistrationVO(
         String registrationId, String activityId, String status, String formVersion,
         List<Answer> answers, OffsetDateTime submittedAt, OffsetDateTime updatedAt,
-        OffsetDateTime cancelledAt, boolean canModify, boolean canCancel) {
+        OffsetDateTime cancelledAt, boolean canModify, boolean canCancel, String cancellationOrigin, String cancellationReason) {
     public record Answer(String fieldKey, JsonNode value) {
     }
 }

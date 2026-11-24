@@ -4,7 +4,7 @@ import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.module.user.service.UserService;
+import cn.jualn.miniapp.module.user.service.UserWechatIdentityService;
 import cn.jualn.miniapp.third.wx.client.WxClient;
 import cn.jualn.miniapp.third.wx.config.WxProperties;
 import cn.jualn.miniapp.third.wx.dto.MpOauthAccessTokenResponse;
@@ -44,7 +44,7 @@ public class WxMpOauthService {
     private final WxClient wxClient;
     private final WxProperties wxProperties;
     private final RedisService redisService;
-    private final UserService userService;
+    private final UserWechatIdentityService userService;
 
     /**
      * 小程序通知设置页：绑定服务号入口。

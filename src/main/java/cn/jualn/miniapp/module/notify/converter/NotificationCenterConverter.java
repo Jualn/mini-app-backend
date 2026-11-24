@@ -13,7 +13,6 @@ import org.mapstruct.Mapping;
 public interface NotificationCenterConverter {
     NotificationCenterBO.Query query(CanonicalNotificationQuery query);
     NotificationItemVO item(NotificationCenterBO.Item item);
-    @Mapping(target = "representation", constant = "structured")
     NotificationListVO page(NotificationCenterBO.Page page);
     NotificationSummaryVO summary(NotificationCenterBO.Summary summary);
     NotificationReadResultVO read(NotificationCenterBO.ReadResult read);

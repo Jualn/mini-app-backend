@@ -53,7 +53,7 @@ public class JobWorker {
                 executor.execute(() -> execute(job));
             } catch (RejectedExecutionException rejected) {
                 String jobType = handlers.metricType(job.getJobType(), job.getSchemaVersion());
-                String result = mapper.markRetry(job.getId(), owner, LocalDateTime.now().plusSeconds(10),
+                String result = mapper.markRetry(job.getId(), owner, LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")).plusSeconds(10),
                         "internal", "executor_saturated") == 1 ? "rejected" : "stale_owner";
                 meters.counter(AsyncMetricNames.JOB_EXECUTION, "job.type", jobType,
                         "result", result, "error.category", "internal").increment();
@@ -90,7 +90,7 @@ public class JobWorker {
             JobExecutionContext execution = new JobExecutionContext(job.getId(), job.getLeaseOwner(), mapper,
                     Duration.ofSeconds(90));
             handlers.dispatch(job, execution);
-            if (mapper.markSucceeded(job.getId(), job.getLeaseOwner(), LocalDateTime.now()) != 1) {
+            if (mapper.markSucceeded(job.getId(), job.getLeaseOwner(), LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))) != 1) {
                 log.warn("result=failure errorCategory=conflict reason=stale_job_owner jobType={}", jobType);
                 result = "stale_owner";
                 errorCategory = "conflict";
@@ -116,19 +116,19 @@ public class JobWorker {
         boolean exhausted = job.getAttempt() >= job.getMaxAttempts();
         if (failure.kind() == JobFailureClassifier.Kind.PERMANENT
                 || failure.kind() == JobFailureClassifier.Kind.UNKNOWN || exhausted) {
-            if (mapper.markDead(job.getId(), job.getLeaseOwner(), failure.category(), message, LocalDateTime.now()) != 1) {
+            if (mapper.markDead(job.getId(), job.getLeaseOwner(), failure.category(), message, LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))) != 1) {
                 log.warn("result=failure errorCategory=conflict reason=stale_job_owner jobType={}", jobType);
                 return new FailureResult("stale_owner", "conflict");
             }
             meters.counter(AsyncMetricNames.JOB_DEAD, "job.type", jobType,
                     "error.category", failure.category()).increment();
             log.error("result=dead errorCategory={} jobType={} exceptionType={}",
-                    failure.category(), jobType, error.getClass().getSimpleName());
+                    failure.category(), jobType, error.getClass().getSimpleName(), error);
             return new FailureResult(failure.kind() == JobFailureClassifier.Kind.UNKNOWN ? "unknown" : "dead",
                     failure.category());
         }
         if (mapper.markRetry(job.getId(), job.getLeaseOwner(),
-                LocalDateTime.now().plus(retrySchedule.delay(job.getAttempt())), failure.category(), message) != 1) {
+                LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")).plus(retrySchedule.delay(job.getAttempt())), failure.category(), message) != 1) {
             log.warn("result=failure errorCategory=conflict reason=stale_job_owner jobType={}", jobType);
             return new FailureResult("stale_owner", "conflict");
         }

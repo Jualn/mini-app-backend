@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.wx.notice.builder;
 
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import org.springframework.stereotype.Component;
 
 import java.util.List;

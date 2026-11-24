@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.media.bo;
 
-import cn.jualn.miniapp.common.enums.MediaType;
+import cn.jualn.miniapp.module.media.enums.MediaType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

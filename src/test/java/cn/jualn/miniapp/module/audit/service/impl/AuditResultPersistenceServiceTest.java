@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.audit.service.impl;
 
-import cn.jualn.miniapp.common.enums.AuditScene;
+import cn.jualn.miniapp.module.audit.enums.AuditScene;
 import cn.jualn.miniapp.infrastructure.async.outbox.OutboxService;
 import cn.jualn.miniapp.module.audit.async.AuditCompletedEventPayload;
 import cn.jualn.miniapp.module.audit.entity.ContentAuditLog;

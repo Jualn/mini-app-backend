@@ -10,6 +10,8 @@ import lombok.Data;
 public class AdminReviewPageQuery {
     @Size(max = 100, message = "关键词不能超过100个字符")
     private String keyword;
+    private String growthType;
+    private String growthOrganizationId;
 
     @Pattern(regexp = "post|activity|exam|comment", message = "审核目标类型不合法")
     private String targetType;

@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.user.converter;
 
-import cn.jualn.miniapp.common.enums.UserRole;
-import cn.jualn.miniapp.common.enums.UserStatus;
+import cn.jualn.miniapp.module.user.enums.UserRole;
+import cn.jualn.miniapp.module.user.enums.UserStatus;
 import cn.jualn.miniapp.module.user.bo.AdminUserDetailBO;
 import cn.jualn.miniapp.module.user.bo.AdminUserListBO;
 import cn.jualn.miniapp.module.user.bo.AdminUserPageBO;

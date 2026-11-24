@@ -8,6 +8,16 @@ import java.time.Duration;
 public class DocumentImportProperties {
     private Duration streamTimeout = Duration.ofMinutes(5);
     private Duration aiReadIdleTimeout = Duration.ofSeconds(60);
+    private boolean diagnosticsEnabled;
+    private String diagnosticsDirectory = "target/document-import-samples";
+
+    public boolean isDiagnosticsEnabled() { return diagnosticsEnabled; }
+    public void setDiagnosticsEnabled(boolean value) { diagnosticsEnabled = value; }
+    public String getDiagnosticsDirectory() { return diagnosticsDirectory; }
+    public void setDiagnosticsDirectory(String value) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("diagnostics-directory is required");
+        diagnosticsDirectory = value;
+    }
 
     public Duration getStreamTimeout() {
         return streamTimeout;

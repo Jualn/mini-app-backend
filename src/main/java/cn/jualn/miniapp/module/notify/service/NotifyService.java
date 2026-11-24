@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.notify.service;
 
 import cn.jualn.miniapp.common.enums.TargetType;
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 
 import cn.jualn.miniapp.common.result.PageResult;
 import cn.jualn.miniapp.module.notify.bo.NotificationBO;
@@ -19,6 +19,7 @@ import cn.jualn.miniapp.module.notify.async.BusinessNotificationJobPayload;
  * - 基于持久化 Job 处理到期通知计划
  */
 public interface NotifyService {
+    void catchUpReminder(cn.jualn.miniapp.module.notify.async.ReminderCatchUpPayload payload, JobExecutionContext context);
     void enqueueBusinessNotification(TargetType targetType, Long targetId, String eventIdentity,
             NotifyType notificationType, String recipientScope, String title, String content,
             cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot snapshot);
@@ -36,7 +37,7 @@ public interface NotifyService {
 	PageResult<NotificationBO> pageCurrentUserNotifications(NotificationPageBO query);
 
 	/**
-	 * 查询当前用户的未读通知数（从 Redis 缓存读，不走 DB）。
+	 * 查询当前用户的有效未读通知数；数据库投影同时排除删除及自然到期项。
 	 */
 	Long countCurrentUnreadNotifications();
 
@@ -66,6 +67,7 @@ public interface NotifyService {
 
 	/** Job 执行时向活动当前有效订阅者 fan-out；稳定 eventKey 吸收重放。 */
 	void notifyActivitySubscribers(Long activityId, String eventKey, String title, String content);
+    void notifyActivitySubscribers(Long activityId, String eventKey, String title, String content, JobExecutionContext context);
 
 	/**
 	 * 执行单个通知计划的 fan-out（分页查询订阅用户，批量发送通知）。
@@ -78,7 +80,7 @@ public interface NotifyService {
     void broadcastPlanFanOut(Long planId, JobExecutionContext context);
 
     void enqueueBusinessNotification(cn.jualn.miniapp.common.enums.TargetType targetType, Long targetId,
-                                     String eventIdentity, cn.jualn.miniapp.common.enums.NotifyType notificationType,
+                                     String eventIdentity, cn.jualn.miniapp.module.notify.enums.NotifyType notificationType,
                                      String recipientScope, String title, String content);
 
     void broadcastBusinessNotification(BusinessNotificationJobPayload payload, JobExecutionContext context);

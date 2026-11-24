@@ -17,7 +17,7 @@ public class JobClaimService {
 
     @Transactional
     public List<AsyncJob> claimDue(String owner, int limit) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"));
         List<AsyncJob> selected = mapper.selectDueForUpdate(now, limit);
         List<AsyncJob> claimed = new ArrayList<>(selected.size());
         for (AsyncJob job : selected) {
@@ -34,7 +34,7 @@ public class JobClaimService {
 
     @Transactional
     public int recoverExpired(int limit, RetrySchedule retrySchedule) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"));
         int recovered = 0;
         for (AsyncJob job : mapper.selectExpiredForUpdate(now, limit)) {
             boolean dead = job.getAttempt() >= job.getMaxAttempts();

@@ -7,6 +7,8 @@ import lombok.Data;
 @Builder
 public class AdminReportCaseQueryBO {
     private String keyword;
+    private String growthType;
+    private String growthOrganizationId;
     private String status;
     private String targetType;
     private String reason;

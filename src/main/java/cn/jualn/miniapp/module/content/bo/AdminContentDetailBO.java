@@ -9,6 +9,14 @@ import java.util.List;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class AdminContentDetailBO extends AdminContentListBO {
+    private cn.jualn.miniapp.module.content.bo.AdminPostProjection.QaContext qaContext;
+    private java.util.List<cn.jualn.miniapp.module.post.bo.PostCommunityBO.Management> managementHistory;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private String editableEtag;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private java.util.List<cn.jualn.miniapp.module.media.bo.GrowthMediaBO.File> growthMedia;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private cn.jualn.miniapp.module.post.bo.GrowthRecordBO.Lifecycle growthLifecycle;
     private String content;
     private Author author;
     private List<Attachment> attachments;

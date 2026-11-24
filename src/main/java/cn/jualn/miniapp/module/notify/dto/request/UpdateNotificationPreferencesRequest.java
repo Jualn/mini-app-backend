@@ -19,10 +19,14 @@ import java.util.Map;
 @Setter
 public class UpdateNotificationPreferencesRequest {
     @NotEmpty
-    @Size(max = 6)
+    @Size(max = 27)
     @Valid
     private List<@NotNull @Valid Change> changes;
+    @Getter(lombok.AccessLevel.NONE)
+    @Setter(lombok.AccessLevel.NONE)
     private final Map<String, Object> unknownProperties = new LinkedHashMap<>();
+
+    public Map<String, Object> unknownProperties() { return unknownProperties; }
 
     @JsonAnySetter
     public void unknown(String name, Object value) {
@@ -37,8 +41,16 @@ public class UpdateNotificationPreferencesRequest {
         @NotNull
         private NotificationChannel channel;
         private Boolean enabled;
+        @Getter(lombok.AccessLevel.NONE)
+        @Setter(lombok.AccessLevel.NONE)
         private boolean enabledPresent;
+
+        public boolean enabledPresent() { return enabledPresent; }
+        @Getter(lombok.AccessLevel.NONE)
+        @Setter(lombok.AccessLevel.NONE)
         private final Map<String, Object> unknownProperties = new LinkedHashMap<>();
+
+        public Map<String, Object> unknownProperties() { return unknownProperties; }
 
         @JsonSetter("enabled")
         public void setEnabled(Boolean enabled) {

@@ -9,6 +9,10 @@ import java.util.List;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class AdminReviewDetailBO extends AdminReviewItemBO {
+    private SafetyReviewProjection.Evidence evidence;
+    private cn.jualn.miniapp.module.content.bo.AdminPostProjection.QaContext qaContext;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private java.util.List<cn.jualn.miniapp.module.media.bo.GrowthMediaBO.File> growthMedia;
     private String content;
     private List<Attachment> attachments;
     private MachineAudit machineAudit;
@@ -43,6 +47,8 @@ public class AdminReviewDetailBO extends AdminReviewItemBO {
     @Data
     public static class HistoryEntry {
         private Long id;
+        private String taskId;
+        private String submissionVersion;
         private String eventType;
         private String source;
         private String result;

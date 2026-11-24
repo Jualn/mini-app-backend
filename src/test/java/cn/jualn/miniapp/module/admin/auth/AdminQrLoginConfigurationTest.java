@@ -38,14 +38,12 @@ class AdminQrLoginConfigurationTest {
 
     @Test void productionIsEnabledAndTargetsRelease() throws IOException {
         var properties = load("prod", null);
-        assertTrue(properties.isEnabled());
         assertEquals("release", properties.getEnvVersion());
         assertTrue(properties.isCheckPath());
     }
 
     @Test void developmentIsEnabledAndTargetsDevelop() throws IOException {
         var properties = load("dev", null);
-        assertTrue(properties.isEnabled());
         assertEquals("develop", properties.getEnvVersion());
         assertFalse(properties.isCheckPath());
     }

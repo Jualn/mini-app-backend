@@ -52,7 +52,7 @@ class ProfileConsumerHttpTest {
             state.set(saved);
             return saved;
         });
-        var mvc = MockMvcBuilders.standaloneSetup(new UserController(service, Mappers.getMapper(UserConverter.class)))
+        var mvc = MockMvcBuilders.standaloneSetup(new UserController(service, org.mockito.Mockito.mock(cn.jualn.miniapp.module.user.service.UserAgreementService.class), Mappers.getMapper(UserConverter.class)))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(
                         new JacksonConfig().objectMapper(new Jackson2ObjectMapperBuilder()))).build();

@@ -1,6 +1,7 @@
 package cn.jualn.miniapp.module.post.converter;
 
 import cn.jualn.miniapp.common.mapper.EnumConverter;
+import cn.jualn.miniapp.module.audit.converter.AuditEnumMappings;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentSimpleBO;
 import cn.jualn.miniapp.module.post.bo.PostCreateBO;
 import cn.jualn.miniapp.module.post.bo.PostListBO;
@@ -8,7 +9,7 @@ import cn.jualn.miniapp.module.post.bo.PostSearchBO;
 import cn.jualn.miniapp.module.post.dto.request.PostCreateRequest;
 import cn.jualn.miniapp.module.post.entity.Post;
 import cn.jualn.miniapp.module.post.bo.PostDetailBO;
-import cn.jualn.miniapp.module.post.service.impl.PostServiceImpl;
+import cn.jualn.miniapp.module.post.bo.PostListContext;
 import cn.jualn.miniapp.module.post.vo.PostDetailVO;
 import cn.jualn.miniapp.module.user.bo.UserSimpleBO;
 import org.mapstruct.Context;
@@ -21,12 +22,14 @@ import java.util.Map;
 /**
  * 帖子对象转换器。
  */
-@Mapper(componentModel = "spring", uses = {EnumConverter.class})
+@Mapper(componentModel = "spring", uses = {EnumConverter.class, PostEnumMappings.class, AuditEnumMappings.class})
 public interface PostConverter {
 
     /**
      * 创建请求转帖子实体。
      */
+    @Mapping(target = "auditRevision", ignore = true)
+    @Mapping(target = "revision", ignore = true)
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "userId", ignore = true)
     @Mapping(target = "status", ignore = true)
@@ -46,14 +49,21 @@ public interface PostConverter {
 
     PostCreateBO toCreateBO(PostCreateRequest request);
 
+    cn.jualn.miniapp.module.post.bo.PostFeedQueryBO toPageBO(cn.jualn.miniapp.module.post.dto.request.PostPageQuery query);
+
+    cn.jualn.miniapp.module.post.bo.PostEditBO toEditBO(cn.jualn.miniapp.module.post.dto.request.PostEditRequest request);
+
     /**
      * 帖子实体转详情响应。
      */
     @Mapping(target = "author", ignore = true)
     @Mapping(target = "attachments", ignore = true)
+    @Mapping(target = "category", ignore = true)
+    @Mapping(target = "topics", ignore = true)
+    @Mapping(target = "commentPermission", ignore = true)
+    @Mapping(target = "liked", ignore = true)
     PostDetailBO toDetailBO(Post post);
 
-    @Mapping(target = "liked", ignore = true)
     PostDetailVO toDetailVO(PostDetailBO postDetailBO);
 
     @Mapping(target = "author", expression = "java(mapUserSimple(post.getUserId(), context.getUserMap()))")
@@ -61,23 +71,31 @@ public interface PostConverter {
     @Mapping(target = "likeCount", expression = "java(mapLikeCount(post.getId(), context.getLikeCountMap()))")
     @Mapping(target = "viewCount", expression = "java(mapViewCount(post.getId(), context.getViewCountMap()))")
     @Mapping(target = "attachments", expression = "java(mapAttachments(post.getId(), context.getAttachmentMap()))")
-    PostListBO toListBO(Post post, @Context PostServiceImpl.PostContext context);
-    List<PostListBO> toListBOList(List<Post> posts, @Context PostServiceImpl.PostContext context);
+    @Mapping(target = "category", ignore = true)
+    @Mapping(target = "topics", ignore = true)
+    @Mapping(target = "commentPermission", ignore = true)
+    PostListBO toListBO(Post post, @Context PostListContext context);
+
+    List<PostListBO> toListBOList(List<Post> posts, @Context PostListContext context);
 
     PostSearchBO toSearchBO(Post post);
 
     default UserSimpleBO mapUserSimple(Long userId, @Context Map<Long, UserSimpleBO> userMap) {
         return userMap.getOrDefault(userId, null);
     }
+
     default Boolean mapLiked(Long postId, @Context Map<Long, Boolean> likedMap) {
         return likedMap.getOrDefault(postId, false);
     }
+
     default Integer mapLikeCount(Long postId, @Context Map<Long, Integer> likeCountMap) {
         return likeCountMap.getOrDefault(postId, 0);
     }
+
     default Integer mapViewCount(Long postId, @Context Map<Long, Integer> viewCountMap) {
         return viewCountMap.getOrDefault(postId, 0);
     }
+
     default List<MediaAttachmentSimpleBO> mapAttachments(Long postId, @Context Map<Long, List<MediaAttachmentSimpleBO>> attachmentMap) {
         return attachmentMap.getOrDefault(postId, List.of());
     }

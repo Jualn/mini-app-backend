@@ -1,8 +1,12 @@
 package cn.jualn.miniapp.module.notify.service.impl;
+import cn.jualn.miniapp.module.notify.service.inbox.NotificationInboxService;
 
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.channel.NotificationChannelAdapter;
+import cn.jualn.miniapp.module.notify.channel.NotificationChannels;
+import cn.jualn.miniapp.module.notify.channel.NotificationSendResult;
+
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.common.exception.BusinessException;
-import cn.jualn.miniapp.common.exception.ExternalServiceException;
 import cn.jualn.miniapp.common.observability.ObservabilityContext;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.infrastructure.async.job.JobDefinition;
@@ -18,16 +22,12 @@ import cn.jualn.miniapp.module.notify.model.NotificationCategory;
 import cn.jualn.miniapp.module.notify.service.NotificationDeliveryService;
 import cn.jualn.miniapp.module.setting.bo.UserSettingBO;
 import cn.jualn.miniapp.module.setting.service.SettingService;
-import cn.jualn.miniapp.third.wx.dto.MpSubscribeMessageResponse;
-import cn.jualn.miniapp.third.wx.notice.WxMpNoticeType;
-import cn.jualn.miniapp.module.wx.service.WxMpNoticeSendService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.reactive.function.client.WebClientException;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -45,13 +45,13 @@ public class NotificationDeliveryServiceImpl implements NotificationDeliveryServ
     private final NotificationDeliveryMapper deliveryMapper;
     private final NotificationMapper notificationMapper;
     private final io.micrometer.core.instrument.MeterRegistry meters;
-    private final cn.jualn.miniapp.module.notify.service.NotificationInboxService inboxService;
+    private final cn.jualn.miniapp.module.notify.service.inbox.NotificationInboxService inboxService;
     private final JobService jobService;
     private final ObjectMapper objectMapper;
-    private final WxMpNoticeSendService sendService;
-    private final SettingService settingService;
+    private final NotificationChannels channels;
     private final NotificationPreferenceMapper preferenceMapper;
     private final TransactionTemplate transactionTemplate;
+    private final cn.jualn.miniapp.module.notify.service.NotificationEligibility activityEligibility;
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
@@ -62,50 +62,65 @@ public class NotificationDeliveryServiceImpl implements NotificationDeliveryServ
         if (enabledChannels.contains(NotificationChannel.IN_APP)) {
             inboxService.enter(notification);
             deliveryMapper.insert(NotificationDelivery.builder()
-                    .notificationId(notification.getId())
+                    .notificationId(notification.getId()).notificationType(notification.getType())
+                    .preferenceCategory(NotificationCategory.of(NotifyType.fromCode(notification.getType())) == null ? null : NotificationCategory.of(NotifyType.fromCode(notification.getType())).name())
                     .channel(NotificationChannel.IN_APP.name())
                     .status("DELIVERED")
                     .attemptCount(0)
-                    .deliveredAt(LocalDateTime.now())
+                    .deliveredAt(LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")))
                     .build());
             visible = true;
         }
-        WxMpNoticeType noticeType = toMpNoticeType(type);
-        if (enabledChannels.contains(NotificationChannel.WECHAT_OFFICIAL_ACCOUNT)
-                && noticeType != null && sendService.isNotificationDeliveryAvailable(noticeType)
-                && hasRequiredOfficialAccountPayload(notification, type)) {
-            createWeChatDelivery(notification);
+        if (type != null && enabledChannels.contains(NotificationChannel.WECHAT_OFFICIAL_ACCOUNT)
+                && channels.available(WECHAT_CHANNEL,type)) {
+            createExternalDelivery(notification, type, WECHAT_CHANNEL);
         }
-        // Mini Program subscription messages remain unavailable until their own template and
-        // one-time permission/consumption contract is implemented.
+        if (type != null && enabledChannels.contains(NotificationChannel.WECHAT_MINI_PROGRAM)
+                && channels.available(NotificationChannel.WECHAT_MINI_PROGRAM.name(),type)) {
+            createExternalDelivery(notification, type, NotificationChannel.WECHAT_MINI_PROGRAM.name());
+        }
         return visible;
     }
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public void planWeChatDelivery(Notification notification, NotifyType type) {
-        WxMpNoticeType noticeType = toMpNoticeType(type);
-        if (notification == null || notification.getId() == null || noticeType == null) {
-            return;
+    public void planWeChatDelivery(Notification notification, NotifyType type, Set<NotificationChannel> allowedChannels) {
+        if (notification == null || notification.getId() == null || type == null) return;
+        for (NotificationChannel channel : Set.of(NotificationChannel.WECHAT_OFFICIAL_ACCOUNT, NotificationChannel.WECHAT_MINI_PROGRAM)) {
+            if ((allowedChannels == null || allowedChannels.contains(channel)) && channels.available(channel.name(), type))
+                createExternalDelivery(notification, type, channel.name());
         }
-        if (!sendService.isNotificationDeliveryAvailable(noticeType)) {
-            return;
-        }
-        createWeChatDelivery(notification);
     }
 
-    private void createWeChatDelivery(Notification notification) {
+    private void createExternalDelivery(Notification notification, NotifyType type, String channel) {
         NotificationDelivery delivery = NotificationDelivery.builder()
-                .notificationId(notification.getId())
-                .channel(WECHAT_CHANNEL)
+                .notificationId(notification.getId()).notificationType(notification.getType())
+                    .preferenceCategory(NotificationCategory.of(NotifyType.fromCode(notification.getType())) == null ? null : NotificationCategory.of(NotifyType.fromCode(notification.getType())).name())
+                .channel(channel)
                 .status("PENDING")
                 .attemptCount(0)
                 .build();
+        try {
+            var snapshot = adapter(channel).prepare(type, readFrozenContent(notification));
+            if (snapshot == null) throw new BusinessException(ResultCode.WX_NOTICE_PAYLOAD_INVALID, "模板快照缺失");
+            String json = objectMapper.writeValueAsString(snapshot);
+            if (json.length() > 32768) throw new BusinessException(ResultCode.WX_NOTICE_PAYLOAD_INVALID, "模板快照超过限制");
+            delivery.setTemplateSnapshotVersion(1);
+            delivery.setTemplateSnapshot(json);
+        } catch (BusinessException invalid) {
+            delivery.setStatus("FAILED");
+            delivery.setResultCategory("validation");
+            delivery.setLastErrorMessage("Template snapshot could not be prepared");
+            deliveryMapper.insert(delivery);
+            return; // External validation failure must not roll back the IN_APP entry.
+        } catch (com.fasterxml.jackson.core.JsonProcessingException invalid) {
+            throw new IllegalStateException("Template snapshot serialization failed");
+        }
         deliveryMapper.insert(delivery);
         jobService.create(new JobDefinition(
                 "notification.wechat-deliver", 2, ObservabilityContext.ensureOperationId(),
                 "delivery:" + delivery.getId(), "notification-delivery", String.valueOf(delivery.getId()),
-                new NotificationDeliveryJobPayload(delivery.getId()), LocalDateTime.now(), 4));
+                new NotificationDeliveryJobPayload(delivery.getId()), LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")), 4));
     }
 
     @Override
@@ -124,53 +139,113 @@ public class NotificationDeliveryServiceImpl implements NotificationDeliveryServ
                     "Previous provider attempt ended without a persisted result"));
             return;
         }
+        NotificationChannelAdapter adapter = adapter(delivery.getChannel());
+        if (adapter == null) {
+            finishWithOwnership(context, "SKIPPED", () -> deliveryMapper.markTerminal(deliveryId, "SKIPPED", "validation",
+                    "channel_unavailable", "Delivery channel has no implemented provider adapter"));
+            return;
+        }
+        if (!adapter.isEnabled()) {
+            finishWithOwnership(context, "SKIPPED", () -> deliveryMapper.markTerminal(deliveryId, "SKIPPED", "validation",
+                    "channel_unavailable", "Notification channel is disabled"));
+            return;
+        }
+        if (delivery.getTemplateSnapshotVersion() == null && delivery.getTemplateSnapshot() == null) {
+            finishWithOwnership(context, "SKIPPED", () -> deliveryMapper.markTerminal(deliveryId, "SKIPPED", "validation",
+                    "legacy_template_unfrozen", "Historical template cannot be reconstructed safely"));
+            return;
+        }
+        com.fasterxml.jackson.databind.JsonNode templateSnapshot;
+        try {
+            if (!Integer.valueOf(1).equals(delivery.getTemplateSnapshotVersion()) || delivery.getTemplateSnapshot() == null
+                    || delivery.getTemplateSnapshot().length() > 32768) throw new IllegalArgumentException();
+            templateSnapshot = objectMapper.readTree(delivery.getTemplateSnapshot());
+            adapter.validateSnapshot(templateSnapshot);
+            if (templateSnapshot.path("schemaVersion").asInt() != 1 || !delivery.getChannel().equals(templateSnapshot.path("channel").asText())) throw new IllegalArgumentException();
+        } catch (Exception invalid) {
+            finishWithOwnership(context, "FAILED", () -> deliveryMapper.markTerminal(deliveryId, "FAILED", "validation",
+                    "invalid_template_snapshot", "Frozen template snapshot is invalid"));
+            return;
+        }
         Notification notification = notificationMapper.selectById(delivery.getNotificationId());
         if (notification == null) {
             finishWithOwnership(context, "FAILED", () -> deliveryMapper.markTerminal(deliveryId, "FAILED", "validation",
                     "notification_missing", "Notification no longer exists"));
             return;
         }
-        NotifyType notifyType = NotifyType.fromCode(notification.getType());
-        WxMpNoticeType noticeType = toMpNoticeType(notifyType);
-        if (noticeType == null) {
-            finishWithOwnership(context, "FAILED", () -> deliveryMapper.markTerminal(deliveryId, "FAILED", "validation",
-                    "unsupported_type", "Notification type has no WeChat mapping"));
+        if (notificationMapper.isExpiredInApp(notification.getId())) {
+            finishWithOwnership(context, "SKIPPED", () -> deliveryMapper.markTerminal(deliveryId, "SKIPPED", "validation",
+                    "notification_expired", "Notification retention window ended"));
             return;
         }
-        if (!isNotifyEnabled(notification, notifyType)) {
+        NotifyType notifyType = NotifyType.fromCode(notification.getType());
+        if (notifyType == null) {
+            finishWithOwnership(context, "FAILED", () -> deliveryMapper.markTerminal(deliveryId, "FAILED", "validation",
+                    "unsupported_type", "Notification type is unknown"));
+            return;
+        }
+        if (!isNotifyEnabled(notification, notifyType, delivery.getChannel())) {
             finishWithOwnership(context, "SKIPPED", () -> deliveryMapper.markTerminal(deliveryId, "SKIPPED", "validation",
                     "channel_disabled", "User disabled this notification channel"));
             return;
         }
-        if (!sendService.isNotificationDeliveryAvailable(noticeType)) {
+        if (!adapter.isFrozenAvailable(templateSnapshot, notifyType)) {
             finishWithOwnership(context, "SKIPPED", () -> deliveryMapper.markTerminal(deliveryId, "SKIPPED", "validation",
-                    "template_unavailable", "Official Account template is unavailable"));
+                    "template_unavailable", "WeChat channel, template or subscription capability is unavailable"));
             return;
         }
 
-        if (context != null) context.prepareBatch();
-        boolean claimed = context == null
-                ? deliveryMapper.startProviderAttempt(deliveryId, LocalDateTime.now()) == 1
-                : Boolean.TRUE.equals(transactionTemplate.execute(status -> {
-                    context.requireOwnership();
-                    return deliveryMapper.startProviderAttempt(deliveryId, LocalDateTime.now()) == 1;
-                }));
-        if (!claimed) return;
+        Map<String, Object> frozen;
+        try { frozen = readFrozenContent(notification); }
+        catch (BusinessException invalid) {
+            finishWithOwnership(context, "FAILED", () -> deliveryMapper.markTerminal(deliveryId, "FAILED", "validation",
+                    "invalid_snapshot", safeMessage(invalid)));
+            return;
+        }
+        if (!activityEligibility.isEligible(notification, frozen)) {
+            skipBusinessEligibility(deliveryId, context);
+            return;
+        }
+
+        java.util.concurrent.atomic.AtomicBoolean attempted = new java.util.concurrent.atomic.AtomicBoolean();
 
         try {
-            MpSubscribeMessageResponse response = sendService.send(
-                    notification.getUserId(), noticeType, readFrozenContent(notification), () -> { });
-            if (response == null || response.getErrcode() == null) {
-                throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat",
-                        "Official Account response has no authoritative result");
+            Runnable beforeProviderCall = () -> {
+                if (context != null) context.prepareBatch();
+                if (notificationMapper.isExpiredInApp(notification.getId())
+                        || !isNotifyEnabled(notification, notifyType, delivery.getChannel())
+                        || !adapter.isFrozenAvailable(templateSnapshot, notifyType)
+                        || !activityEligibility.isEligible(notification, frozen)) throw new EligibilityLostException();
+                boolean claimed = context == null
+                        ? deliveryMapper.startProviderAttempt(deliveryId, LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))) == 1
+                        : Boolean.TRUE.equals(transactionTemplate.execute(status -> {
+                            context.requireOwnership();
+                            return deliveryMapper.startProviderAttempt(deliveryId, LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))) == 1;
+                        }));
+                if (!claimed) throw new AttemptNotClaimedException();
+                attempted.set(true);
+            };
+            NotificationSendResult result = adapter.deliver(notification.getUserId(), templateSnapshot,
+                    notification.getId().toString(), beforeProviderCall);
+            if (result == null) result = NotificationSendResult.unknown();
+            final NotificationSendResult outcome = result;
+            switch (outcome.outcome()) {
+                case ACCEPTED -> finishWithOwnership(context, "DELIVERED", () -> deliveryMapper.markDelivered(
+                        deliveryId, outcome.messageId(), LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))));
+                case UNKNOWN -> finishWithOwnership(context, "UNKNOWN", () -> deliveryMapper.markTerminal(
+                        deliveryId, "UNKNOWN", "remote", null, "Provider outcome is unknown"));
+                case REJECTED_PERMANENT -> finishWithOwnership(context, "FAILED", () -> deliveryMapper.markTerminal(
+                        deliveryId, "FAILED", "remote", outcome.providerCode(), "Provider rejected this delivery"));
+                case REJECTED_RETRYABLE -> {
+                    finishWithOwnership(context, "RETRY", () -> deliveryMapper.markRetryable(
+                            deliveryId, "remote", outcome.providerCode(), "Provider explicitly rejected the attempt temporarily"));
+                    throw new RetryableRemoteException("Provider explicitly rejected a safely retryable attempt", null);
+                }
             }
-            if (response.getErrcode() != 0) {
-                throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat",
-                        String.valueOf(response.getErrcode()), "Official Account send was rejected");
-            }
-            String messageId = response == null || response.getMsgId() == null
-                    ? null : String.valueOf(response.getMsgId());
-            finishWithOwnership(context, "DELIVERED", () -> deliveryMapper.markDelivered(deliveryId, messageId, LocalDateTime.now()));
+        } catch (AttemptNotClaimedException notClaimed) {
+            return;
+        } catch (EligibilityLostException lost) {
+            skipBusinessEligibility(deliveryId, context);
         } catch (BusinessException knownLocal) {
             if (knownLocal.getResultCode() == ResultCode.WX_OPENID_NOT_BOUND
                     || knownLocal.getResultCode() == ResultCode.WX_NOTICE_SUBSCRIBE_INVALID
@@ -181,30 +256,28 @@ public class NotificationDeliveryServiceImpl implements NotificationDeliveryServ
                 finishWithOwnership(context, "FAILED", () -> deliveryMapper.markTerminal(deliveryId, "FAILED", "validation",
                         String.valueOf(knownLocal.getCode()), safeMessage(knownLocal)));
             }
-        } catch (ExternalServiceException knownProviderFailure) {
-            String providerCode = knownProviderFailure.getProviderCode();
-            if (providerCode == null) {
-                finishWithOwnership(context, "UNKNOWN", () -> deliveryMapper.markTerminal(deliveryId, "UNKNOWN", "remote", null,
-                        safeMessage(knownProviderFailure)));
-            } else if ("-1".equals(providerCode)) {
-                finishWithOwnership(context, "RETRY", () -> deliveryMapper.markRetryable(deliveryId, "remote", providerCode,
-                        safeMessage(knownProviderFailure)));
-                throw new RetryableRemoteException("WeChat explicitly returned a retryable failure",
-                        knownProviderFailure);
-            } else {
-                finishWithOwnership(context, "FAILED", () -> deliveryMapper.markTerminal(deliveryId, "FAILED", "remote", providerCode,
-                        safeMessage(knownProviderFailure)));
-            }
-        } catch (WebClientException unknown) {
-            finishWithOwnership(context, "UNKNOWN", () -> deliveryMapper.markTerminal(deliveryId, "UNKNOWN", "remote", null,
-                    unknown.getClass().getSimpleName()));
+        } catch (RetryableRemoteException retryable) {
+            throw retryable;
+        } catch (cn.jualn.miniapp.infrastructure.async.job.JobYieldException
+                | cn.jualn.miniapp.infrastructure.async.job.JobOwnershipLostException executionStopped) {
+            throw executionStopped;
         } catch (RuntimeException uncertainFailure) {
             // Once an attempt is claimed, an unexpected failure may follow an accepted remote write.
             // Never return it to PENDING and repeat the provider effect.
-            finishWithOwnership(context, "UNKNOWN", () -> deliveryMapper.markTerminal(deliveryId, "UNKNOWN", "internal", null,
+            String result = attempted.get() ? "UNKNOWN" : "FAILED";
+            finishWithOwnership(context, result, () -> deliveryMapper.markTerminal(deliveryId, result, "internal", null,
                     uncertainFailure.getClass().getSimpleName()));
         }
     }
+
+    private void skipBusinessEligibility(long deliveryId, JobExecutionContext context) {
+        finishWithOwnership(context, "SKIPPED", () -> deliveryMapper.markTerminal(deliveryId, "SKIPPED", "validation",
+                "business_ineligible", "Current notification sending eligibility was lost"));
+    }
+
+    private static final class AttemptNotClaimedException extends RuntimeException { }
+
+    private static final class EligibilityLostException extends RuntimeException { }
 
     private void finishWithOwnership(JobExecutionContext context, String result, java.util.function.IntSupplier update) {
         if (context == null) {
@@ -248,71 +321,19 @@ public class NotificationDeliveryServiceImpl implements NotificationDeliveryServ
     }
 
     private String safeMessage(Throwable error) {
-        String message = error.getMessage();
-        if (message == null) return error.getClass().getSimpleName();
-        return message.length() <= 512 ? message : message.substring(0, 512);
+        // Never persist provider errmsg, URI, response body or arbitrary exception input.
+        return error.getClass().getSimpleName();
     }
 
-    private WxMpNoticeType toMpNoticeType(NotifyType type) {
-        if (type == null) return null;
-        if (type == NotifyType.POST_COMMENTED || type == NotifyType.COMMENT_REPLIED) { type = type.legacyRepresentation(); }
-        return switch (type.getCode()) {
-            case 1 -> WxMpNoticeType.COMMENT_REPLY;
-            case 2 -> WxMpNoticeType.REPLY;
-            case 3 -> WxMpNoticeType.LIKE;
-            case 4 -> WxMpNoticeType.ACTIVITY_START;
-            case 8 -> WxMpNoticeType.ACTIVITY_START;
-            case 5 -> WxMpNoticeType.EXAM_REMIND;
-            case 6 -> WxMpNoticeType.AUDIT_RESULT;
-            case 7 -> WxMpNoticeType.SYSTEM_NOTICE;
-            default -> null;
-        };
+    private NotificationChannelAdapter adapter(String channel) {
+        return channels.find(channel);
     }
 
-    private boolean isNotifyEnabled(Notification notification, NotifyType type) {
-        if (notification == null || notification.getUserId() == null || type == null) return false;
-        if ("CANONICAL".equals(notification.getInboxGeneration())) {
-            NotificationCategory category = categoryOf(type);
-            return category != null && Boolean.TRUE.equals(preferenceMapper.selectEnabled(
-                    notification.getUserId(), category.name(), NotificationChannel.WECHAT_OFFICIAL_ACCOUNT.name()));
-        }
-        UserSettingBO setting = settingService.getSettingByUserId(notification.getUserId());
-        if (setting == null || type == null) return false;
-        if (type == NotifyType.POST_COMMENTED || type == NotifyType.COMMENT_REPLIED) { type = type.legacyRepresentation(); }
-        return switch (type.getCode()) {
-            case 1 -> Boolean.TRUE.equals(setting.getNotifyComment());
-            case 2 -> Boolean.TRUE.equals(setting.getNotifyReply());
-            case 3 -> Boolean.TRUE.equals(setting.getNotifyLike());
-            case 4 -> Boolean.TRUE.equals(setting.getNotifyActivityRemind());
-            case 5 -> Boolean.TRUE.equals(setting.getNotifyExamRemind());
-            case 6 -> Boolean.TRUE.equals(setting.getNotifyAuditResult());
-            case 7 -> Boolean.TRUE.equals(setting.getNotifySystem());
-            default -> false;
-        };
-    }
-
-    private NotificationCategory categoryOf(NotifyType type) {
-        if (type == null) return null;
-        return switch (type) {
-            case ACTIVITY_START_REMINDER, ACTIVITY_REGISTRATION_DEADLINE_REMINDER,
-                    ACTIVITY_CANCELLED, ACTIVITY_TIME_CHANGED, ACTIVITY_LOCATION_CHANGED,
-                    ACTIVITY_ENDED_EARLY -> NotificationCategory.ACTIVITY;
-            case PUBLIC_EVENT_START_REMINDER, PUBLIC_EVENT_REGISTRATION_DEADLINE_REMINDER,
-                    PUBLIC_EVENT_CANCELLED, PUBLIC_EVENT_TIME_CHANGED,
-                    PUBLIC_EVENT_LOCATION_CHANGED -> NotificationCategory.PUBLIC_EVENT;
-            default -> null;
-        };
-    }
-
-    private boolean hasRequiredOfficialAccountPayload(Notification notification, NotifyType type) {
-        if (type != NotifyType.ACTIVITY_START_REMINDER) return false;
-        try {
-            Map<String, Object> content = readFrozenContent(notification);
-            return content.get("activityId") != null
-                    && content.get("activityTitle") != null
-                    && content.get("startTime") != null;
-        } catch (BusinessException invalidSnapshot) {
-            return false;
-        }
+    private boolean isNotifyEnabled(Notification notification, NotifyType type, String channel) {
+        if (notification == null || notification.getUserId() == null) return false;
+        NotificationCategory category = NotificationCategory.of(type);
+        if (category == null || NotificationChannel.WECHAT_OFFICIAL_ACCOUNT.name().equals(channel)) return false;
+        Boolean override = preferenceMapper.selectEnabled(notification.getUserId(), category.name(), channel);
+        return override != null ? override : NotificationChannel.IN_APP.name().equals(channel);
     }
 }

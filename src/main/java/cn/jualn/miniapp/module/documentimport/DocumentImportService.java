@@ -17,6 +17,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.ArrayList;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -27,6 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @Service
 public class DocumentImportService {
     private final DocumentImportFileReader fileReader;
+    private final DocumentImportAuthorizer authorizer;
     private final DocumentImportPromptBuilder promptBuilder;
     private final DocumentImportAiGateway aiGateway;
     private final DocumentImportSuggestionValidator suggestionValidator;
@@ -34,6 +36,8 @@ public class DocumentImportService {
     private final DocumentImportEmitterFactory emitterFactory;
     private final AsyncTaskExecutor executor;
     private final long streamTimeoutMillis;
+    private final long minimumRepairBudgetMillis;
+    private final DocumentImportDiagnostics diagnostics;
 
     public DocumentImportService(DocumentImportFileReader fileReader,
                                  DocumentImportPromptBuilder promptBuilder,
@@ -42,7 +46,8 @@ public class DocumentImportService {
                                  @Qualifier("objectMapper") ObjectMapper objectMapper,
                                  DocumentImportEmitterFactory emitterFactory,
                                  @Qualifier("aiTaskExecutor") AsyncTaskExecutor executor,
-                                 DocumentImportProperties properties) {
+                                 DocumentImportProperties properties,DocumentImportAuthorizer authorizer) {
+        this.authorizer=authorizer;
         this.fileReader = fileReader;
         this.promptBuilder = promptBuilder;
         this.aiGateway = aiGateway;
@@ -51,11 +56,26 @@ public class DocumentImportService {
         this.emitterFactory = emitterFactory;
         this.executor = executor;
         this.streamTimeoutMillis = properties.getStreamTimeout().toMillis();
+        this.minimumRepairBudgetMillis = properties.getAiReadIdleTimeout().toMillis() + 5000;
+        this.diagnostics = new DocumentImportDiagnostics(objectMapper, properties);
     }
 
     public SseEmitter importDocument(MultipartFile file, DocumentImportTarget target, String baseRevision) {
-        DocumentImportFileReader.ParsedDocument document = fileReader.read(file);
-        Session session = new Session(UUID.randomUUID().toString(), target, baseRevision,
+        long actor=authorizer.requireEdit(target);
+        String importId = UUID.randomUUID().toString();
+        Map<String, Object> sample = diagnostics.begin(importId, file == null ? null : file.getOriginalFilename(), target);
+        DocumentImportFileReader.ParsedDocument document;
+        try {
+            document = fileReader.read(file);
+        } catch (RuntimeException exception) {
+            if (sample != null) {
+                sample.put("outcome", "extraction-failed");
+                sample.put("exceptionType", exception.getClass().getSimpleName());
+                diagnostics.write(sample);
+            }
+            throw exception;
+        }
+        Session session = new Session(actor,importId, target, baseRevision,
                 emitterFactory.create(streamTimeoutMillis));
 
         session.emitter.onTimeout(() -> {
@@ -64,23 +84,79 @@ public class DocumentImportService {
         });
         session.emitter.onCompletion(session::cancel);
         session.emitter.onError(error -> session.cancel());
-        Future<?> future = executor.submit(() -> run(session, document));
+        Future<?> future = executor.submit(() -> run(session, document, sample));
         session.future.set(future);
         if (session.cancelled.get()) future.cancel(true);
         return session.emitter;
     }
 
-    private void run(Session session, DocumentImportFileReader.ParsedDocument document) {
+    private void run(Session session, DocumentImportFileReader.ParsedDocument document, Map<String, Object> sample) {
         try {
+            String prompt = promptBuilder.build(session.target, document.extractionScope(), document.text());
+            if (sample != null) {
+                sample.put("extractionScope", document.extractionScope());
+                sample.put("extractedText", document.text());
+                sample.put("prompt", prompt);
+                sample.put("model", aiGateway.modelName());
+            }
             session.send("started", Map.of("extractionScope", document.extractionScope()));
             session.warning("EXTRACTION_SCOPE_LIMITED", null,
                     "仅处理正文可提取文字，图片和其他结构中的信息需人工核对。");
             if (session.stopped()) return;
 
-            String raw = aiGateway.generate(promptBuilder.build(
-                    session.target, document.extractionScope(), document.text()));
+            String raw = aiGateway.generate(prompt);
+            if (sample != null) sample.put("rawModelOutput", raw);
             if (session.stopped()) return;
-            ValidationResult result = suggestionValidator.validate(raw, session.target, document.text(), session.importId);
+            var rejected = new ArrayList<DocumentImportSuggestionValidator.Rejection>();
+            var evidenceMatches = new ArrayList<DocumentImportSuggestionValidator.EvidenceMatch>();
+            var timeEvidence = new ArrayList<DocumentImportTimelineEvidence.TimeEvidence>();
+            if (sample != null) sample.put("rejected", rejected);
+            if (sample != null) sample.put("evidenceMatches", evidenceMatches);
+            ValidationResult result = suggestionValidator.validate(raw, session.target, document.text(), session.importId,
+                    rejection -> { if (sample != null) rejected.add(rejection); },
+                    match -> { if (sample != null) evidenceMatches.add(match); },
+                    evidence -> { if (sample != null) timeEvidence.add(evidence); });
+            ValidationResult initial = result;
+            boolean repairBudgetAvailable = streamTimeoutMillis
+                    - (System.nanoTime() - session.startedNanos) / 1_000_000 >= minimumRepairBudgetMillis;
+            var timelineRecovery = new DocumentImportTimelineRecovery(objectMapper, suggestionValidator)
+                    .recover(raw, session.target, document.text(), session.importId, initial,
+                            frozen -> aiGateway.generate(promptBuilder.buildTimelineEvidenceRepair(
+                                    session.target, document.extractionScope(), document.text(), frozen)),
+                            () -> session.stopped() || !repairBudgetAvailable);
+            if (session.stopped()) return;
+            String recoveredRaw = timelineRecovery.raw();
+            result = timelineRecovery.result();
+            var recovery = new DocumentImportSectionsRecovery(objectMapper, suggestionValidator)
+                    .recover(recoveredRaw, session.target, document.text(), session.importId, result);
+            result = recovery.result();
+            var completion = new DocumentImportSectionsCompletion(objectMapper, suggestionValidator)
+                    .complete(recoveredRaw, session.target, document.text(), session.importId, result, recovery.mode());
+            result = completion.result();
+            var coverageChecker = new DocumentImportContentCoverage();
+            var coverage = coverageChecker.inspect(document.text(), result, recovery.mode());
+            result = coverageChecker.warn(result, coverage);
+            if (sample != null) {
+                sample.put("initialValidation", initial);
+                sample.put("sectionsRecovery", recovery.mode());
+                sample.put("sectionsCompletion", completion.mode());
+                sample.put("sectionsAppendedBlocks", completion.appendedBlocks());
+                sample.put("timelineRecovery", timelineRecovery.mode());
+                sample.put("timelineRecoveryMillis", timelineRecovery.elapsedMillis());
+                sample.put("recoveryModelCalls", timelineRecovery.modelCalls());
+                if (result.suggestions().stream().anyMatch(c -> "/timeline".equals(c.target()))
+                        && !"UNCHANGED".equals(timelineRecovery.mode())) {
+                    var recoveredTimes = new ArrayList<DocumentImportTimelineEvidence.TimeEvidence>();
+                    suggestionValidator.validate(recoveredRaw, session.target, document.text(), session.importId,
+                            ignored -> { }, ignored -> { }, recoveredTimes::add);
+                    sample.put("recoveredTimeEvidence", recoveredTimes);
+                }
+                sample.put("timeEvidence", timeEvidence);
+                sample.put("contentCoverage", coverage);
+                sample.put("validation", result);
+                sample.put("rejected", rejected);
+                sample.put("outcome", "validated");
+            }
             int suggestionIndex = 0;
             for (Candidate candidate : result.suggestions()) {
                 if (session.stopped()) return;
@@ -100,24 +176,38 @@ public class DocumentImportService {
             }
             session.completed();
         } catch (InvalidModelOutputException exception) {
+            if (sample != null) {
+                sample.put("outcome", "invalid-model-output");
+                sample.put("validationError", exception.getMessage());
+            }
             session.failed("AI_OUTPUT_INVALID", "GENERATION", true,
                     "建议结果无法安全解析，可重新上传开始新尝试。");
         } catch (DataBufferLimitException exception) {
+            if (sample != null) sample.put("outcome", "processing-limit-exceeded");
             session.failed("PROCESSING_LIMIT_EXCEEDED", "GENERATION", false,
                     "处理规模超出当前服务能力，请改用更小的文档。");
         } catch (WebClientException exception) {
+            if (sample != null) sample.put("outcome", "ai-unavailable");
             session.failed("AI_UNAVAILABLE", "GENERATION", true,
                     "建议服务暂时不可用，可重新上传开始新尝试。");
         } catch (RuntimeException exception) {
+            if (sample != null) {
+                sample.put("outcome", "generation-failed");
+                sample.put("exceptionType", exception.getClass().getSimpleName());
+            }
             if (!session.stopped()) {
                 log.error("Document import failed importId={}", session.importId, exception);
                 session.failed("INTERNAL_ERROR", "GENERATION", false,
                         "建议处理失败，请稍后重新上传。");
             }
+        } finally {
+            diagnostics.write(sample);
         }
     }
 
     private final class Session {
+        private final long startedNanos = System.nanoTime();
+        private final long actor;
         private final String importId;
         private final DocumentImportTarget target;
         private final String baseRevision;
@@ -129,7 +219,8 @@ public class DocumentImportService {
         private final AtomicBoolean cancelled = new AtomicBoolean();
         private final AtomicReference<Future<?>> future = new AtomicReference<>();
 
-        private Session(String importId, DocumentImportTarget target, String baseRevision, SseEmitter emitter) {
+        private Session(long actor,String importId, DocumentImportTarget target, String baseRevision, SseEmitter emitter) {
+            this.actor=actor;
             this.importId = importId;
             this.target = target;
             this.baseRevision = baseRevision;
@@ -174,6 +265,7 @@ public class DocumentImportService {
 
         private void send(String type, Map<String, Object> extra) {
             if (stopped()) return;
+            authorizer.requireEdit(actor,target);
             int next = sequence.incrementAndGet();
             emit(type, next, extra, false);
         }
@@ -196,7 +288,7 @@ public class DocumentImportService {
                 emitter.send(SseEmitter.event()
                         .id(importId + ":" + eventSequence)
                         .name(type)
-                        .data(objectMapper.writeValueAsString(event), MediaType.APPLICATION_JSON));
+                        .data(objectMapper.valueToTree(event), MediaType.APPLICATION_JSON));
                 if (finish) emitter.complete();
             } catch (IOException exception) {
                 cancelled.set(true);

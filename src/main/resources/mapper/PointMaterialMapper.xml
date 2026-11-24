@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.media.mapper.PointMaterialMapper">
+ <sql id="columns">file_id,upload_id,file_index,owner_user_id,file_name,kind,content_type,size_bytes,source_key,retained_key,state,upload_expires_at,created_at,unbound_expires_at,application_id,cleanup_after</sql>
+ <insert id="insertFile">INSERT INTO media_point_file(<include refid="columns"/>) VALUES(#{fileId},#{uploadId},#{fileIndex},#{ownerUserId},#{fileName},#{kind},#{contentType},#{sizeBytes},#{sourceKey},#{retainedKey},#{state},#{uploadExpiresAt},#{createdAt},#{unboundExpiresAt},#{applicationId},#{cleanupAfter})</insert>
+ <update id="fileExpiry">UPDATE media_point_file SET upload_expires_at=#{expires},cleanup_after=TIMESTAMPADD(HOUR,24,#{expires}) WHERE upload_id=#{id} AND state='UPLOADING'</update>
+ <select id="file" resultType="cn.jualn.miniapp.module.media.entity.PointMaterialRow">SELECT <include refid="columns"/> FROM media_point_file WHERE file_id=#{id} FOR UPDATE</select>
+ <select id="index" resultType="cn.jualn.miniapp.module.media.entity.PointMaterialRow">SELECT <include refid="columns"/> FROM media_point_file WHERE upload_id=#{upload} AND file_index=#{index} FOR UPDATE</select>
+ <update id="registered">UPDATE media_point_file SET state='REGISTERED',created_at=#{now},unbound_expires_at=TIMESTAMPADD(HOUR,24,#{now}),cleanup_after=TIMESTAMPADD(HOUR,24,#{now}) WHERE file_id=#{id} AND state='UPLOADING' AND cleanup_after&gt;#{now}</update>
+ <update id="bind">UPDATE media_point_file SET state='BOUND',application_id=#{application},unbound_expires_at=NULL WHERE file_id=#{id} AND owner_user_id=#{user} AND state='REGISTERED' AND unbound_expires_at&gt;#{now}</update>
+ <select id="expired" resultType="cn.jualn.miniapp.module.media.entity.PointMaterialRow">SELECT <include refid="columns"/> FROM media_point_file WHERE state IN ('UPLOADING','REGISTERED','CLEANING') AND cleanup_after&lt;=#{now} ORDER BY cleanup_after,file_id LIMIT 100</select>
+ <select id="expiredBoundSources" resultType="cn.jualn.miniapp.module.media.entity.PointMaterialRow">SELECT <include refid="columns"/> FROM media_point_file WHERE state='BOUND' AND source_deleted=FALSE AND upload_expires_at&lt;=#{now} ORDER BY upload_expires_at,file_id LIMIT 100</select>
+ <update id="claim">UPDATE media_point_file SET state='CLEANING' WHERE file_id=#{id} AND state IN ('UPLOADING','REGISTERED','CLEANING') AND cleanup_after&lt;=#{now} AND application_id IS NULL</update>
+</mapper>

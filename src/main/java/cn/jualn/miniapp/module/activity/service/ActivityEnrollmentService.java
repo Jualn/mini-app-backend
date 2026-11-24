@@ -2,7 +2,6 @@ package cn.jualn.miniapp.module.activity.service;
 
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.module.activity.bo.ActivityEnrollBO;
-import cn.jualn.miniapp.module.activity.entity.ActivityEnrollment;
 
 import java.util.List;
 import java.util.Set;
@@ -73,18 +72,6 @@ public interface ActivityEnrollmentService {
      * @return 当前用户已报名该活动则返回true，否则返回false；未登录用户返回false
      */
     boolean isEnrolled(Long activityId);
-
-    /**
-     * 获取当前用户对活动的报名记录。
-     *
-     * <p>该方法返回完整的报名记录对象，包含所有字段信息。如果用户未报名，返回null。</p>
-     *
-     * @param activityId 活动ID
-     * @return 报名记录对象，如果未报名则返回null
-     *
-     * @throws cn.jualn.miniapp.common.exception.BusinessException 当用户未登录时抛出 UNAUTHORIZED
-     */
-    ActivityEnrollment getEnrollment(Long activityId);
 
     /**
      * 更新报名的通知开启状态。

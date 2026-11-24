@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.learningtask.mapper.LearningPreviewMapper">
+    <select id="lock" resultType="cn.jualn.miniapp.module.learningtask.entity.LearningPreview">
+        SELECT * FROM learning_task_preview WHERE id=#{id} FOR UPDATE
+    </select>
+    <!-- Called only after task -> assignment -> submission lock acquisition. -->
+    <update id="saveLocked">
+        UPDATE learning_task_preview SET
+        task_id=#{taskId},
+        task_revision=#{taskRevision},
+        task_etag=#{taskEtag},
+        actor_id=#{actorId},
+        purpose=#{purpose},
+        audience=#{audience},
+        user_ids=#{userIds},
+        created_at=#{createdAt},
+        expires_at=#{expiresAt}
+        WHERE id=#{id}
+    </update>
+</mapper>
+

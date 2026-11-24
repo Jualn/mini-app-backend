@@ -19,6 +19,40 @@ import cn.jualn.miniapp.infrastructure.async.AsyncMetricNames;
 
 class OutboxPublisherTest {
     @Test
+    void publisherAttemptsUseFreshTracesAndKeepDurableMessageIdentity() {
+        OutboxClaimService claims = mock(OutboxClaimService.class);
+        OutboxMapper mapper = mock(OutboxMapper.class);
+        EventStreamTransport transport = mock(EventStreamTransport.class);
+        EventHandlerRegistry handlers = mock(EventHandlerRegistry.class);
+        OutboxEvent event = event(41L, 1);
+        event.setOperationId("logical-operation");
+        when(claims.claim(any(), eq(20))).thenReturn(List.of(event));
+        when(handlers.metricTopic("audit.completed", 1)).thenReturn("audit.completed");
+        when(mapper.markPublished(eq(41L), any(), any())).thenReturn(1);
+        java.util.List<java.util.Map<String, String>> attempts = new java.util.ArrayList<>();
+        when(transport.publish(event)).thenAnswer(invocation -> {
+            attempts.add(cn.jualn.miniapp.common.observability.ObservabilityContext.capture());
+            return "1-0";
+        });
+        var publisher = new OutboxPublisher(claims, mapper, transport, handlers,
+                new RetrySchedule(), new SimpleMeterRegistry());
+        org.slf4j.MDC.put("traceId", "scheduler-trace");
+        try {
+            publisher.publishDue();
+            event.setAttempt(2);
+            publisher.publishDue();
+            org.junit.jupiter.api.Assertions.assertNotEquals(attempts.get(0).get("traceId"), attempts.get(1).get("traceId"));
+            for (int i = 0; i < 2; i++) {
+                assertEquals(event.getMessageId(), attempts.get(i).get("messageId"));
+                assertEquals("logical-operation", attempts.get(i).get("operationId"));
+                assertEquals(Integer.toString(i + 1), attempts.get(i).get("attempt"));
+            }
+            assertEquals("scheduler-trace", org.slf4j.MDC.get("traceId"));
+            org.junit.jupiter.api.Assertions.assertNull(org.slf4j.MDC.get("messageId"));
+        } finally { org.slf4j.MDC.clear(); }
+    }
+
+    @Test
     void xaddUnknownKeepsSameEventPendingForBackoff() {
         OutboxClaimService claims = mock(OutboxClaimService.class);
         OutboxMapper mapper = mock(OutboxMapper.class);

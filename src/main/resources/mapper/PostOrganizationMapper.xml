@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.post.mapper.PostOrganizationMapper">
+  <sql id="dictionaryColumns">id,code,name,status,display_order,revision</sql>
+  <select id="lockCategory" resultType="cn.jualn.miniapp.module.post.entity.PostDictionary">SELECT <include refid="dictionaryColumns"/> FROM post_category WHERE id=#{id} FOR UPDATE</select>
+  <select id="lockTopic" resultType="cn.jualn.miniapp.module.post.entity.PostDictionary">SELECT <include refid="dictionaryColumns"/> FROM topic WHERE id=#{id} FOR UPDATE</select>
+  <select id="lockCategoryTypes" resultType="cn.jualn.miniapp.module.post.entity.PostCategoryType">SELECT category_id,post_type FROM post_category_type WHERE category_id=#{id} ORDER BY post_type FOR UPDATE</select>
+  <select id="historicalReference" resultType="java.lang.Long">SELECT id FROM post WHERE category_id=#{id} AND post_type=#{type} LIMIT 1 FOR SHARE</select>
+  <update id="updateCategory">UPDATE post_category SET name=#{name},status=#{status},display_order=#{displayOrder},revision=revision+1 WHERE id=#{id}</update>
+  <update id="updateTopic">UPDATE topic SET name=#{name},status=#{status},display_order=#{displayOrder},revision=revision+1 WHERE id=#{id}</update>
+
+  <sql id="ids"> <foreach collection="ids" item="id" open="(" close=")" separator=",">#{id}</foreach> </sql>
+  <select id="categories" resultType="cn.jualn.miniapp.module.post.entity.PostDictionary">SELECT <include refid="dictionaryColumns"/> FROM post_category WHERE id IN <include refid="ids"/></select>
+  <select id="topics" resultType="cn.jualn.miniapp.module.post.entity.PostDictionary">SELECT <include refid="dictionaryColumns"/> FROM topic WHERE id IN <include refid="ids"/></select>
+  <select id="categoryTypes" resultType="cn.jualn.miniapp.module.post.entity.PostCategoryType">SELECT category_id,post_type FROM post_category_type WHERE category_id IN <include refid="ids"/> ORDER BY category_id,post_type</select>
+  <select id="links" resultType="cn.jualn.miniapp.module.post.entity.PostTopicLink">SELECT post_id,topic_id,position FROM post_topic WHERE post_id IN <include refid="ids"/> ORDER BY post_id,position</select>
+  <sql id="page"> <if test="status != 'ALL'">AND d.status=#{status}</if><if test="id != null">AND (d.display_order &gt; #{order} OR (d.display_order=#{order} AND d.id &gt; #{id}))</if> ORDER BY d.display_order,d.id LIMIT #{limit} </sql>
+  <select id="pageCategories" resultType="cn.jualn.miniapp.module.post.entity.PostDictionary">SELECT d.id,d.code,d.name,d.status,d.display_order,d.revision FROM post_category d WHERE 1=1 <if test="type != null">AND EXISTS (SELECT 1 FROM post_category_type t WHERE t.category_id=d.id AND t.post_type=#{type})</if><include refid="page"/></select>
+  <select id="pageTopics" resultType="cn.jualn.miniapp.module.post.entity.PostDictionary">SELECT d.id,d.code,d.name,d.status,d.display_order,d.revision FROM topic d WHERE 1=1 <include refid="page"/></select>
+</mapper>

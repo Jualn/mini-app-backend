@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.audit.service;
 
-import cn.jualn.miniapp.common.enums.AuditScene;
-import cn.jualn.miniapp.common.enums.MediaType;
+import cn.jualn.miniapp.module.audit.enums.AuditScene;
+import cn.jualn.miniapp.module.media.enums.MediaType;
 import cn.jualn.miniapp.common.exception.ContractProblemException;
 import cn.jualn.miniapp.common.exception.ExternalServiceException;
 import cn.jualn.miniapp.module.audit.bo.AuditReserveBO;

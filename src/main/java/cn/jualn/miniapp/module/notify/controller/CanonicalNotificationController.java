@@ -1,14 +1,18 @@
 package cn.jualn.miniapp.module.notify.controller;
 
 import cn.jualn.miniapp.common.exception.ContractProblemException;
+import cn.jualn.miniapp.module.notify.model.NotificationSubscriptionScene;
 import cn.jualn.miniapp.module.notify.dto.request.CanonicalNotificationQuery;
 import cn.jualn.miniapp.module.notify.dto.request.MarkNotificationReadRequest;
 import cn.jualn.miniapp.module.notify.dto.request.UpdateNotificationPreferencesRequest;
-import cn.jualn.miniapp.module.notify.service.CanonicalNotificationService;
+import cn.jualn.miniapp.module.notify.service.inbox.PersonalNotificationInbox;
+import cn.jualn.miniapp.module.notify.service.preference.NotificationPreferences;
+import cn.jualn.miniapp.module.notify.service.capability.NotificationCapabilityQueries;
+import cn.jualn.miniapp.module.notify.converter.NotificationPersonalConverter;
 import cn.jualn.miniapp.module.notify.vo.NotificationChannelCapabilitiesVO;
 import cn.jualn.miniapp.module.notify.vo.NotificationPreferencesVO;
 import cn.jualn.miniapp.module.notify.vo.NotificationUnreadCountVO;
-import cn.jualn.miniapp.module.notify.service.NotificationCenterService;
+import cn.jualn.miniapp.module.notify.service.inbox.NotificationCenterService;
 import cn.jualn.miniapp.module.notify.converter.NotificationCenterConverter;
 import cn.jualn.miniapp.module.notify.dto.request.BatchReadNotificationsRequest;
 import cn.jualn.miniapp.module.notify.dto.request.ReadNotificationsThroughRequest;
@@ -25,6 +29,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -38,48 +43,79 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/v1/users/me")
 @RequiredArgsConstructor
 public class CanonicalNotificationController {
-    private final CanonicalNotificationService notificationService;
+    private final PersonalNotificationInbox notificationService;
+    private final NotificationPreferences preferences;
+    private final NotificationCapabilityQueries capabilities;
+    private final NotificationPersonalConverter personalConverter;
     private final NotificationCenterService centerService;
     private final NotificationCenterConverter centerConverter;
+    private final cn.jualn.miniapp.module.notify.service.capability.NotificationCatalogQueries catalog;
+    private final cn.jualn.miniapp.module.notify.converter.NotificationCatalogConverter catalogConverter;
 
     @GetMapping("/notification-preferences")
     public ResponseEntity<NotificationPreferencesVO> getPreferences() {
-        return noStore(notificationService.getPreferences());
+        return noStore(personalConverter.preferences(preferences.getPreferences()));
     }
 
     @PatchMapping("/notification-preferences")
     public ResponseEntity<NotificationPreferencesVO> updatePreferences(
             @Valid @RequestBody UpdateNotificationPreferencesRequest request) {
-        return noStore(notificationService.updatePreferences(request));
+        return noStore(personalConverter.preferences(preferences.updatePreferences(personalConverter.patch(request))));
     }
 
     @PostMapping("/notification-preferences:batch-update")
     public ResponseEntity<NotificationPreferencesVO> batchUpdatePreferences(
             @Valid @RequestBody UpdateNotificationPreferencesRequest request) {
-        return noStore(notificationService.updatePreferences(request));
+        return noStore(personalConverter.preferences(preferences.updatePreferences(personalConverter.patch(request))));
     }
 
     @GetMapping("/notification-channel-capabilities")
     public ResponseEntity<NotificationChannelCapabilitiesVO> getCapabilities() {
-        return noStore(notificationService.getCapabilities());
+        return noStore(personalConverter.capabilities(capabilities.getCapabilities()));
+    }
+
+    @GetMapping("/notification-subscription-options")
+    public ResponseEntity<cn.jualn.miniapp.module.notify.vo.NotificationCatalogVO.Options> subscriptionOptions(
+            @RequestParam(required=false) cn.jualn.miniapp.module.notify.model.NotificationCategory category,
+            @RequestParam java.util.Map<String,String> parameters) {
+        validateParameters(parameters,java.util.Set.of("category","sceneCode","resourceId"));
+        NotificationSubscriptionScene scene = null;
+        Long resourceId = null;
+        try {
+            if (parameters.containsKey("sceneCode")) scene = NotificationSubscriptionScene.valueOf(parameters.get("sceneCode"));
+            if (parameters.containsKey("resourceId")) {
+                if (!parameters.get("resourceId").matches("[1-9][0-9]{0,18}")) throw new IllegalArgumentException();
+                resourceId = Long.valueOf(parameters.get("resourceId"));
+            }
+        } catch (IllegalArgumentException invalid) {
+            throw ContractProblemException.validation(new ContractProblemException.Violation("query","sceneCode","INVALID","订阅场景或资源无效"));
+        }
+        return noStore(catalogConverter.options(catalog.options(category,scene,resourceId)));
     }
 
     @GetMapping("/notifications")
-    public ResponseEntity<?> list(@Valid CanonicalNotificationQuery query) {
-        if (query.getCategory() != null && query.getBoxCategory() != null
-                || query.getBoxCategory() != null && !"structured".equals(query.getRepresentation())) {
-            throw ContractProblemException.validation(new ContractProblemException.Violation(
-                    "query", "boxCategory", "INVALID", "boxCategory 仅用于 structured 且不能与 category 同时使用"));
-        }
-        if ("structured".equals(query.getRepresentation())) {
-            return noStore(centerConverter.page(centerService.list(centerConverter.query(query))));
-        }
-        return noStore(notificationService.list(query));
+    public ResponseEntity<cn.jualn.miniapp.module.notify.vo.NotificationListVO> list(@Valid CanonicalNotificationQuery query,
+            @RequestParam java.util.Map<String,String> parameters) {
+        validateParameters(parameters,java.util.Set.of("category","boxCategory","cursor","pageSize","isRead"));
+        if(query.getCategory()!=null&&query.getBoxCategory()!=null)throw ContractProblemException.validation(
+                new ContractProblemException.Violation("query","boxCategory","INVALID","不能同时提交两种类别"));
+        return noStore(centerConverter.page(centerService.list(centerConverter.query(query))));
+    }
+
+    public static void validateParameters(java.util.Map<String,String> parameters,java.util.Set<String> allowed) {
+        for(String key:parameters.keySet())if(!allowed.contains(key))throw ContractProblemException.validation(
+                new ContractProblemException.Violation("query",key,"UNKNOWN_PROPERTY","不支持的参数"));
     }
 
     @GetMapping("/notifications/summary")
     public ResponseEntity<NotificationSummaryVO> summary(@RequestParam(required = false) String afterCursor) {
         return noStore(centerConverter.summary(centerService.summary(afterCursor)));
+    }
+
+    @DeleteMapping("/notifications/{notificationId}")
+    public ResponseEntity<Void> delete(@PathVariable @NotBlank @Size(max = 128) String notificationId) {
+        notificationService.delete(notificationId);
+        return ResponseEntity.noContent().header(HttpHeaders.CACHE_CONTROL, "no-store").build();
     }
 
     @GetMapping("/notifications/{notificationId}")
@@ -117,12 +153,6 @@ public class CanonicalNotificationController {
             @Valid @RequestBody MarkNotificationReadRequest request) {
         rejectUnknownReadFields(request);
         notificationService.markRead(notificationId);
-        return ResponseEntity.noContent().build();
-    }
-
-    @PostMapping("/notifications:mark-all-read")
-    public ResponseEntity<Void> markAllRead() {
-        notificationService.markAllRead();
         return ResponseEntity.noContent().build();
     }
 

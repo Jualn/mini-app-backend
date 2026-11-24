@@ -24,6 +24,9 @@ public class CosConfig {
     public COSClient cosSdkClient(CosProperties properties) {
         COSCredentials credentials = new BasicCOSCredentials(properties.getSecretId(), properties.getSecretKey());
         ClientConfig clientConfig = new ClientConfig(new Region(properties.getRegion()));
+        clientConfig.setHttpProtocol(com.qcloud.cos.http.HttpProtocol.https);
+        clientConfig.setConnectionTimeout(5000);
+        clientConfig.setSocketTimeout(15000);
         return new COSClient(credentials, clientConfig);
     }
 }

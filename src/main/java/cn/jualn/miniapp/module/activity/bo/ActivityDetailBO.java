@@ -1,8 +1,8 @@
 package cn.jualn.miniapp.module.activity.bo;
 
-import cn.jualn.miniapp.common.enums.ActivityCategory;
+import cn.jualn.miniapp.module.activity.enums.ActivityCategory;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
-import cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO;
+import cn.jualn.miniapp.module.timeline.bo.TimelineFactBO;
 import cn.jualn.miniapp.module.user.bo.UserSimpleBO;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -23,7 +23,10 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ActivityDetailBO {
-    private TimelineItemDTO cardTimeline;
+    private Boolean allowRegistrationAfterStart;
+    private String stageState;
+
+    private TimelineFactBO cardTimeline;
     private Boolean liked;
     private Boolean enrolled;
     private Integer lifecycleStatus;
@@ -57,7 +60,6 @@ public class ActivityDetailBO {
     private String location;
     private ActivityCategory category;
     private String organizer;
-    private Integer audienceScope;
     private Integer commentCount;
     private Integer likeCount;
     private Integer viewCount;
@@ -66,5 +68,5 @@ public class ActivityDetailBO {
     // 其他业务相关内容
     private UserSimpleBO author;
     private List<MediaAttachmentBO> attachmentItems;
-    private List<TimelineItemDTO> timelineItems;
+    private List<TimelineFactBO> timelineItems;
 }

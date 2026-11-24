@@ -2,7 +2,7 @@ package cn.jualn.miniapp.third.wx.service;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.module.user.service.UserService;
+import cn.jualn.miniapp.module.user.service.UserWechatIdentityService;
 import cn.jualn.miniapp.module.wx.service.WxMpOauthService;
 import cn.jualn.miniapp.third.wx.client.WxClient;
 import cn.jualn.miniapp.third.wx.config.WxProperties;
@@ -24,7 +24,7 @@ class WxMpOauthServiceTest {
 
     private final WxClient client = mock(WxClient.class);
     private final RedisService redis = mock(RedisService.class);
-    private final UserService users = mock(UserService.class);
+    private final UserWechatIdentityService users = mock(UserWechatIdentityService.class);
     private final WxProperties properties = new WxProperties(
             new WxProperties.Mp("mp-app", "secret", "token", "aes", "https://test.jualn.cn"),
             new WxProperties.Ma("ma-app", "secret", "token", "aes"));

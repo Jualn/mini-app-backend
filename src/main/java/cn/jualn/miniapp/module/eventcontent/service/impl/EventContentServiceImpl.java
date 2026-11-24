@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.eventcontent.service.impl;
 
 import cn.jualn.miniapp.common.enums.TargetType;
-import cn.jualn.miniapp.common.enums.MediaType;
+import cn.jualn.miniapp.module.media.enums.MediaType;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.module.eventcontent.bo.*;
@@ -9,7 +9,7 @@ import cn.jualn.miniapp.module.eventcontent.entity.*;
 import cn.jualn.miniapp.module.eventcontent.mapper.*;
 import cn.jualn.miniapp.module.eventcontent.service.EventContentService;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
-import cn.jualn.miniapp.module.media.service.MediaService;
+import cn.jualn.miniapp.module.media.service.MediaQueries;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
 public class EventContentServiceImpl implements EventContentService {
     private final EventSectionMapper sectionMapper;
     private final EventActionMapper actionMapper;
-    private final MediaService mediaService;
+    private final MediaQueries mediaService;
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)

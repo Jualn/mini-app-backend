@@ -6,6 +6,7 @@ import cn.jualn.miniapp.module.notify.bo.AdminNotificationPlanQueryBO;
 
 public interface AdminNotificationPlanService {
 
+
     AdminNotificationPlanPageBO pagePlans(AdminNotificationPlanQueryBO query);
 
     AdminNotificationPlanItemBO getPlan(Long planId);

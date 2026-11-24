@@ -2,35 +2,24 @@ package cn.jualn.miniapp.module.activity.service;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Import;
-
+import java.time.LocalDateTime;
+import java.util.List;
+import cn.jualn.miniapp.module.timeline.bo.TimelineFactBO;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ActivityFormAvailabilityContextTest {
-    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withUserConfiguration(TestConfiguration.class);
-
-    @Test
-    void defaultsToDisabledWhenPropertyIsMissing() {
-        contextRunner.run(context -> {
+    @Test void platformRegistrationNeedsNoSwitchButStillRequiresPublicationAndAnExactWindow() {
+        new ApplicationContextRunner().withBean(ActivityParticipationPolicy.class).run(context -> {
             assertThat(context).hasNotFailed();
-            assertThat(context.getBean(ActivityFormAvailability.class).isEnabled()).isFalse();
+            var policy = context.getBean(ActivityParticipationPolicy.class);
+            var now = LocalDateTime.of(2026, 10, 21, 12, 0);
+            var end = new TimelineFactBO();
+            end.setNodeType("REGISTRATION_END");
+            end.setStartTime(now.plusHours(1));
+            end.setStartPrecision(2);
+            assertThat(policy.evaluate(1, 0, 2, List.of(end), null, 0L, now)).isEqualTo("OPEN");
+            assertThat(policy.evaluate(0, 0, 2, List.of(end), null, 0L, now)).isEqualTo("UNAVAILABLE");
+            assertThat(policy.evaluate(1, 0, 2, List.of(), null, 0L, now)).isEqualTo("UNAVAILABLE");
         });
-    }
-
-    @Test
-    void readsEnabledProperty() {
-        contextRunner
-                .withPropertyValues("activity.registration.enabled=true")
-                .run(context -> {
-                    assertThat(context).hasNotFailed();
-                    assertThat(context.getBean(ActivityFormAvailability.class).isEnabled()).isTrue();
-                });
-    }
-
-    @Configuration(proxyBeanMethods = false)
-    @Import(ActivityFormAvailability.class)
-    static class TestConfiguration {
     }
 }

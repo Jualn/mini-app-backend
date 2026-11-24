@@ -1,7 +1,11 @@
 package cn.jualn.miniapp.module.documentimport;
 
+import cn.jualn.miniapp.common.enums.TargetType;
+import cn.jualn.miniapp.module.timeline.model.TimelineSemantic;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -18,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /** Turns untrusted model JSON into complete, canonical Draft-property candidates. */
 @Component
@@ -27,9 +32,8 @@ public class DocumentImportSuggestionValidator {
             "registrationForm", "timeline", "sections", "actions", "contacts");
     private static final Set<String> PUBLIC_EVENT = Set.of("title", "summary", "type", "sourceName", "sourceUrl",
             "officialUrl", "timeline", "sections", "actions", "contacts");
-    private static final Set<String> TIMELINE_TYPES = Set.of("REGISTRATION_START", "REGISTRATION_END",
-            "MATERIAL_SUBMISSION", "PRELIMINARY", "SEMIFINAL", "FINAL", "EXAM", "RESULT",
-            "CERTIFICATE_COLLECTION", "ADMISSION_TICKET", "OTHER");
+    private static final Set<String> TIMELINE_TYPES = java.util.Arrays.stream(TimelineSemantic.values())
+            .map(Enum::name).collect(java.util.stream.Collectors.toUnmodifiableSet());
     private static final Set<String> ACTION_TYPES = Set.of("JOIN_GROUP", "OFFICIAL_SITE", "EXTERNAL_REGISTRATION",
             "DOWNLOAD", "VIEW_ATTACHMENT", "EMAIL_SUBMISSION", "OFFICIAL_NOTICE", "OTHER");
 
@@ -40,41 +44,75 @@ public class DocumentImportSuggestionValidator {
     }
 
     public ValidationResult validate(String raw, DocumentImportTarget target, String sourceText, String importId) {
+        return validate(raw, target, sourceText, importId, rejection -> { });
+    }
+
+    public ValidationResult validate(String raw, DocumentImportTarget target, String sourceText, String importId,
+                                     Consumer<Rejection> onRejected) {
+        return validate(raw, target, sourceText, importId, onRejected, match -> { });
+    }
+
+    public ValidationResult validate(String raw, DocumentImportTarget target, String sourceText, String importId,
+                                     Consumer<Rejection> onRejected, Consumer<EvidenceMatch> onEvidenceMatch) {
+        return validate(raw, target, sourceText, importId, onRejected, onEvidenceMatch, evidence -> { });
+    }
+
+    ValidationResult validate(String raw, DocumentImportTarget target, String sourceText, String importId,
+                              Consumer<Rejection> onRejected, Consumer<EvidenceMatch> onEvidenceMatch,
+                              Consumer<DocumentImportTimelineEvidence.TimeEvidence> onTimeEvidence) {
         JsonNode root;
         try {
-            root = mapper.readTree(raw);
+            root = mapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .with(JsonParser.Feature.STRICT_DUPLICATE_DETECTION).readTree(raw);
         } catch (Exception exception) {
-            throw new InvalidModelOutputException();
+            throw new InvalidModelOutputException("模型输出无法解析为 JSON");
         }
-        if (!root.isObject() || !only(root, Set.of("suggestions")) || !root.path("suggestions").isArray()) {
-            throw new InvalidModelOutputException();
+        if (root == null || !root.isObject() || !only(root, Set.of("suggestions")) || !root.path("suggestions").isArray()) {
+            throw new InvalidModelOutputException("模型输出必须是仅包含 suggestions 数组的对象");
         }
 
         List<Candidate> accepted = new ArrayList<>();
         List<Warning> warnings = new ArrayList<>();
         Set<String> seen = new HashSet<>();
+        DocumentImportEvidenceMatcher evidenceMatcher = new DocumentImportEvidenceMatcher(sourceText);
+        var timelineEvidence = new DocumentImportTimelineEvidence(sourceText);
         int ordinal = 0;
         for (JsonNode item : root.path("suggestions")) {
             ordinal++;
             String targetPointer = item.path("target").isTextual() ? item.path("target").asText() : null;
+            String stage = "candidate-structure";
             try {
                 if (!item.isObject() || !only(item, Set.of("target", "value", "excerpts"))
-                        || targetPointer == null || !targetPointer.startsWith("/") || targetPointer.indexOf('/', 1) >= 0
+                        || targetPointer == null
                         || !item.has("value") || !item.path("excerpts").isArray()) {
                     throw invalid("候选结构不完整");
                 }
+                stage = "target";
+                if (validPointer(targetPointer) == null) throw invalid("非法 target：必须为以 / 开头的顶层 JSON Pointer");
                 String field = targetPointer.substring(1);
-                if (!(target == DocumentImportTarget.ACTIVITY ? ACTIVITY : PUBLIC_EVENT).contains(field)
-                        || !seen.add(field)) throw invalid("目标字段不允许或重复");
-                List<String> excerpts = excerpts(item.path("excerpts"), sourceText);
+                if (!(target == DocumentImportTarget.ACTIVITY ? ACTIVITY : PUBLIC_EVENT).contains(field)) throw invalid("目标字段不允许");
+                if (!seen.add(field)) throw invalid("相同 target 重复");
+                stage = "source-evidence";
+                List<String> excerpts = excerpts(item.path("excerpts"), evidenceMatcher, targetPointer, onEvidenceMatch);
+                stage = item.path("value").isArray() ? "array-schema" : "field-schema";
                 JsonNode value = canonicalValue(field, item.path("value"), target, importId, ordinal);
+                if ("timeline".equals(field)) {
+                    stage = "source-semantics";
+                    try {
+                        timelineEvidence.validate((ArrayNode) value, excerpts, onTimeEvidence,
+                                message -> warnings.add(new Warning("AMBIGUOUS_SOURCE", "/timeline", message)));
+                    } catch (IllegalArgumentException exception) {
+                        throw invalid(exception.getMessage());
+                    }
+                }
                 accepted.add(new Candidate(targetPointer, value, excerpts));
             } catch (CandidateException exception) {
+                onRejected.accept(new Rejection(targetPointer, stage, exception.getMessage()));
                 warnings.add(new Warning("INVALID_SUGGESTION", validPointer(targetPointer),
                         "已省略不符合当前 Draft 约束的候选。"));
             }
         }
-        crossValidate(accepted, warnings);
+        crossValidate(accepted, warnings, onRejected);
         return new ValidationResult(List.copyOf(accepted), List.copyOf(warnings));
     }
 
@@ -94,7 +132,7 @@ public class DocumentImportSuggestionValidator {
             case "type" -> enumeration(value, Set.of("EXAM", "COMPETITION", "CERTIFICATION", "OTHER"));
             case "sourceUrl", "officialUrl" -> httpUrl(value);
             case "audienceScope" -> audience(value);
-            case "timeline" -> timeline(value, importId + "-" + ordinal);
+            case "timeline" -> timeline(value, importId + "-" + ordinal, target);
             case "sections" -> sections(value, importId + "-" + ordinal);
             case "actions" -> actions(value, importId + "-" + ordinal);
             case "contacts" -> contacts(value, importId + "-" + ordinal);
@@ -110,23 +148,29 @@ public class DocumentImportSuggestionValidator {
         return value.deepCopy();
     }
 
-    private JsonNode timeline(JsonNode value, String prefix) {
+    private JsonNode timeline(JsonNode value, String prefix, DocumentImportTarget target) {
         ArrayNode result = nonEmptyArray(value, 100);
         ArrayNode normalized = mapper.createArrayNode();
         int index = 0;
         for (JsonNode node : result) {
-            if (!node.isObject() || !only(node, Set.of("type", "title", "description", "schedule", "location"))) {
-                throw invalid("时间节点属性非法");
+            try {
+                if (!node.isObject() || !only(node, Set.of("type", "title", "description", "schedule", "location"))) {
+                    throw invalid("时间节点属性非法");
+                }
+                ObjectNode out = mapper.createObjectNode();
+                out.put("nodeKey", key(prefix, "n", index));
+                out.set("type", enumeration(node.path("type"), TIMELINE_TYPES));
+                if (!TimelineSemantic.requireKnown(out.path("type").asText()).supports(target == DocumentImportTarget.ACTIVITY
+                        ? TargetType.ACTIVITY : TargetType.EXAM)) throw invalid("开始节点类型不适用于当前 targetType");
+                out.set("title", text(node.path("title"), 120));
+                optionalText(node, out, "description", 2000);
+                out.set("schedule", schedule(node.path("schedule")));
+                optionalText(node, out, "location", 300);
+                out.put("displayOrder", index++);
+                normalized.add(out);
+            } catch (CandidateException exception) {
+                throw invalid("timeline[" + index + "]: " + exception.getMessage() + "；候选整体拒绝");
             }
-            ObjectNode out = mapper.createObjectNode();
-            out.put("nodeKey", key(prefix, "n", index));
-            out.set("type", enumeration(node.path("type"), TIMELINE_TYPES));
-            out.set("title", text(node.path("title"), 120));
-            optionalText(node, out, "description", 2000);
-            out.set("schedule", schedule(node.path("schedule")));
-            optionalText(node, out, "location", 300);
-            out.put("displayOrder", index++);
-            normalized.add(out);
         }
         return normalized;
     }
@@ -140,15 +184,15 @@ public class DocumentImportSuggestionValidator {
             switch (kind) {
                 case "EXACT_POINT" -> {
                     requireOnly(value, Set.of("kind", "time"));
-                    out.put("time", OffsetDateTime.parse(requiredText(value, "time", 64)).toString());
+                    out.put("time", OffsetDateTime.parse(requiredText(value, "time", 64)).format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME));
                 }
                 case "EXACT_RANGE" -> {
                     requireOnly(value, Set.of("kind", "startTime", "endTime"));
                     OffsetDateTime start = OffsetDateTime.parse(requiredText(value, "startTime", 64));
                     OffsetDateTime end = OffsetDateTime.parse(requiredText(value, "endTime", 64));
                     if (end.isBefore(start)) throw invalid("精确区间逆序");
-                    out.put("startTime", start.toString());
-                    out.put("endTime", end.toString());
+                    out.put("startTime", start.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+                    out.put("endTime", end.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME));
                 }
                 case "DATE_POINT" -> {
                     requireOnly(value, Set.of("kind", "date"));
@@ -179,21 +223,25 @@ public class DocumentImportSuggestionValidator {
         ArrayNode result = mapper.createArrayNode();
         int index = 0;
         for (JsonNode node : input) {
-            requireOnly(node, Set.of("title", "content", "format"));
-            ObjectNode out = mapper.createObjectNode();
-            out.put("sectionKey", key(prefix, "s", index));
-            out.set("title", text(node.path("title"), 120));
-            String content = textual(node.path("content"), 50000);
-            String format = enumeration(node.path("format"), Set.of("PLAIN_TEXT", "MARKDOWN")).asText();
-            if ("MARKDOWN".equals(format) && (content.matches("(?s).*<[/!A-Za-z][^>]*>.*")
-                    || content.toLowerCase(java.util.Locale.ROOT).contains("javascript:")
-                    || content.toLowerCase(java.util.Locale.ROOT).contains("data:"))) {
-                throw invalid("Markdown 包含不安全内容");
+            try {
+                requireOnly(node, Set.of("title", "content", "format"));
+                ObjectNode out = mapper.createObjectNode();
+                out.put("sectionKey", key(prefix, "s", index));
+                out.set("title", text(node.path("title"), 120));
+                String content = textual(node.path("content"), 50000);
+                String format = enumeration(node.path("format"), Set.of("PLAIN_TEXT", "MARKDOWN")).asText();
+                if ("MARKDOWN".equals(format) && (content.matches("(?s).*<[/!A-Za-z][^>]*>.*")
+                        || content.toLowerCase(java.util.Locale.ROOT).contains("javascript:")
+                        || content.toLowerCase(java.util.Locale.ROOT).contains("data:"))) {
+                    throw invalid("Markdown 包含不安全内容");
+                }
+                out.put("content", content);
+                out.put("format", format);
+                out.put("displayOrder", index++);
+                result.add(out);
+            } catch (CandidateException exception) {
+                throw invalid("sections[" + index + "]: " + exception.getMessage() + "；候选整体拒绝");
             }
-            out.put("content", content);
-            out.put("format", format);
-            out.put("displayOrder", index++);
-            result.add(out);
         }
         return result;
     }
@@ -284,48 +332,53 @@ public class DocumentImportSuggestionValidator {
         return result;
     }
 
-    private void crossValidate(List<Candidate> candidates, List<Warning> warnings) {
+    private void crossValidate(List<Candidate> candidates, List<Warning> warnings, Consumer<Rejection> onRejected) {
         Map<String, Candidate> byTarget = new LinkedHashMap<>();
         candidates.forEach(value -> byTarget.put(value.target(), value));
         boolean capacity = byTarget.containsKey("/capacity");
         boolean unit = byTarget.containsKey("/capacityUnit");
-        if (capacity != unit) remove(byTarget, candidates, warnings, Set.of("/capacity", "/capacityUnit"));
+        if (capacity != unit) remove(byTarget, candidates, warnings, Set.of("/capacity", "/capacityUnit"), onRejected, "名额与单位缺少配对候选");
 
         String registration = textValue(byTarget.get("/registrationMode"));
         String participant = textValue(byTarget.get("/participantMode"));
         String capacityUnit = textValue(byTarget.get("/capacityUnit"));
         boolean mini = "MINI_PROGRAM".equals(registration) || "MINI_PROGRAM_AND_EXTERNAL".equals(registration);
         if (registration != null && byTarget.containsKey("/registrationForm") && !mini) {
-            remove(byTarget, candidates, warnings, Set.of("/registrationForm"));
+            remove(byTarget, candidates, warnings, Set.of("/registrationForm"), onRejected, "当前报名方式不使用平台报名表");
         }
         if (mini && participant != null && !"INDIVIDUAL".equals(participant)) {
-            remove(byTarget, candidates, warnings, Set.of("/participantMode"));
+            remove(byTarget, candidates, warnings, Set.of("/participantMode"), onRejected, "平台报名仅支持个人参加");
         }
         if (mini && capacityUnit != null && !"PERSON".equals(capacityUnit)) {
-            remove(byTarget, candidates, warnings, Set.of("/capacity", "/capacityUnit"));
+            remove(byTarget, candidates, warnings, Set.of("/capacity", "/capacityUnit"), onRejected, "平台报名名额单位必须为人");
         }
         if (participant != null && capacityUnit != null
                 && (("INDIVIDUAL".equals(participant) && !"PERSON".equals(capacityUnit))
                 || ("TEAM".equals(participant) && !"TEAM".equals(capacityUnit)))) {
-            remove(byTarget, candidates, warnings, Set.of("/capacity", "/capacityUnit"));
+            remove(byTarget, candidates, warnings, Set.of("/capacity", "/capacityUnit"), onRejected, "参加方式与名额单位不匹配");
         }
     }
 
     private void remove(Map<String, Candidate> byTarget, List<Candidate> candidates, List<Warning> warnings,
-                        Set<String> targets) {
+                        Set<String> targets, Consumer<Rejection> onRejected, String reason) {
+        candidates.stream().filter(candidate -> targets.contains(candidate.target()))
+                .forEach(candidate -> onRejected.accept(new Rejection(candidate.target(), "cross-field", reason)));
         boolean removed = candidates.removeIf(candidate -> targets.contains(candidate.target()));
         targets.forEach(byTarget::remove);
         if (removed) warnings.add(new Warning("INCOMPLETE_CONFIGURATION", null,
                 "已省略缺少配对依据或跨字段不一致的配置建议。"));
     }
 
-    private List<String> excerpts(JsonNode value, String source) {
+    private List<String> excerpts(JsonNode value, DocumentImportEvidenceMatcher matcher, String target,
+                                  Consumer<EvidenceMatch> onEvidenceMatch) {
         if (value.isEmpty() || value.size() > 100) throw invalid("来源依据缺失");
         List<String> result = new ArrayList<>();
         for (JsonNode excerpt : value) {
             String text = textual(excerpt, 4000);
-            if (!source.contains(text)) throw invalid("来源依据不在提取文本中");
-            result.add(text);
+            var match = matcher.match(text);
+            if (match == null) throw invalid("引用[" + result.size() + "]不在提取文本中（精确及受限排版空白匹配均失败）");
+            onEvidenceMatch.accept(new EvidenceMatch(target, result.size(), match.mode(), match.start(), match.end()));
+            result.add(match.original());
         }
         return List.copyOf(result);
     }
@@ -340,6 +393,7 @@ public class DocumentImportSuggestionValidator {
     }
 
     private String textual(JsonNode value, int max) {
+        if (value.isMissingNode()) throw invalid("缺少必需字段");
         if (!value.isTextual() || value.asText().isBlank() || value.asText().length() > max) throw invalid("文本非法");
         return value.asText();
     }
@@ -421,6 +475,9 @@ public class DocumentImportSuggestionValidator {
     public record Candidate(String target, JsonNode value, List<String> excerpts) {
     }
 
+    public record Rejection(String target, String stage, String reason) { }
+    public record EvidenceMatch(String target, int excerptIndex, String mode, int sourceStart, int sourceEnd) { }
+
     public record Warning(String code, String target, String message) {
     }
 
@@ -428,6 +485,8 @@ public class DocumentImportSuggestionValidator {
     }
 
     public static final class InvalidModelOutputException extends RuntimeException {
+        public InvalidModelOutputException() { super("模型输出不符合建议结构"); }
+        public InvalidModelOutputException(String message) { super(message); }
     }
 
     private static final class CandidateException extends RuntimeException {

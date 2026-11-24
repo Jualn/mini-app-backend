@@ -3,7 +3,7 @@ package cn.jualn.miniapp.module.wx.assembler;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.module.notify.payload.NotifyPayload;
-import cn.jualn.miniapp.module.wx.constant.WxNoticeKeys;
+import cn.jualn.miniapp.module.notify.payload.data.NoticeKeys;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -28,19 +28,19 @@ public class WxNoticePayloadAssembler {
         Map<String, Object> data = new HashMap<>();
 
         // NoticeData.toMap() 的字段优先级高于 NotifyPayload 的基础字段，避免冲突。
-        if (payload.getWxData() != null) {
-            payload.getWxData().toMap().forEach((key, value) ->
+        if (payload.getContentData() != null) {
+            payload.getContentData().toMap().forEach((key, value) ->
                     putNoConflict(data, key, value)
             );
         }
 
         // 队列消费中payload的基础字段，只有在 NoticeData.toMap() 没有提供时才放入，避免冲突。
-        putIfAbsent(data, WxNoticeKeys.TITLE, payload.getTitle());
-        putIfAbsent(data, WxNoticeKeys.CONTENT, payload.getContent());
-        putIfAbsent(data, WxNoticeKeys.TARGET_ID, payload.getTargetId());
-        putIfAbsent(data, WxNoticeKeys.TARGET_TYPE,
+        putIfAbsent(data, NoticeKeys.TITLE, payload.getTitle());
+        putIfAbsent(data, NoticeKeys.CONTENT, payload.getContent());
+        putIfAbsent(data, NoticeKeys.TARGET_ID, payload.getTargetId());
+        putIfAbsent(data, NoticeKeys.TARGET_TYPE,
                 payload.getTargetType() != null ? payload.getTargetType().name() : "");
-        putIfAbsent(data, WxNoticeKeys.NOTIFY_TIME, LocalDateTime.now());
+        putIfAbsent(data, NoticeKeys.NOTIFY_TIME, LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")));
 
         return data;
     }

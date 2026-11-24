@@ -17,8 +17,8 @@ public class AdminContentConverter {
 
     public AdminContentQueryBO toQueryBO(AdminContentPageQuery query) {
         return AdminContentQueryBO.builder()
-                .keyword(trimToNull(query.getKeyword()))
-                .type(query.getType())
+                .keyword(trimToNull(query.getKeyword())).growthType(query.getGrowthType()).growthOrganizationId(query.getGrowthOrganizationId())
+                .type(query.getType()).postType(query.getPostType()).categoryId(query.getCategoryId()).topicId(query.getTopicId())
                 .status(query.getStatus())
                 .feature(query.getFeature())
                 .sort(query.getSort())
@@ -72,7 +72,11 @@ public class AdminContentConverter {
     public AdminContentDetailVO toDetailVO(AdminContentDetailBO detail) {
         AdminContentDetailVO vo = new AdminContentDetailVO();
         copyListFields(detail, vo);
+        vo.setManagementHistory(detail.getManagementHistory());
+        vo.setEditableEtag(detail.getEditableEtag());
+        vo.setGrowthMedia(detail.getGrowthMedia());vo.setGrowthLifecycle(detail.getGrowthLifecycle());
         vo.setContent(detail.getContent());
+        vo.setQaContext(detail.getQaContext());
         vo.setRejectReason(detail.getRejectReason());
 
         AdminContentDetailVO.Author author = new AdminContentDetailVO.Author();
@@ -116,8 +120,14 @@ public class AdminContentConverter {
     }
 
     private void copyListFields(AdminContentListBO item, AdminContentListVO vo) {
+        vo.setGrowthRecord(item.getGrowthRecord());
+        var location=item.getManagementTarget();
+        if(location!=null)vo.setManagementTarget(new AdminContentListVO.ManagementTarget(location.namespace(),new AdminContentListVO.BusinessTarget(location.businessTarget().type(),location.businessTarget().organizationId())));
+        vo.setCommunityLifecycle(item.getCommunityLifecycle());
+        vo.setQaSummary(item.getQaSummary());
         vo.setId(item.getId().toString());
         vo.setType(item.getType());
+        vo.setPostOrganization(item.getPostOrganization());
         vo.setTitle(item.getTitle());
         vo.setContentPreview(item.getContentPreview());
         vo.setAuthorName(item.getAuthorName());

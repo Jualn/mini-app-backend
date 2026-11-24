@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.wx.notice.builder;
 
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.module.notify.payload.NotifyPayload;
 
 import java.time.LocalDateTime;
@@ -20,11 +20,11 @@ public interface WxNoticeBuilder {
 
     /**
      * 向 data 中写入公共字段：targetId、targetType、notifyTime，
-     * 供 WxMpNoticeFieldRenderer.resolvePath 做 pagePath 变量替换。
+     * 供 WxNotificationTemplateRenderer.resolvePath 做 pagePath 变量替换。
      */
     default void putCommonFields(Map<String, Object> data, NotifyPayload payload) {
         data.putIfAbsent("targetId", payload.getTargetId());
         data.putIfAbsent("targetType", payload.getTargetType() != null ? payload.getTargetType().name() : "");
-        data.putIfAbsent("notifyTime", LocalDateTime.now());
+        data.putIfAbsent("notifyTime", LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")));
     }
 }

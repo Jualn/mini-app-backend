@@ -16,7 +16,7 @@ public class AdminReviewConverter {
 
     public AdminReviewQueryBO toQueryBO(AdminReviewPageQuery query) {
         return AdminReviewQueryBO.builder()
-                .keyword(query.getKeyword())
+                .keyword(query.getKeyword()).growthType(query.getGrowthType()).growthOrganizationId(query.getGrowthOrganizationId())
                 .targetType(query.getTargetType())
                 .riskLevel(query.getRiskLevel())
                 .tab(query.getTab())
@@ -60,7 +60,14 @@ public class AdminReviewConverter {
     public AdminReviewDetailVO toDetailVO(AdminReviewDetailBO source) {
         AdminReviewDetailVO target = new AdminReviewDetailVO();
         copyItem(source, target);
+        target.setGrowthMedia(source.getGrowthMedia());
         target.setContent(source.getContent());
+        target.setQaContext(source.getQaContext());
+        if(source.getEvidence()!=null) {
+            var e=source.getEvidence();
+            target.setEvidence(new cn.jualn.miniapp.module.audit.vo.admin.SafetyReviewProjection.Evidence(e.submissionVersion(),e.complete(),e.checks().stream().map(c->new cn.jualn.miniapp.module.audit.vo.admin.SafetyReviewProjection.Check(c.checkId(),c.inputReference(),c.required(),c.executionState(),c.result(),c.provider(),c.traceId(),c.providerFacts()==null?null:new cn.jualn.miniapp.module.audit.vo.admin.SafetyReviewProjection.Facts(c.providerFacts().resultCode(),c.providerFacts().suggestion(),c.providerFacts().matchedLabels(),c.providerFacts().detail()),c.supersedesCheckId())).toList()));
+        }
+
         target.setAttachments(source.getAttachments().stream().map(item -> {
             AdminReviewDetailVO.Attachment vo = new AdminReviewDetailVO.Attachment();
             vo.setId(stringValue(item.getId()));
@@ -85,6 +92,7 @@ public class AdminReviewConverter {
         target.setHistory(source.getHistory().stream().map(item -> {
             AdminReviewDetailVO.HistoryEntry vo = new AdminReviewDetailVO.HistoryEntry();
             vo.setId(stringValue(item.getId()));
+            vo.setTaskId(item.getTaskId());vo.setSubmissionVersion(item.getSubmissionVersion());
             vo.setEventType(item.getEventType());
             vo.setSource(item.getSource());
             vo.setResult(item.getResult());
@@ -103,6 +111,10 @@ public class AdminReviewConverter {
     }
 
     private void copyItem(AdminReviewItemBO source, AdminReviewItemVO target) {
+        target.setGrowthRecord(source.getGrowthRecord());
+        var location=source.getManagementTarget();
+        if(location!=null)target.setManagementTarget(new AdminReviewItemVO.ManagementTarget(location.namespace(),new AdminReviewItemVO.BusinessTarget(location.businessTarget().type(),location.businessTarget().organizationId())));
+        if(source.getReview()!=null) {var r=source.getReview();target.setReview(new cn.jualn.miniapp.module.audit.vo.admin.SafetyReviewProjection.Round(r.submissionVersion(),r.scene(),r.namespace(),new cn.jualn.miniapp.module.audit.vo.admin.SafetyReviewProjection.BusinessTarget(r.businessTarget().type()),r.submissionKind(),r.state(),r.previousTaskId(),r.supersededByTaskId(),r.decisionOrigin(),r.invalidationReason()));}
         target.setTaskId(stringValue(source.getTaskId()));
         target.setTargetId(stringValue(source.getTargetId()));
         target.setTargetType(source.getTargetType());
@@ -132,7 +144,7 @@ public class AdminReviewConverter {
         if (submittedAt == null || !"pending".equals(status)) {
             return 0L;
         }
-        return Math.max(0L, Duration.between(submittedAt, LocalDateTime.now()).toMinutes());
+        return Math.max(0L, Duration.between(submittedAt, LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))).toMinutes());
     }
 
     private String stringValue(Long value) {

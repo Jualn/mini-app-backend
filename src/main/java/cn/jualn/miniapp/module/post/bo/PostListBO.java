@@ -17,6 +17,12 @@ import java.util.List;
 public class PostListBO {
 
     private Long id;
+    private String postType;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private cn.jualn.miniapp.module.post.bo.MentorQaBO.Summary qaSummary;
+    private PostCategoryBO category;
+    private List<PostTopicBO> topics;
+    private PostWritePermission commentPermission;
     private String title;
     private String content;
     private Integer likeCount;

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.learningtask.mapper.LearningTaskMapper">
+    <sql id="adminScope">
+        <choose>
+            <when test="scope != null and scope.namespaceGlobal">
+                1=1
+            </when>
+            <when test="scope != null and !scope.taskIds.isEmpty()">
+                id IN
+                <foreach collection="scope.taskIds" item="taskId" open="(" separator="," close=")">
+                    #{taskId}
+                </foreach>
+            </when>
+            <otherwise>
+                1=0
+            </otherwise>
+        </choose>
+        <if test="query.status != null">
+            AND status=#{query.status}
+        </if>
+        <if test="query.q != null and query.q != ''">
+            AND (LOCATE(#{query.q},title)>0 OR LOCATE(#{query.q},description)>0)
+        </if>
+    </sql>
+    <select id="adminPage" resultType="cn.jualn.miniapp.module.learningtask.entity.LearningTask">
+        SELECT id,title,description,article_id,requirements,audience,management_target,review_required,first_deadline,
+        deadline_revision,status,revision,created_by,created_at,updated_at,published_at,
+        closed_at,cancelled_at,cancelled_by,cancellation_reason
+        FROM learning_task WHERE
+        <include refid="adminScope"/>
+        ORDER BY updated_at DESC,id DESC LIMIT #{query.pageSize} OFFSET #{offset}
+    </select>
+    <select id="adminCount" resultType="long">
+        SELECT COUNT(*) FROM learning_task WHERE
+        <include refid="adminScope"/>
+    </select>
+    <select id="lock" resultType="cn.jualn.miniapp.module.learningtask.entity.LearningTask">
+        SELECT * FROM learning_task WHERE id=#{id} FOR UPDATE
+    </select>
+    <!-- Called only after task -> assignment -> submission lock acquisition. -->
+    <update id="saveLocked">
+        UPDATE learning_task SET
+        article_id=#{articleId},
+        revision=#{revision},
+        deadline_revision=#{deadlineRevision},
+        created_by=#{createdBy},
+        cancelled_by=#{cancelledBy},
+        title=#{title},
+        description=#{description},
+        requirements=#{requirements},
+        audience=#{audience},
+        status=#{status},
+        cancellation_reason=#{cancellationReason},
+        review_required=#{reviewRequired},
+        first_deadline=#{firstDeadline},
+        created_at=#{createdAt},
+        updated_at=#{updatedAt},
+        published_at=#{publishedAt},
+        closed_at=#{closedAt},
+        cancelled_at=#{cancelledAt}
+        WHERE id=#{id}
+    </update>
+</mapper>
+

@@ -25,6 +25,9 @@ public class MediaAttachment {
     private Integer type;
 
     private String kind;
+    private String retention;
+    private java.time.LocalDateTime expiresAt;
+    private Boolean deleted;
 
     private Boolean registered;
 
@@ -37,6 +40,13 @@ public class MediaAttachment {
     private String originalName;
 
     private Integer sortOrder;
+
+    private String contentType;
+    private Long sizeBytes;
+    private Integer width;
+    private Integer height;
+    private Double durationSeconds;
+    private Boolean verified;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

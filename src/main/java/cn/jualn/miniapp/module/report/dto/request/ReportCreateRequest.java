@@ -23,5 +23,11 @@ public class ReportCreateRequest {
 
     @Size(max = 255, message = "补充说明不能超过255字")
     private String remark;
+    @Size(max=255)
+    private String mark;
+    public String getRemark() {
+        if(remark!=null && mark!=null && !remark.equals(mark)) throw cn.jualn.miniapp.module.post.PostProblems.invalid("remark","INVALID_VALUE","Conflicting remark and mark");
+        return remark!=null?remark:mark;
+    }
 }
 

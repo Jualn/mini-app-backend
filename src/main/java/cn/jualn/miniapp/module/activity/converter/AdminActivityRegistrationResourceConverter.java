@@ -19,6 +19,16 @@ import org.springframework.stereotype.Component;
 public class AdminActivityRegistrationResourceConverter {
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
 
+    public record CandidatePage(List<Candidate> items, int page, int pageSize, long totalItems) { }
+    public record Candidate(String activityId, String title, String publishStatus, String lifecycleStatus) { }
+
+    public CandidatePage candidates(cn.jualn.miniapp.module.activity.bo.ActivityRegistrationCandidatePageBO page) {
+        var items = page.items().stream().map(item -> new Candidate(Long.toString(item.activityId()), item.title(),
+                AdminActivityConverter.publication(item.publishStatus()),
+                AdminActivityConverter.lifecycle(item.lifecycleStatus()))).toList();
+        return new CandidatePage(items, page.page(), page.pageSize(), page.totalItems());
+    }
+
     public Integer status(AdminActivityRegistrationQuery query) {
         return status(query.getStatus());
     }
@@ -37,7 +47,7 @@ public class AdminActivityRegistrationResourceConverter {
                 value.page(), value.pageSize(), value.totalItems());
     }
 
-    private AdminActivityRegistrationResourceVO registration(ActivityRegistrationBO value) {
+    public AdminActivityRegistrationResourceVO registration(ActivityRegistrationBO value) {
         var data = Objects.requireNonNull(value.getFormData(), "registration answers");
         if (!data.isObject()) throw new IllegalStateException("Stored registration answers must be an object");
         List<AdminActivityRegistrationResourceVO.Answer> answers = new ArrayList<>();
@@ -47,7 +57,13 @@ public class AdminActivityRegistrationResourceConverter {
                 value.getUserId().toString(), Integer.valueOf(2).equals(value.getStatus()) ? "CANCELLED" : "SUBMITTED",
                 Objects.requireNonNull(value.getFormVersion(), "registration form version"), answers,
                 time(Objects.requireNonNull(value.getSubmittedAt(), "submitted time")),
-                time(Objects.requireNonNull(value.getUpdatedAt(), "updated time")), time(value.getCancelledAt()));
+                time(Objects.requireNonNull(value.getUpdatedAt(), "updated time")), time(value.getCancelledAt()), etag(value),
+                value.getInvalidatedAt() != null && value.getInvalidatedBy() != null && value.getInvalidReason() != null
+                    ? new AdminActivityRegistrationResourceVO.Invalidation(value.getInvalidatedBy().toString(), time(value.getInvalidatedAt()), value.getInvalidReason()) : null);
+    }
+
+    public static String etag(ActivityRegistrationBO value) {
+        return "\"activity-registration-" + value.getId() + "-v" + Objects.requireNonNull(value.getContractVersion()) + "\"";
     }
 
     private OffsetDateTime time(LocalDateTime value) {

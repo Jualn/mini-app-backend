@@ -21,6 +21,8 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class AdminNotificationPlanServiceImpl implements AdminNotificationPlanService {
+    private final cn.jualn.miniapp.module.authorization.service.CurrentAuthorization authorization;
+
 
     private static final String CURSOR_SORT = "latest";
 
@@ -28,6 +30,8 @@ public class AdminNotificationPlanServiceImpl implements AdminNotificationPlanSe
 
     @Override
     public AdminNotificationPlanPageBO pagePlans(AdminNotificationPlanQueryBO query) {
+        authorization.require(cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong(),"notice:read","NOTIFICATION","notice:read");
+
         AdminNotificationPlanQueryBO actual = query == null
                 ? AdminNotificationPlanQueryBO.builder().pageSize(20).build()
                 : query;
@@ -86,6 +90,8 @@ public class AdminNotificationPlanServiceImpl implements AdminNotificationPlanSe
 
     @Override
     public AdminNotificationPlanItemBO getPlan(Long planId) {
+        authorization.require(cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong(),"notice:read","NOTIFICATION","notice:read");
+
         NotifyPlan plan = notifyPlanMapper.selectById(planId);
         if (plan == null) {
             throw new BusinessException(ResultCode.NOTIFICATION_NOT_FOUND, "通知计划不存在");
@@ -93,9 +99,14 @@ public class AdminNotificationPlanServiceImpl implements AdminNotificationPlanSe
         return toItemBO(plan);
     }
 
+
     private AdminNotificationPlanSummaryBO loadSummary() {
-        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+        LocalDateTime todayStart = LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).atStartOfDay();
         LocalDateTime tomorrowStart = todayStart.plusDays(1);
+        return summary(todayStart, tomorrowStart);
+    }
+
+    private AdminNotificationPlanSummaryBO summary(LocalDateTime todayStart, LocalDateTime tomorrowStart) {
         return AdminNotificationPlanSummaryBO.builder()
                 .pending(notifyPlanMapper.selectCount(new LambdaQueryWrapper<NotifyPlan>()
                         .eq(NotifyPlan::getStatus, 0)))

@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.points.mapper.PointsR3Mapper">
+ <sql id="appFilters">
+  <if test="p.person()!=null">AND a.person_id=#{p.person}</if>
+  <if test="p.organization()!=null">AND a.accepting_organization_id=#{p.organization}</if>
+  <if test="q.status!=null">AND a.status=#{q.status}</if>
+  <if test="q.search!=null">AND (LOCATE(#{q.search},a.title)&gt;0 OR EXISTS(SELECT 1 FROM person_profile sp WHERE sp.id=a.person_id AND LOCATE(#{q.search},sp.real_name)&gt;0))</if>
+ </sql>
+ <sql id="appScope">
+  (FALSE <foreach collection="p.targets()" item="t"> OR (#{t.type}='PLATFORM' OR #{t.type}='PERSON' AND #{t.personId}=a.person_id OR #{t.type}='ORGANIZATION' AND #{t.organizationId}=a.accepting_organization_id)</foreach> OR (a.status='APPROVED' AND (FALSE <foreach collection="p.correctionTargets()" item="t"> OR (#{t.type}='PLATFORM' OR #{t.type}='PERSON' AND #{t.personId}=a.person_id OR #{t.type}='ORGANIZATION' AND #{t.organizationId}=a.accepting_organization_id)</foreach>)))
+ </sql>
+ <sql id="liveApplication">
+  (a.status&lt;&gt;'PENDING' OR (EXISTS(SELECT 1 FROM person_membership m JOIN person_organization o ON o.id=m.organization_id
+   WHERE m.id=a.membership_id AND m.person_id=a.person_id AND m.organization_id=a.accepting_organization_id
+   AND m.ended_event_id IS NULL AND m.valid_from&lt;=#{p.now} AND (m.valid_until IS NULL OR m.valid_until&gt;#{p.now}) AND o.status='ACTIVE')
+   AND EXISTS(SELECT 1 FROM point_organization_acceptance qf JOIN point_acceptance_evidence e ON e.id=qf.evidence_id
+    WHERE qf.organization_id=a.accepting_organization_id AND e.organization_id=qf.organization_id AND e.verification='VERIFIED' AND e.enabled=1)))
+ </sql>
+ <select id="unresolvedApplications" resultType="long">
+  SELECT COUNT(*) FROM point_application a WHERE <include refid="appScope"/>
+  AND (a.accepting_organization_id IS NULL OR a.membership_id IS NULL OR a.person_id IS NULL)<include refid="appFilters"/>
+ </select>
+ <select id="pendingOrganizations" resultType="string">SELECT DISTINCT a.accepting_organization_id FROM point_application a WHERE a.status='PENDING' AND <include refid="appScope"/><include refid="appFilters"/></select>
+ <select id="applications" resultType="cn.jualn.miniapp.module.points.entity.PointApplication">
+  <bind name="offset" value="q.getOffset()"/>
+  SELECT <include refid="cn.jualn.miniapp.module.points.mapper.PointsMapper.applicationColumns"/> FROM point_application a
+  WHERE <include refid="appScope"/><include refid="appFilters"/> ORDER BY a.created_at DESC,a.id DESC LIMIT #{q.pageSize} OFFSET #{offset}
+ </select>
+ <select id="applicationCount" resultType="long">SELECT COUNT(*) FROM point_application a WHERE <include refid="appScope"/><include refid="appFilters"/></select>
+
+ <sql id="managementLedgerWhere">
+  <include refid="appScope"/> AND a.status='APPROVED'<include refid="appFilters"/>
+  <if test="q.kind!=null">AND l.kind=#{q.kind}</if>
+  <if test="q.applicationId!=null">AND l.application_id=#{q.applicationId}</if>
+ </sql>
+ <select id="managementLedgers" resultType="cn.jualn.miniapp.module.points.entity.PointLedger">
+  <bind name="offset" value="q.getOffset()"/>
+  SELECT l.* FROM point_ledger l JOIN point_application a ON a.id=l.application_id
+  WHERE <include refid="managementLedgerWhere"/> ORDER BY l.id DESC LIMIT #{q.pageSize} OFFSET #{offset}
+ </select>
+ <select id="managementLedgerCount" resultType="long">
+  SELECT COUNT(*) FROM point_ledger l JOIN point_application a ON a.id=l.application_id WHERE <include refid="managementLedgerWhere"/>
+ </select>
+ <sql id="managementOrganizationWhere">
+  <choose>
+   <when test="view=='APPLICATIONS' or view=='LEDGER'">
+    (EXISTS(SELECT 1 FROM point_application a WHERE a.accepting_organization_id=o.id AND <include refid="appScope"/>
+     <if test="view=='LEDGER'">AND a.status='APPROVED' AND EXISTS(SELECT 1 FROM point_ledger ol WHERE ol.application_id=a.id)</if>)
+     OR (FALSE <foreach collection="p.targets()" item="t">OR (#{t.type}='ORGANIZATION' AND #{t.organizationId}=o.id)</foreach>
+       <foreach collection="p.correctionTargets()" item="t">OR (#{t.type}='ORGANIZATION' AND #{t.organizationId}=o.id)</foreach>))
+   </when>
+   <otherwise><include refid="organizationFilter"/></otherwise>
+  </choose>
+  <if test="search!=null">AND LOCATE(#{search},o.name)&gt;0</if>
+ </sql>
+ <select id="managementOrganizations" resultType="cn.jualn.miniapp.module.points.bo.PointsBO$ManagementOrganization">
+  <bind name="offset" value="q.getOffset()"/>
+  SELECT o.id organization_id,o.name FROM person_organization o WHERE <include refid="managementOrganizationWhere"/>
+  ORDER BY o.id LIMIT #{q.pageSize} OFFSET #{offset}
+ </select>
+ <select id="managementOrganizationCount" resultType="long">
+  SELECT COUNT(*) FROM person_organization o WHERE <include refid="managementOrganizationWhere"/>
+ </select>
+ <sql id="participantBase">
+  u.id IS NOT NULL AND (EXISTS(SELECT 1 FROM point_application a WHERE a.person_id=u.id) OR EXISTS(SELECT 1 FROM point_ledger l WHERE l.person_id=u.id))
+  <if test="p.person()!=null">AND u.id=#{p.person}</if>
+ </sql>
+ <sql id="knownPerson">
+  h.membership_verification='VERIFIED' AND NOT EXISTS(SELECT 1 FROM person_membership bad JOIN person_organization badorg ON badorg.id=bad.organization_id
+   WHERE bad.person_id=u.id AND bad.ended_event_id IS NULL AND badorg.status&lt;&gt;'ACTIVE')
+ </sql>
+ <!-- Each t is one independently approved selection. COUNT and pages share this predicate. -->
+ <sql id="fullPerson">
+  <include refid="knownPerson"/> AND (FALSE
+   <foreach collection="p.targets()" item="t"> OR (
+    #{t.type}='PLATFORM' OR #{t.type}='PERSON' AND #{t.personId}=CAST(u.id AS CHAR)
+    OR (#{t.type}='ORGANIZATION'
+     AND EXISTS(SELECT 1 FROM person_membership m WHERE m.person_id=u.id AND m.ended_event_id IS NULL AND m.valid_from&lt;=#{p.now} AND (m.valid_until IS NULL OR m.valid_until&gt;#{p.now}))
+     AND NOT EXISTS(SELECT 1 FROM person_membership m WHERE m.person_id=u.id AND m.ended_event_id IS NULL AND m.valid_from&lt;=#{p.now} AND (m.valid_until IS NULL OR m.valid_until&gt;#{p.now}) AND m.organization_id&lt;&gt;#{t.organizationId})))
+   </foreach>)
+ </sql>
+ <select id="unknownParticipants" resultType="long">
+  SELECT COUNT(*) FROM person_profile u LEFT JOIN person_fact_current h ON h.person_id=u.id WHERE <include refid="participantBase"/>
+  AND NOT COALESCE((<include refid="knownPerson"/>),FALSE)
+  AND (FALSE <foreach collection="p.targets()" item="t"> OR (#{t.type} IN ('PLATFORM','ORGANIZATION') OR #{t.type}='PERSON' AND #{t.personId}=CAST(u.id AS CHAR))</foreach>)
+ </select>
+ <sql id="participants">
+  SELECT u.id FROM person_profile u LEFT JOIN person_fact_current h ON h.person_id=u.id WHERE <include refid="participantBase"/> AND <include refid="fullPerson"/>
+  <if test="p.organization()!=null">AND EXISTS(SELECT 1 FROM person_membership m WHERE m.person_id=u.id AND m.organization_id=#{p.organization} AND m.ended_event_id IS NULL AND m.valid_from&lt;=#{p.now} AND (m.valid_until IS NULL OR m.valid_until&gt;#{p.now}))</if>
+ </sql>
+ <sql id="ledgerTotals">SELECT person_id,SUM(CASE WHEN kind IN ('GRANT','CORRECTION_GRANT') THEN CAST(points_delta AS DECIMAL(65,0)) ELSE 0 END) granted,SUM(CASE WHEN kind='REVERSAL' THEN -CAST(points_delta AS DECIMAL(65,0)) ELSE 0 END) reversed FROM point_ledger GROUP BY person_id</sql>
+ <select id="participantCount" resultType="long">SELECT COUNT(*) FROM (<include refid="participants"/>) c</select>
+ <select id="personStatistics" resultType="cn.jualn.miniapp.module.points.bo.PointsBO$ParticipantTotals">
+  <bind name="offset" value="q.getOffset()"/>
+  SELECT c.id person_id,COALESCE(l.granted,0) granted,COALESCE(l.reversed,0) reversed,COALESCE(a.application_count,0) application_count,
+   COALESCE(a.pending_count,0) pending_count,COALESCE(a.approved_count,0) approved_count,COALESCE(a.rejected_count,0) rejected_count,COALESCE(a.closed_count,0) closed_count,(SELECT pn.real_name FROM person_profile pn WHERE pn.id=c.id) person_name
+  FROM (<include refid="participants"/>) c LEFT JOIN (<include refid="ledgerTotals"/>) l ON l.person_id=c.id
+  LEFT JOIN (SELECT person_id,COUNT(*) application_count,SUM(status='PENDING') pending_count,SUM(status='APPROVED') approved_count,SUM(status='REJECTED') rejected_count,SUM(status='CLOSED') closed_count FROM point_application GROUP BY person_id) a ON a.person_id=c.id
+  ORDER BY c.id LIMIT #{q.pageSize} OFFSET #{offset}
+ </select>
+ <sql id="organizationFilter">(FALSE <foreach collection="p.organizations()" item="org"> OR o.id=#{org}</foreach>)</sql>
+ <sql id="currentParticipantOrganization">EXISTS(SELECT 1 FROM person_membership pm WHERE pm.organization_id=o.id AND pm.ended_event_id IS NULL AND pm.valid_from&lt;=#{p.now} AND (pm.valid_until IS NULL OR pm.valid_until&gt;#{p.now}) AND (EXISTS(SELECT 1 FROM point_application pa WHERE pa.person_id=pm.person_id) OR EXISTS(SELECT 1 FROM point_ledger pl WHERE pl.person_id=pm.person_id)))</sql>
+ <select id="currentOrganizationCount" resultType="long">SELECT COUNT(*) FROM person_organization o WHERE <include refid="organizationFilter"/> AND <include refid="currentParticipantOrganization"/></select>
+ <select id="currentStatistics" resultType="cn.jualn.miniapp.module.points.bo.PointsBO$OrganizationTotals">
+  <bind name="offset" value="q.getOffset()"/>
+  SELECT o.id organization_id,COUNT(DISTINCT CASE WHEN EXISTS(SELECT 1 FROM point_application a WHERE a.person_id=m.person_id)
+   OR EXISTS(SELECT 1 FROM point_ledger hl WHERE hl.person_id=m.person_id) THEN m.person_id END) participant_count,
+   COALESCE(SUM(l.granted),0) granted,COALESCE(SUM(l.reversed),0) reversed
+  FROM person_organization o LEFT JOIN person_membership m ON m.organization_id=o.id AND m.ended_event_id IS NULL
+   AND m.valid_from&lt;=#{p.now} AND (m.valid_until IS NULL OR m.valid_until&gt;#{p.now}) AND EXISTS(SELECT 1 FROM person_profile u WHERE u.id=m.person_id AND u.id IS NOT NULL)
+  LEFT JOIN (<include refid="ledgerTotals"/>) l ON l.person_id=m.person_id
+  WHERE <include refid="organizationFilter"/> AND <include refid="currentParticipantOrganization"/> GROUP BY o.id ORDER BY o.id LIMIT #{q.pageSize} OFFSET #{offset}
+ </select>
+ <select id="unresolvedLedger" resultType="long">SELECT COUNT(*) FROM point_ledger WHERE accepting_organization_id IS NULL OR membership_id IS NULL</select>
+ <select id="acceptanceStatistics" resultType="cn.jualn.miniapp.module.points.bo.PointsBO$AcceptanceTotals">
+  <bind name="offset" value="q.getOffset()"/>
+  SELECT o.id organization_id,COUNT(DISTINCT CASE WHEN l.kind IN ('GRANT','CORRECTION_GRANT') THEN l.application_id END) application_count,
+   COALESCE(SUM(CASE WHEN l.kind IN ('GRANT','CORRECTION_GRANT') THEN CAST(l.points_delta AS DECIMAL(65,0)) ELSE 0 END),0) granted,
+   COALESCE(SUM(CASE WHEN l.kind='REVERSAL' THEN -CAST(l.points_delta AS DECIMAL(65,0)) ELSE 0 END),0) reversed
+  FROM person_organization o LEFT JOIN point_ledger l ON l.accepting_organization_id=o.id WHERE <include refid="organizationFilter"/>
+  GROUP BY o.id ORDER BY o.id LIMIT #{q.pageSize} OFFSET #{offset}
+ </select>
+</mapper>

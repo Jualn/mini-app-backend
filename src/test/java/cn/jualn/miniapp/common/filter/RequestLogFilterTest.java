@@ -28,17 +28,21 @@ class RequestLogFilterTest {
     @Test
     void installsValidTraceIdAndRestoresPreviousScope() throws Exception {
         MDC.put(ObservabilityContext.TRACE_ID, "outer-trace");
+        MDC.put("private-field", "must-not-enter-request");
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/activities/42");
         request.addHeader(RequestLogFilter.TRACE_ID_HEADER, "caller_trace-1");
         MockHttpServletResponse response = new MockHttpServletResponse();
         AtomicReference<String> observed = new AtomicReference<>();
 
-        filter.doFilter(request, response, (ignoredRequest, ignoredResponse) ->
-                observed.set(MDC.get(ObservabilityContext.TRACE_ID)));
+        filter.doFilter(request, response, (ignoredRequest, ignoredResponse) -> {
+            observed.set(MDC.get(ObservabilityContext.TRACE_ID));
+            assertNull(MDC.get("private-field"));
+        });
 
         assertEquals("caller_trace-1", observed.get());
         assertEquals("caller_trace-1", response.getHeader(RequestLogFilter.TRACE_ID_HEADER));
         assertEquals("outer-trace", MDC.get(ObservabilityContext.TRACE_ID));
+        assertEquals("must-not-enter-request", MDC.get("private-field"));
     }
 
     @Test
@@ -56,6 +60,32 @@ class RequestLogFilterTest {
         assertNotEquals("legacy-request-id", observed.get());
         assertEquals(observed.get(), response.getHeader(RequestLogFilter.TRACE_ID_HEADER));
         assertNull(MDC.get(ObservabilityContext.TRACE_ID));
+    }
+
+    @Test
+    void slowSuccessIsExplicitWithoutRelabelingFailuresOrChangingHttpStatus() throws Exception {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(RequestLogFilter.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.setContext(logger.getLoggerContext());
+        appender.start();
+        logger.addAppender(appender);
+        org.springframework.test.util.ReflectionTestUtils.setField(filter, "slowRequestMs", 0L);
+        try {
+            for (int status : new int[]{200, 201, 500}) {
+                var response = new MockHttpServletResponse();
+                filter.doFilter(new MockHttpServletRequest("POST", "/fixture"), response,
+                        (request, result) -> ((jakarta.servlet.http.HttpServletResponse) result).setStatus(status));
+                var event = appender.list.get(appender.list.size() - 1);
+                assertEquals(ch.qos.logback.classic.Level.WARN, event.getLevel());
+                assertEquals(status < 500 ? "HTTP slow request completed" : "HTTP request completed", event.getFormattedMessage());
+                assertEquals(status < 500 ? "success" : "failure", event.getKeyValuePairs().stream()
+                        .filter(pair -> "result".equals(pair.key)).findFirst().orElseThrow().value);
+                assertEquals(status, response.getStatus());
+            }
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test

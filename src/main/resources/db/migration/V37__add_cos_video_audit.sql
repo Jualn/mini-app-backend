@@ -1,0 +1,26 @@
+-- Audit owns provider facts; media IDs are references, not cascading resource ownership.
+CREATE TABLE media_video_audit (
+ id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+ attachment_id BIGINT UNSIGNED NOT NULL,
+ object_key VARCHAR(512) COLLATE utf8mb4_bin NOT NULL,
+ size_bytes BIGINT UNSIGNED NOT NULL,
+ policy_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+ bucket VARCHAR(128) NOT NULL,
+ region VARCHAR(64) NOT NULL,
+ biz_type VARCHAR(128) NOT NULL,
+ snapshot_interval_seconds INT UNSIGNED NOT NULL,
+ operator_id BIGINT UNSIGNED NOT NULL,
+ state VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+ provider_job_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NULL,
+ poll_sequence INT UNSIGNED NOT NULL DEFAULT 0,
+ deadline_at DATETIME(3) NOT NULL,
+ created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+ updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+ PRIMARY KEY(id),
+ UNIQUE KEY uk_video_audit_resource_policy(attachment_id,policy_key),
+ UNIQUE KEY uk_video_audit_provider(bucket,provider_job_id),
+ KEY idx_video_audit_state(state,updated_at,id),
+ CONSTRAINT chk_video_audit_state CHECK(state IN ('PENDING','SUBMITTING','RUNNING','PASS','REJECT','REVIEW','FAILED','UNKNOWN')),
+ CONSTRAINT chk_video_audit_size CHECK(size_bytes>0),
+ CONSTRAINT chk_video_audit_interval CHECK(snapshot_interval_seconds BETWEEN 1 AND 60)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

@@ -7,7 +7,15 @@ import java.util.List;
 
 @Data
 public class AdminContentListBO {
+    private cn.jualn.miniapp.module.content.bo.ManagementTarget managementTarget;
     private Long id;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private cn.jualn.miniapp.module.post.bo.GrowthRecordBO.Link growthRecord;
+    private cn.jualn.miniapp.module.content.bo.AdminPostProjection.Organization postOrganization;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private cn.jualn.miniapp.module.post.bo.PostCommunityBO.Lifecycle communityLifecycle;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private cn.jualn.miniapp.module.post.bo.MentorQaBO.Summary qaSummary;
     private String type;
     private String title;
     private String contentPreview;

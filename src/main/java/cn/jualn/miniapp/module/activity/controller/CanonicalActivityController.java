@@ -2,7 +2,7 @@ package cn.jualn.miniapp.module.activity.controller;
 
 import cn.jualn.miniapp.common.web.CursorPageVO;
 import cn.jualn.miniapp.module.activity.converter.ActivityResourceConverter;
-import cn.jualn.miniapp.module.activity.service.ActivityService;
+import cn.jualn.miniapp.module.activity.service.ActivityQueries;
 import cn.jualn.miniapp.module.activity.service.ActivityEnrollmentService;
 import cn.jualn.miniapp.module.activity.vo.ActivitySummaryVO;
 import cn.jualn.miniapp.module.activity.vo.ActivityDetailResourceVO;
@@ -21,12 +21,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** HTTP adapter for the accepted discovery and subscription contract. */
+/**
+ * HTTP adapter for the accepted discovery and subscription contract.
+ */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/v1/activities")
 public class CanonicalActivityController {
-    private final ActivityService service;
+    private final ActivityQueries service;
     private final ActivityEnrollmentService subscriptionService;
     private final ActivityResourceConverter converter;
 

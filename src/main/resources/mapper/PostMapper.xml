@@ -3,10 +3,47 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="cn.jualn.miniapp.module.post.mapper.PostMapper">
+    <sql id="communityNodeCount">
+        (SELECT COUNT(*) FROM comment c WHERE c.target_type=1 AND c.target_id=#{postId} AND c.status=1 AND c.deleted_at IS NULL
+         AND (c.parent_id IS NULL OR EXISTS(SELECT 1 FROM comment root WHERE root.id=c.parent_id AND root.parent_id IS NULL AND root.target_id=c.target_id AND root.target_type=1
+         AND ((root.status=1 AND root.deleted_at IS NULL) OR (root.status IN(3,4) AND c.community_thread=TRUE)))))
+    </sql>
+    <update id="incrementCommentCount">
+        UPDATE post SET comment_count=CASE WHEN post_type IN('NORMAL','MENTOR_QA') THEN <include refid="communityNodeCount"/> ELSE comment_count+1 END WHERE id=#{postId} AND deleted_at IS NULL
+    </update>
+    <update id="decrementCommentCount">
+        UPDATE post SET comment_count=CASE WHEN post_type IN('NORMAL','MENTOR_QA') THEN <include refid="communityNodeCount"/> ELSE comment_count-1 END WHERE id=#{postId} AND deleted_at IS NULL
+    </update>
+    <select id="lockPost" resultType="cn.jualn.miniapp.module.post.entity.Post">
+        SELECT id,user_id,title,content,post_type,category_id,revision,audit_revision,status,audit_status,published_at,deleted_at,community_version,accepted_at,temporary_visible_until,admin_hidden,created_at,question_version,question_content_locked
+        FROM post WHERE id=#{id} AND deleted_at IS NULL FOR UPDATE
+    </select>
+    <select id="pageOrganizedPosts" resultType="cn.jualn.miniapp.module.post.entity.Post">
+        SELECT id,user_id,title,content,comment_count,published_at,post_type,category_id
+        FROM post WHERE deleted_at IS NULL AND status=#{status} AND NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=post.id)
+        <if test="postType != 'ALL'">AND post_type=#{postType}</if>
+        <if test="categoryId != null">AND category_id=#{categoryId}</if>
+        <if test="topicId != null">AND EXISTS (SELECT 1 FROM post_topic pt WHERE pt.post_id=post.id AND pt.topic_id=#{topicId})</if>
+        <if test="userId != null">AND user_id=#{userId}</if>
+        <if test="keyword != null and keyword.trim() != ''">AND MATCH(content) AGAINST(#{keyword} IN BOOLEAN MODE)</if>
+        <if test="lastId != null">AND id &lt; #{lastId}</if>
+        <if test="status == 2">AND admin_hidden=FALSE AND (audit_status=1 OR (audit_status=0 AND community_version=TRUE AND temporary_visible_until &gt; DATE_ADD(#{pendingAfter},INTERVAL 10 MINUTE)))</if>
+        <if test="answerState != null and answerState != 'ALL'">
+            AND (SELECT COUNT(*) FROM comment c WHERE c.target_type=1 AND c.target_id=post.id AND c.parent_id IS NULL AND c.status=1 AND c.audit_status=1 AND c.deleted_at IS NULL AND NOT (<include refid="cn.jualn.miniapp.module.comment.mapper.CommunityCommentMapper.invalidProof"/>) AND c.first_published_at IS NOT NULL AND c.question_version=post.question_version)
+            <choose><when test="answerState == 'ANSWERED'"> &gt; 0</when><otherwise> = 0</otherwise></choose>
+        </if>
+        ORDER BY id DESC LIMIT #{pageSize}
+    </select>
+    <update id="applyEdit">
+        UPDATE post SET title=#{title},content=#{content},category_id=#{categoryId},revision=revision+1
+        <if test="checked">,audit_revision=audit_revision+1,audit_status=1,status=2,reject_reason=NULL,accepted_at=NOW(6),temporary_visible_until=NULL</if>
+        WHERE id=#{id} AND revision=#{revision} AND admin_hidden=FALSE AND deleted_at IS NULL
+    </update>
+
     <select id="selectPostListBatchByIds" resultType="cn.jualn.miniapp.module.post.bo.PostListBO">
         SELECT id, title, content, like_count, comment_count, view_count, published_at
         FROM post
-        WHERE status = 2 AND audit_status = 1 AND deleted_at IS NULL AND id IN
+        WHERE NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=post.id) AND status = 2 AND audit_status = 1 AND admin_hidden=FALSE AND deleted_at IS NULL AND id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">
             #{id}
         </foreach>

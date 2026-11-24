@@ -11,6 +11,12 @@ public class AdminContentPageQuery {
 
     @Size(max = 100, message = "关键词不能超过100字")
     private String keyword;
+    private String growthType;
+    private String growthOrganizationId;
+    @Pattern(regexp="NORMAL|MENTOR_QA")
+    private String postType;
+    @Min(1) private Long categoryId;
+    @Min(1) private Long topicId;
 
     @Pattern(regexp = "post|comment", message = "内容类型不合法")
     private String type;

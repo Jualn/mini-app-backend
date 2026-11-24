@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.admin.operation.mapper.AdminAuditMapper">
+<select id="page" resultType="cn.jualn.miniapp.module.admin.operation.bo.AdminAuditBO$Row">
+ SELECT * FROM admin_audit_record WHERE kind=#{q.kind} AND sequence &lt;= #{high}
+ AND recorded_at &gt;= #{q.after} AND recorded_at &lt; #{q.before}
+ <if test="q.person != null">AND target_person=#{q.person}</if>
+ <if test="q.user != null">AND target_user=#{q.user}</if>
+ <if test="q.source != null">AND source=#{q.source}</if>
+ <if test="q.actorUser != null">AND actor_user=#{q.actorUser}</if>
+ <if test="q.operation != null">AND operation=#{q.operation}</if>
+ <if test="q.targetType != null">AND target_type=#{q.targetType}</if>
+ <if test="q.targetId != null">AND target_id=#{q.targetId}</if>
+ <if test="q.result != null">AND result=#{q.result}</if>
+ <if test="time != null">AND (recorded_at &lt; #{time} OR (recorded_at=#{time} AND id &lt; #{last}))</if>
+ ORDER BY recorded_at DESC,id DESC LIMIT #{q.size}
+</select>
+</mapper>

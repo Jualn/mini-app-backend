@@ -14,8 +14,6 @@ public class CanonicalNotificationQuery {
     private Integer pageSize = 20;
     private NotificationCategory category;
     private Boolean isRead;
-    @Pattern(regexp = "legacy|structured")
-    private String representation = "legacy";
     @Pattern(regexp = "INTERACTION|ACTIVITY|SYSTEM")
     private String boxCategory;
 }

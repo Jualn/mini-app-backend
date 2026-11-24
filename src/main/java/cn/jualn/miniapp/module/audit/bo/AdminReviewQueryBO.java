@@ -7,6 +7,8 @@ import lombok.Data;
 @Builder
 public class AdminReviewQueryBO {
     private String keyword;
+    private String growthType;
+    private String growthOrganizationId;
     private String targetType;
     private String riskLevel;
     private String tab;

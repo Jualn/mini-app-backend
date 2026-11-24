@@ -3,13 +3,24 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.jualn.miniapp.module.media.mapper.MediaUploadRecordMapper">
 
+    <select id="selectRegisteredPurpose" resultType="java.lang.Integer">
+        SELECT u.target_type
+        FROM media_upload_record u
+        JOIN media_attachment a ON a.id = u.bound_attachment_id
+             AND a.object_key = u.object_key COLLATE utf8mb4_unicode_ci
+             AND BINARY a.object_key = BINARY u.object_key
+        WHERE a.id = #{attachmentId} AND a.registered = 1 AND a.registered_by = #{operatorId}
+          AND u.user_id = #{operatorId} AND u.status IN (0, 1) AND u.cleanup_started_at IS NULL
+          AND u.bound_target_id IS NULL AND u.target_type IN (2, 3, 7, 8)
+    </select>
+
     <insert id="insertBatch" parameterType="java.util.List">
         INSERT INTO media_upload_record
-            (object_key, user_id, target_type, status, cleanup_after, retry_count)
+            (object_key, user_id, target_type, status, cleanup_after, retry_count, declared_kind, declared_content_type, declared_size_bytes)
         VALUES
         <foreach collection="list" item="item" separator=",">
             (#{item.objectKey}, #{item.userId}, #{item.targetType}, #{item.status},
-             #{item.cleanupAfter}, #{item.retryCount})
+             #{item.cleanupAfter}, #{item.retryCount}, #{item.declaredKind}, #{item.declaredContentType}, #{item.declaredSizeBytes})
         </foreach>
     </insert>
 
@@ -22,6 +33,7 @@
         WHERE user_id = #{userId}
           AND target_type = #{targetType}
           AND status = 0
+          AND declared_kind = 'VERIFIED'
           AND cleanup_started_at IS NULL
           AND bound_attachment_id IS NULL
           AND cleanup_after &gt; #{now}
@@ -29,38 +41,44 @@
         <foreach collection="objectKeys" item="objectKey" open="(" separator="," close=")">
             #{objectKey}
         </foreach>
+          AND BINARY object_key IN
+        <foreach collection="objectKeys" item="objectKey" open="(" separator="," close=")">#{objectKey}</foreach>
     </update>
 
     <select id="selectForUpdate" resultType="cn.jualn.miniapp.module.media.entity.MediaUploadRecord">
         SELECT id, object_key, user_id, target_type, status, bound_target_id, bound_attachment_id,
-               cleanup_started_at, cleanup_after, retry_count, last_error, created_at, updated_at
+               cleanup_started_at, cleanup_after, retry_count, last_error, created_at, updated_at,
+               declared_kind, declared_content_type, declared_size_bytes
         FROM media_upload_record WHERE object_key = #{objectKey} AND BINARY object_key = BINARY #{objectKey} FOR UPDATE
     </select>
 
     <select id="selectExpiredCandidates" resultType="cn.jualn.miniapp.module.media.entity.MediaUploadRecord">
-        SELECT id, object_key, retry_count FROM media_upload_record
+        SELECT id, object_key, retry_count, bound_attachment_id FROM media_upload_record
         WHERE status = 0 AND cleanup_after &lt;= #{now} AND id &gt; #{afterId}
         ORDER BY id LIMIT #{limit}
     </select>
 
     <update id="bindAttachment">
         UPDATE media_upload_record
-        SET status = 1, bound_attachment_id = #{attachmentId}, updated_at = #{now}, last_error = NULL
+        SET status = 0, bound_attachment_id = #{attachmentId}, updated_at = #{now}, last_error = NULL
         WHERE id = #{id} AND status = 0 AND bound_target_id IS NULL
           AND bound_attachment_id IS NULL AND cleanup_started_at IS NULL AND cleanup_after &gt; #{now}
     </update>
 
     <!-- registered alone is insufficient: require an independent resource or an actual retained owner/reference. -->
     <sql id="registeredResource">
-        ((a.registered = 1 AND a.target_type IS NULL AND a.target_id IS NULL)
+        ((a.registered = 1 AND a.retention = 'FORMAL' AND a.deleted = 0 AND a.target_type IS NULL AND a.target_id IS NULL)
          OR (a.target_type IS NOT NULL AND a.target_id IS NOT NULL)
          OR EXISTS (SELECT 1 FROM event_attachment_link l WHERE l.attachment_id = a.id))
     </sql>
 
     <sql id="unprotectedObject">
+        NOT EXISTS (SELECT 1 FROM growth_media_context g WHERE g.media_id=media_upload_record.id AND g.bound_post_id IS NOT NULL) AND
         NOT EXISTS (
             SELECT 1 FROM media_attachment a
-            WHERE a.object_key = media_upload_record.object_key
+            <!-- V1 attachment columns inherit the schema collation; V2 uploads use 0900_ai_ci.
+                 Resolve the collation on the lookup value and retain byte-exact COS key identity. -->
+            WHERE a.object_key = media_upload_record.object_key COLLATE utf8mb4_unicode_ci
               AND BINARY a.object_key = BINARY media_upload_record.object_key
               AND <include refid="registeredResource"/>
         )
@@ -80,7 +98,7 @@
         UPDATE media_upload_record
         SET status = 2, cleanup_started_at = COALESCE(cleanup_started_at, #{now}), updated_at = #{now}
         WHERE id = #{id} AND status = 0 AND cleanup_after &lt;= #{now}
-          AND bound_target_id IS NULL AND bound_attachment_id IS NULL AND <include refid="unprotectedObject"/>
+          AND bound_target_id IS NULL AND <include refid="unprotectedObject"/>
     </update>
 
     <update id="requestDeletion">

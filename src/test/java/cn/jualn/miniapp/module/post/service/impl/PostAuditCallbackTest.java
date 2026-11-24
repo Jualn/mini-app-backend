@@ -35,7 +35,7 @@ class PostAuditCallbackTest {
 
     @Test
     void onPass_shouldPublishWhenAllAuditLogsPassed() {
-        PostAuditCallback callback = new PostAuditCallback(postMapper, contentAuditLogMapper, redisService);
+        PostAuditCallback callback = new PostAuditCallback(postMapper, new cn.jualn.miniapp.module.audit.service.AuditLogService(contentAuditLogMapper), redisService);
         when(contentAuditLogMapper.selectCount(any())).thenReturn(1L, 0L, 1L);
 
         callback.onPass(7L, 1L);
@@ -45,7 +45,7 @@ class PostAuditCallbackTest {
 
     @Test
     void onReject_shouldMoveToManualReviewAndInvalidateCache() {
-        PostAuditCallback callback = new PostAuditCallback(postMapper, contentAuditLogMapper, redisService);
+        PostAuditCallback callback = new PostAuditCallback(postMapper, new cn.jualn.miniapp.module.audit.service.AuditLogService(contentAuditLogMapper), redisService);
         when(postMapper.update(any(LambdaUpdateWrapper.class))).thenReturn(1);
 
         callback.onReject(7L, 1L, "bad");

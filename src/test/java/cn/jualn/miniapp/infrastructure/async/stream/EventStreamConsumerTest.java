@@ -28,8 +28,47 @@ import static org.mockito.Mockito.when;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 class EventStreamConsumerTest {
+
+    @Test
+    void everyAttemptIncludingPoisonHasIsolatedCorrelationAndRestoresCaller() {
+        Fixture fixture = fixture();
+        java.util.List<Map<String, String>> attempts = new java.util.ArrayList<>();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            attempts.add(cn.jualn.miniapp.common.observability.ObservabilityContext.capture());
+            return null;
+        }).when(fixture.handlers).dispatch(fixture.envelope);
+        org.slf4j.MDC.put("traceId", "outer-request");
+        org.slf4j.MDC.put("private-field", "synthetic-secret");
+        try {
+            fixture.consumer.process(fixture.record, 1);
+            fixture.consumer.process(fixture.record, 2);
+            assertEquals("outer-request", org.slf4j.MDC.get("traceId"));
+            assertEquals("synthetic-secret", org.slf4j.MDC.get("private-field"));
+            assertNotEquals(attempts.get(0).get("traceId"), attempts.get(1).get("traceId"));
+            for (int i = 0; i < 2; i++) {
+                assertEquals(fixture.envelope.messageId(), attempts.get(i).get("messageId"));
+                assertEquals(Integer.toString(i + 1), attempts.get(i).get("attempt"));
+                assertFalse(attempts.get(i).containsKey("private-field"));
+            }
+            when(fixture.transport.decode(fixture.record)).thenThrow(new IllegalArgumentException("synthetic-secret"));
+            org.mockito.Mockito.doAnswer(invocation -> {
+                assertTrue(org.slf4j.MDC.get("traceId").matches("[a-f0-9]{32}"));
+                assertEquals("3", org.slf4j.MDC.get("attempt"));
+                assertNull(org.slf4j.MDC.get("messageId"));
+                assertNull(org.slf4j.MDC.get("private-field"));
+                return null;
+            }).when(fixture.deadMessages).record(any(), any(), eq(3), eq("validation"), any());
+            fixture.consumer.process(fixture.record, 3);
+            assertEquals("outer-request", org.slf4j.MDC.get("traceId"));
+        } finally { org.slf4j.MDC.clear(); }
+    }
 
     @Test
     void existingConsumerGroupWrappedBySpringIsAnIdempotentSuccess() {
@@ -98,13 +137,14 @@ class EventStreamConsumerTest {
         Executor unused = command -> { };
         EventStreamConsumer consumer = new EventStreamConsumer(redis, transport, handlers,
                 deadMessages, unused, new SimpleMeterRegistry());
-        return new Fixture(consumer, stream, deadMessages, envelope, record);
+        return new Fixture(consumer, stream, deadMessages, envelope, record, handlers, transport);
     }
 
     private record Fixture(EventStreamConsumer consumer,
                            StreamOperations<String, Object, Object> stream,
                            DeadMessageService deadMessages,
                            MessageEnvelope envelope,
-                           MapRecord<String, Object, Object> record) {
+                           MapRecord<String, Object, Object> record,
+                           EventHandlerRegistry handlers, EventStreamTransport transport) {
     }
 }

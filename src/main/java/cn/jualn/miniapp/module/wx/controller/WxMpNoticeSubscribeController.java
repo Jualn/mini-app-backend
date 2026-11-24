@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.module.wx.controller;
 
 import cn.jualn.miniapp.third.wx.dto.WxMpSubscribeResultDTO;
-import cn.jualn.miniapp.third.wx.notice.WxMpNoticeTemplateView;
+import cn.jualn.miniapp.module.wx.notice.WxMpNoticeTemplateView;
 import cn.jualn.miniapp.module.wx.service.WxMpNoticeSubscribeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;

@@ -23,7 +23,7 @@ public class AdminQrLoginConverter {
     public AdminQrLoginResultVO result(AdminQrLoginResultBO value) {
         var identity = value.profile();
         return new AdminQrLoginResultVO(value.token(), new AdminQrIdentityVO(identity.id(), identity.displayName(),
-                identity.avatarText(), identity.roleCode(), identity.roleLabel(), identity.permissions()));
+                identity.avatarText(), identity.roleCode(), identity.roleLabel(), identity.permissions(),identity.authorizationModel()));
     }
     private Instant instant(Long value) { return value == null ? null : Instant.ofEpochMilli(value); }
 }

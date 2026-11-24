@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.activity.converter;
 
-import cn.jualn.miniapp.common.enums.ActivityCategory;
+import cn.jualn.miniapp.module.activity.enums.ActivityCategory;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.exception.ContractProblemException;
 import cn.jualn.miniapp.common.result.ResultCode;
@@ -27,7 +27,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import cn.jualn.miniapp.module.timeline.service.TimelineSchedulePolicy;
 
-/** Representation conversion only; eligibility and count snapshots come from ActivityService. */
+/** Representation conversion only; eligibility and count snapshots come from ActivityQueries. */
 @Component
 @RequiredArgsConstructor
 public class ActivityResourceConverter {
@@ -92,12 +92,14 @@ public class ActivityResourceConverter {
 
     public ActivitySummaryVO summary(ActivityListBO value) {
         var result = new ActivitySummaryVO();
+        result.setAllowRegistrationAfterStart(Boolean.TRUE.equals(value.getAllowRegistrationAfterStart()));
+        result.setStage(new ActivitySummaryVO.Availability(value.getStageState(), time(value.getEvaluatedAt())));
         result.setActivityId(value.getId().toString());
         result.setTitle(value.getTitle());
         result.setSummary(value.getSummary());
         result.setCategory(category(value.getCategory()));
         result.setOrganizer(value.getOrganizer());
-        result.setAudienceScope(audience(value.getAudienceScope(), value.getAudienceDepartmentIds()));
+        result.setAudienceScope(audience(value.getAudienceDepartmentIds()));
         result.setAudienceSummary(value.getAudienceSummary());
         result.setPrimaryLocation(value.getLocation());
         result.setRegistrationMode(registrationMode(value.getRegistrationMode(), value.getId()));
@@ -120,12 +122,14 @@ public class ActivityResourceConverter {
 
     public ActivityDetailResourceVO detail(ActivityDetailBO value) {
         var result = new ActivityDetailResourceVO();
+        result.setAllowRegistrationAfterStart(Boolean.TRUE.equals(value.getAllowRegistrationAfterStart()));
+        result.setStage(new ActivitySummaryVO.Availability(value.getStageState(), time(value.getEvaluatedAt())));
         result.setActivityId(value.getId().toString());
         result.setTitle(value.getTitle());
         result.setSummary(value.getSummary());
         result.setCategory(category(value.getCategory()));
         result.setOrganizer(value.getOrganizer());
-        result.setAudienceScope(audience(value.getAudienceScope(), value.getAudienceDepartmentIds()));
+        result.setAudienceScope(audience(value.getAudienceDepartmentIds()));
         result.setAudienceSummary(value.getAudienceSummary());
         result.setPrimaryLocation(value.getLocation());
         result.setRegistrationMode(registrationMode(value.getRegistrationMode(), value.getId()));
@@ -141,8 +145,8 @@ public class ActivityResourceConverter {
         }
 
         result.setTimeline(value.getTimelineItems().stream()
-                .sorted(java.util.Comparator.comparing(cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO::getSortOrder)
-                        .thenComparing(cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO::getNodeKey)).map(this::timeline).toList());
+                .sorted(java.util.Comparator.comparing(cn.jualn.miniapp.module.timeline.bo.TimelineFactBO::getSortOrder)
+                        .thenComparing(cn.jualn.miniapp.module.timeline.bo.TimelineFactBO::getNodeKey)).map(this::timeline).toList());
         if (value.getCardTimeline() != null) result.setCardTimeline(timeline(value.getCardTimeline()));
         result.setSections(value.getSections().stream()
                 .sorted(java.util.Comparator.comparing(cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO::getSortOrder)
@@ -172,12 +176,9 @@ public class ActivityResourceConverter {
     }
 
     private ActivitySummaryVO.Attachment attachment(MediaAttachmentBO value) {
-        return new ActivitySummaryVO.Attachment(value.getId().toString(), switch (value.getType()) {
-            case IMAGE -> "IMAGE";
-            case PDF -> "PDF";
-            case WORD -> "WORD";
-            case URL -> "LINK";
-        }, value.getOriginalName() == null ? "attachment-" + value.getId() : value.getOriginalName(), value.getUrl());
+        var resource=new cn.jualn.miniapp.module.media.converter.AttachmentConverter().toVO(value);
+        return new ActivitySummaryVO.Attachment(resource.attachmentId(),resource.kind(),resource.name(),resource.url(),
+                resource.retention(),resource.expiresAt());
     }
 
     private ActivityDetailResourceVO.RegistrationForm form(JsonNode schema) {
@@ -210,7 +211,7 @@ public class ActivityResourceConverter {
         return new ActivityDetailResourceVO.RegistrationForm(fields, schema.path("allowModification").asBoolean(true));
     }
 
-    private ActivitySummaryVO.AudienceScope audience(Integer mask, String departmentJson) {
+    private ActivitySummaryVO.AudienceScope audience(String departmentJson) {
         if (departmentJson != null && !departmentJson.isBlank()) {
             try {
                 JsonNode ids = objectMapper.readTree(departmentJson);
@@ -231,16 +232,7 @@ public class ActivityResourceConverter {
                 throw new IllegalStateException("Invalid stored department IDs", exception);
             }
         }
-        if (mask == null || mask == 0 || (mask & 1) != 0) {
-            return new ActivitySummaryVO.AudienceScope("CAMPUS", null);
-        }
-        var ids = new ArrayList<String>();
-        for (int bit = 1; bit < 6; bit++) {
-            if ((mask & (1 << bit)) != 0) {
-                ids.add(Integer.toString(bit));
-            }
-        }
-        return new ActivitySummaryVO.AudienceScope("DEPARTMENTS", ids);
+        return new ActivitySummaryVO.AudienceScope("CAMPUS", null);
     }
 
     private String category(ActivityCategory value) {
@@ -264,7 +256,7 @@ public class ActivityResourceConverter {
         };
     }
 
-    private ActivityDetailResourceVO.TimelineNode timeline(cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO item) {
+    private ActivityDetailResourceVO.TimelineNode timeline(cn.jualn.miniapp.module.timeline.bo.TimelineFactBO item) {
         return new ActivityDetailResourceVO.TimelineNode(
                 Objects.requireNonNull(item.getNodeKey(), "timeline key"), timelineType(item.getNodeType()),
                 item.getLabel(), item.getDescription(), TimelineSchedulePolicy.view(item), item.getLocation(), item.getSortOrder());
@@ -305,7 +297,7 @@ public class ActivityResourceConverter {
     }
     private String timelineType(String value) {
         String normalized = Objects.requireNonNull(value, "timeline type").toUpperCase(java.util.Locale.ROOT);
-        return Set.of("REGISTRATION_START", "REGISTRATION_END", "MATERIAL_SUBMISSION", "PRELIMINARY",
+        return Set.of("ACTIVITY_START", "REGISTRATION_START", "REGISTRATION_END", "MATERIAL_SUBMISSION", "PRELIMINARY",
                 "SEMIFINAL", "FINAL", "EXAM", "RESULT", "CERTIFICATE_COLLECTION", "ADMISSION_TICKET")
                 .contains(normalized) ? normalized : "OTHER";
     }

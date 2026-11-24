@@ -16,17 +16,39 @@ public interface ContentAuditLogMapper extends BaseMapper<ContentAuditLog> {
             @Param("sort") String sort,
             @Param("cursorSubmittedAt") LocalDateTime cursorSubmittedAt,
             @Param("cursorTaskId") Long cursorTaskId,
-            @Param("limit") Integer limit);
+            @Param("limit") Integer limit,
+            @Param("namespaces") List<String> namespaces);
+    List<AdminReviewRow> selectGrowthReviewPage(
+            @Param("keyword") String keyword,
+            @Param("keywordId") Long keywordId,
+            @Param("targetType") Integer targetType,
+            @Param("tab") String tab,
+            @Param("sort") String sort,
+            @Param("cursorSubmittedAt") LocalDateTime cursorSubmittedAt,
+            @Param("cursorTaskId") Long cursorTaskId,
+            @Param("limit") Integer limit,
+            @Param("namespaces") List<String> namespaces,@Param("growthType") String growthType,@Param("growthOrganizationId") String growthOrganizationId,@Param("growthOrganizations") List<String> growthOrganizations);
 
     long countAdminReviews(
             @Param("keyword") String keyword,
             @Param("keywordId") Long keywordId,
             @Param("targetType") Integer targetType,
-            @Param("tab") String tab);
+            @Param("tab") String tab,
+            @Param("namespaces") List<String> namespaces);
+    long countGrowthReviews(
+            @Param("keyword") String keyword,
+            @Param("keywordId") Long keywordId,
+            @Param("targetType") Integer targetType,
+            @Param("tab") String tab,
+            @Param("namespaces") List<String> namespaces,@Param("growthType") String growthType,@Param("growthOrganizationId") String growthOrganizationId,@Param("growthOrganizations") List<String> growthOrganizations);
 
+    AdminReviewSummaryRow selectGrowthReviewSummary(@Param("namespaces") List<String> namespaces,@Param("growthType") String growthType,@Param("growthOrganizationId") String growthOrganizationId,@Param("growthOrganizations") List<String> growthOrganizations);
     AdminReviewSummaryRow selectAdminReviewSummary();
+    AdminReviewSummaryRow selectScopedReviewSummary(@Param("namespaces") List<String> namespaces);
 
     AdminReviewRow selectAdminReviewDetail(@Param("taskId") Long taskId);
+
+    String selectReviewNamespace(@Param("taskId") Long taskId);
 
     List<ContentAuditLog> selectAdminReviewHistory(
             @Param("targetType") Integer targetType,

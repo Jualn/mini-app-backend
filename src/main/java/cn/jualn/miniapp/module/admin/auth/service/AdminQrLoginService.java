@@ -11,4 +11,5 @@ public interface AdminQrLoginService {
     AdminQrSessionBO confirmSession(String sceneCode, long subject, String clientIp);
     AdminQrSessionBO rejectSession(String sceneCode, long subject, String clientIp);
     AdminQrLoginResultBO consumeSession(String id, String secret, String clientIp);
+    AdminQrLoginResultBO consumeSession(String id, String secret, String clientIp,String representation);
 }

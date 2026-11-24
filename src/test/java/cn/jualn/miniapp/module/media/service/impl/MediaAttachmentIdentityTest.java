@@ -1,8 +1,9 @@
 package cn.jualn.miniapp.module.media.service.impl;
 
 import cn.jualn.miniapp.common.enums.*;
+import cn.jualn.miniapp.module.media.enums.MediaType;
 import cn.jualn.miniapp.common.mapper.EnumConverter;
-import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
+import cn.jualn.miniapp.module.subject.service.SubjectExistenceService;
 import cn.jualn.miniapp.module.media.bo.*;
 import cn.jualn.miniapp.module.media.converter.MediaConverter;
 import cn.jualn.miniapp.module.media.entity.MediaAttachment;
@@ -29,7 +30,7 @@ class MediaAttachmentIdentityTest {
         when(mapper.selectList(any())).thenReturn(List.of(MediaAttachment.builder().id(11L)
                 .type(MediaType.URL.getCode()).url("https://example.org/notice").build()));
         when(mapper.update(any(), any())).thenReturn(1);
-        var service = new MediaServiceImpl(converter, mapper, mock(TargetValidator.class), mock(CosService.class), mock(MediaUploadRecordService.class));
+        var service = new MediaServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class), converter, mapper, mock(SubjectExistenceService.class), mock(CosService.class), mock(MediaUploadRecordService.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.media.service.ArticleMediaService.class));
         service.replaceAttachments(MediaAttachmentSaveBO.builder().targetType(TargetType.ACTIVITY).targetId(7L)
                 .attachments(List.of(AttachmentItemBO.builder().type(MediaType.URL)
                         .url("https://example.org/notice").sortOrder(5).originalName("通知").build())).build());

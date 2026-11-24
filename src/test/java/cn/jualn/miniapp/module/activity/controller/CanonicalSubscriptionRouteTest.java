@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.activity.controller;
 
-import cn.jualn.miniapp.module.exam.controller.CanonicalPublicEventController;
+import cn.jualn.miniapp.module.publicevent.controller.CanonicalPublicEventController;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;

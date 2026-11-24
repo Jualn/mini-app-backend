@@ -53,6 +53,7 @@ public class WxClient {
     private static final String MP_OAUTH_ACCESS_TOKEN_URL = "https://api.weixin.qq.com/sns/oauth2/access_token";
     private static final String MP_JSAPI_TICKET_URL = "https://api.weixin.qq.com/cgi-bin/ticket/getticket";
     private static final String MP_SUBSCRIBE_BIZ_SEND_URL = "https://api.weixin.qq.com/cgi-bin/message/subscribe/bizsend";
+    private static final String MINI_SUBSCRIBE_SEND_URL = "https://api.weixin.qq.com/cgi-bin/message/subscribe/send";
     private static final String MINI_CODE2SESSION_URL = "https://api.weixin.qq.com/sns/jscode2session";
     private static final String MINI_MSG_SEC_CHECK_URL = "https://api.weixin.qq.com/wxa/msg_sec_check";
     private static final String MINI_MEDIA_CHECK_ASYNC_URL = "https://api.weixin.qq.com/wxa/media_check_async";
@@ -61,7 +62,8 @@ public class WxClient {
     private final WxProperties wxProperties;
     private final RedisService redisService;
     private final MeterRegistry meterRegistry;
-    private final Object mpTokenMonitor = new Object();
+    private final java.util.concurrent.locks.ReentrantLock mpTokenMonitor = new java.util.concurrent.locks.ReentrantLock();
+    private final ThreadLocal<Long> noticeDeadline = new ThreadLocal<>();
     private final Object miniTokenMonitor = new Object();
     private final Object jsTicketMonitor = new Object();
 
@@ -101,13 +103,14 @@ public class WxClient {
                 return cachedToken;
             }
         }
-        synchronized (mpTokenMonitor) {
+        lockMpToken();
+        try {
             if (!forceRefresh) {
                 String cachedToken = redisService.getString(cacheKey);
                 if (StringUtils.hasText(cachedToken)) return cachedToken;
             }
             return fetchMpAccessToken(cacheKey);
-        }
+        } finally { mpTokenMonitor.unlock(); }
     }
 
     private String fetchMpAccessToken(String cacheKey) {
@@ -117,7 +120,7 @@ public class WxClient {
                 .uri(url)
                 .retrieve()
                 .bodyToMono(MpAccessTokenResponse.class)
-                .block();
+                .block(remainingNoticeBudget());
         MpAccessTokenResponse valid = assertWxSuccess(response, "服务号 access_token 获取失败");
         validateCredential(valid.getAccessToken(), valid.getExpiresIn(), "服务号 access_token");
         redisService.set(cacheKey, valid.getAccessToken(), credentialTtl(valid.getExpiresIn()));
@@ -334,18 +337,66 @@ public class WxClient {
      * @return 微信发送结果
      */
     public MpSubscribeMessageResponse sendMpSubscribeMessage(MpSubscribeMessageRequest request) {
-        String token = getMpAccessToken(false);
-        MpSubscribeMessageResponse response = callSendMpSubscribeMessage(request, token);
+        return sendMpSubscribeMessage(request, Duration.ofSeconds(25));
+    }
 
-        if (response != null && response.isTokenExpired()) {
-            log.warn("微信服务号 access_token 失效，刷新后重试发送订阅通知，templateId={}",
-                    request.getTemplateId());
-
-            token = refreshMpAccessToken(token);
-            response = callSendMpSubscribeMessage(request, token);
+    MpSubscribeMessageResponse sendMpSubscribeMessage(MpSubscribeMessageRequest request, Duration budget) {
+        long deadline = System.nanoTime() + budget.toNanos();
+        try {
+            // Bounds cache I/O, lock waiting, token refresh and both HTTP calls as one attempt.
+            return Mono.fromCallable(() -> {
+                noticeDeadline.set(deadline);
+                try {
+                    String token = getMpAccessToken(false);
+                    MpSubscribeMessageResponse response = callSendMpSubscribeMessage(request, token);
+                    if (response != null && response.isTokenExpired()) {
+                        log.warn("WeChat official account token expired; refresh once");
+                        token = refreshMpAccessToken(token);
+                        response = callSendMpSubscribeMessage(request, token);
+                    }
+                    return assertWxSuccess(response, "WeChat subscription send failed");
+                } finally { noticeDeadline.remove(); }
+            }).subscribeOn(Schedulers.boundedElastic()).block(budget);
+        } catch (ExternalServiceException classified) { throw classified; }
+        catch (RuntimeException uncertain) {
+            // Never expose HTTP causes containing credential-bearing URIs or provider bodies.
+            throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat", "WeChat subscription outcome unknown");
         }
+    }
 
-        return assertWxSuccess(response, "发送服务号订阅通知失败");
+    /** Independent Mini Program product and token. No timeout/transport retry. */
+    public MiniSubscribeMessageResponse sendMiniSubscribeMessage(MiniSubscribeMessageRequest request) {
+        return sendMiniSubscribeMessage(request, Duration.ofSeconds(25));
+    }
+
+    MiniSubscribeMessageResponse sendMiniSubscribeMessage(MiniSubscribeMessageRequest request, Duration budget) {
+        long deadline = System.nanoTime() + budget.toNanos();
+        try {
+            return Mono.fromCallable(() -> {
+                noticeDeadline.set(deadline);
+                try {
+                    String token = getMiniAccessToken(false);
+                    var response = callSendMiniSubscribeMessage(request, token);
+                    if (response != null && response.isTokenExpired()) {
+                        token = refreshMiniAccessToken(token);
+                        response = callSendMiniSubscribeMessage(request, token);
+                    }
+                    if (response == null || response.getErrcode() == null)
+                        throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat", "Mini Program subscription outcome unknown");
+                    return assertWxSuccess(response, "Mini Program subscription send rejected");
+                } finally { noticeDeadline.remove(); }
+            }).subscribeOn(Schedulers.boundedElastic()).block(budget);
+        } catch (ExternalServiceException classified) { throw classified; }
+        catch (RuntimeException uncertain) {
+            throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat", "Mini Program subscription outcome unknown");
+        }
+    }
+
+    private MiniSubscribeMessageResponse callSendMiniSubscribeMessage(MiniSubscribeMessageRequest request, String token) {
+        // Resolve the remaining budget before building or subscribing to the HTTP request.
+        Duration remaining = remainingNoticeBudget();
+        return webClient.post().uri(wxUri(MINI_SUBSCRIBE_SEND_URL, "access_token", token))
+                .bodyValue(request).retrieve().bodyToMono(MiniSubscribeMessageResponse.class).block(remaining);
     }
 
 // ========================================================================================
@@ -484,7 +535,7 @@ public class WxClient {
                 .bodyValue(request)
                 .retrieve()
                 .bodyToMono(MpSubscribeMessageResponse.class)
-                .block();
+                .block(remainingNoticeBudget());
     }
 
     /**
@@ -537,12 +588,40 @@ public class WxClient {
      * 调用微信文本审核接口。
      */
     private WxMsgSecCheckResponse callMsgSecCheck(WxMsgSecCheckRequest request, String token) {
-        return webClient.post()
+        var rawBody = webClient.post()
                 .uri(wxUri(MINI_MSG_SEC_CHECK_URL, "access_token", token))
                 .bodyValue(request)
                 .retrieve()
-                .bodyToMono(WxMsgSecCheckResponse.class)
+                .bodyToMono(String.class)
                 .block();
+        if (rawBody == null) { return null; }
+        var parser = new ObjectMapper()
+                .enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY)
+                .enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                .disable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        final com.fasterxml.jackson.databind.JsonNode body;
+        try { body = parser.readTree(rawBody); }
+        catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+            throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat", "Malformed text safety response");
+        }
+        if (body == null) {
+            throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat", "Missing text safety response");
+        }
+        // Log on the calling thread so the existing HTTP trace MDC remains attached.
+        if (log.isDebugEnabled()) {
+            log.debug("provider=wechat msgSecCheckStructure={}", WxTextSafetyDiagnostics.summary(body));
+        }
+        try {
+            var response = parser.convertValue(body, WxMsgSecCheckResponse.class);
+            if (response != null) {
+                response.setVerifiedPassStructure(WxTextSafetyStructure.pass(body, false));
+                response.setVerifiedEmptyKeywordPassStructure(WxTextSafetyStructure.pass(body, true));
+            }
+            return response;
+        } catch (IllegalArgumentException failure) {
+            // Jackson's raw message/cause may contain provider text; do not propagate it to logging.
+            throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat", "Malformed text safety response");
+        }
     }
 
     /**
@@ -585,7 +664,7 @@ public class WxClient {
                     errorPrefix + "，微信返回为空");
         }
         if (!response.isSuccess()) {
-            String detail = errorPrefix + "，errcode=" + response.getErrcode() + ", errmsg=" + response.getErrmsg();
+            String detail = errorPrefix + "，errcode=" + response.getErrcode();
             throw new ExternalServiceException(ResultCode.WX_API_ERROR, "wechat",
                     String.valueOf(response.getErrcode()), detail);
         }
@@ -594,10 +673,28 @@ public class WxClient {
 
     private String refreshMpAccessToken(String staleToken) {
         String cacheKey = RedisKeyConstant.wxAccessToken("mp", wxProperties.getMp().getAppId());
-        synchronized (mpTokenMonitor) {
+        lockMpToken();
+        try {
             String current = redisService.getString(cacheKey);
             if (StringUtils.hasText(current) && !current.equals(staleToken)) return current;
             return fetchMpAccessToken(cacheKey);
+        } finally { mpTokenMonitor.unlock(); }
+    }
+
+    private Duration remainingNoticeBudget() {
+        Long deadline = noticeDeadline.get();
+        long nanos = deadline == null ? Duration.ofSeconds(10).toNanos() : deadline - System.nanoTime();
+        if (nanos <= 0) throw new IllegalStateException("wechat call budget exhausted");
+        return Duration.ofNanos(nanos);
+    }
+
+    private void lockMpToken() {
+        try {
+            if (!mpTokenMonitor.tryLock(remainingNoticeBudget().toNanos(), java.util.concurrent.TimeUnit.NANOSECONDS))
+                throw new IllegalStateException("wechat token lock budget exhausted");
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("wechat token lock interrupted");
         }
     }
 

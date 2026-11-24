@@ -18,9 +18,9 @@ import cn.jualn.miniapp.common.mapper.EnumConverter;
 public interface TimelineConverter {
 
 
-    TimelineItemDTO toItemDTO(Timeline entity);
+    TimelineFactBO toFactBO(Timeline entity);
 
-    List<TimelineItemDTO> toItemDTOList(List<Timeline> entity);
+    List<TimelineFactBO> toFactBOList(List<Timeline> entity);
 
     @Mapping(target = "label", ignore = true)
     @Mapping(target = "description", ignore = true)

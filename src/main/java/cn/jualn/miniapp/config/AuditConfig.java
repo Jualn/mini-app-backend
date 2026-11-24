@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.config;
 
-import cn.jualn.miniapp.common.annotation.AuditTarget;
-import cn.jualn.miniapp.common.enums.AuditScene;
+import cn.jualn.miniapp.module.audit.annotation.AuditTarget;
+import cn.jualn.miniapp.module.audit.enums.AuditScene;
 import cn.jualn.miniapp.module.audit.service.AuditResultCallback;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.context.annotation.Bean;

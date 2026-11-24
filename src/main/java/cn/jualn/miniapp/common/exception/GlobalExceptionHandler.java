@@ -42,17 +42,21 @@ import java.util.Objects;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
-    @ExceptionHandler(cn.jualn.miniapp.infrastructure.cache.AdminQrLoginStore.RateLimited.class)
-    public ResponseEntity<ProblemDetail> handleQrRate(cn.jualn.miniapp.infrastructure.cache.AdminQrLoginStore.RateLimited exception) {
+    @ExceptionHandler(RateLimitedException.class)
+    public ResponseEntity<ProblemDetail> handleQrRate(RateLimitedException exception) {
         ResponseEntity<ProblemDetail> response = problem(HttpStatus.TOO_MANY_REQUESTS, "/problems/rate-limited",
                 "Rate limited", "Please wait before retrying");
         return ResponseEntity.status(response.getStatusCode()).headers(response.getHeaders())
                 .header("Retry-After", Long.toString(exception.retryAfter())).body(response.getBody());
     }
+
     @ExceptionHandler(ContractProblemException.class)
     public ResponseEntity<ProblemDetail> handleContractProblem(ContractProblemException exception) {
         ResponseEntity<ProblemDetail> response = problem(exception.getStatus(), exception.getType(),
                 exception.getStatus().getReasonPhrase(), exception.getMessage());
+        if (exception.getCode() != null) response.getBody().setProperty("code", exception.getCode());
+        if (exception.getRestriction() != null)
+            response.getBody().setProperty("restriction", exception.getRestriction());
         if (!exception.getErrors().isEmpty()) response.getBody().setProperty("errors", exception.getErrors());
         if ("/problems/notification-preferences-unavailable".equals(exception.getType())) {
             return ResponseEntity.status(response.getStatusCode())
@@ -113,6 +117,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ProblemDetail> handleNotReadable(HttpMessageNotReadableException exception) {
+        Throwable cause = exception.getCause();
+        for (int depth = 0; cause != null && depth < 10; depth++, cause = cause.getCause()) {
+            if (cause instanceof ContractProblemException problem) return handleContractProblem(problem);
+        }
         return validationProblem(List.of(new ValidationProblem(
                 "body", "/", "MALFORMED", "请求体格式错误")));
     }
@@ -173,7 +181,11 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ProblemDetail> handleBusiness(BusinessException exception) {
         ResultCode resultCode = exception.getResultCode();
         ApiProblemCatalog.Definition definition = ApiProblemCatalog.forResultCode(resultCode);
-        return problem(definition.status(), definition.type(), definition.title(), exception.getMessage());
+        var response = problem(definition.status(), definition.type(), definition.title(), exception.getMessage());
+        if (exception instanceof AdminAccountRestrictedException) {
+            response.getBody().setProperty("code", "ADMIN_ACCOUNT_RESTRICTED");
+        }
+        return response;
     }
 
     @ExceptionHandler(SystemException.class)

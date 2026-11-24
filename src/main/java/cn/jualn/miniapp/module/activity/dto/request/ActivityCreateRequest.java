@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.activity.dto.request;
 
-import cn.jualn.miniapp.common.enums.ActivityCategory;
+import cn.jualn.miniapp.module.activity.enums.ActivityCategory;
 import cn.jualn.miniapp.module.media.dto.request.AttachmentItemRequest;
 import cn.jualn.miniapp.module.timeline.dto.request.TimelineItemRequest;
 import jakarta.validation.constraints.NotBlank;
@@ -57,8 +57,6 @@ public class ActivityCreateRequest {
     @Size(max = 128, message = "主办单位不能超过128字")
     private String organizer;
 
-    /** 参与范围位掩码，可选 */
-    private Integer audienceScope;
 
     /** 联系人JSON，可选 */
     @Size(max = 512, message = "联系人信息不能超过512字")

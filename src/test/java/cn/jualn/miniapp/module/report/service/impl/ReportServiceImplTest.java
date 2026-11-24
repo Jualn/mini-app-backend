@@ -2,7 +2,7 @@ package cn.jualn.miniapp.module.report.service.impl;
 
 import cn.jualn.miniapp.common.constant.UserContext;
 import cn.jualn.miniapp.common.enums.TargetType;
-import cn.jualn.miniapp.common.enums.UserRole;
+import cn.jualn.miniapp.module.user.enums.UserRole;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.PageResult;
 import cn.jualn.miniapp.module.report.bo.ReportBO;
@@ -14,9 +14,9 @@ import cn.jualn.miniapp.module.report.entity.Report;
 import cn.jualn.miniapp.module.report.enums.ReportReason;
 import cn.jualn.miniapp.module.report.enums.ReportStatus;
 import cn.jualn.miniapp.module.report.mapper.ReportMapper;
-import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
+import cn.jualn.miniapp.module.subject.service.SubjectExistenceService;
 import cn.jualn.miniapp.module.user.bo.UserAuthBO;
-import cn.jualn.miniapp.module.user.service.UserService;
+import cn.jualn.miniapp.module.user.service.UserAccountService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,6 +45,15 @@ import static org.mockito.Mockito.when;
 @MockitoSettings(strictness = Strictness.LENIENT)
 class ReportServiceImplTest {
 
+    @org.junit.jupiter.api.BeforeAll
+    static void initializeMapping() {
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""), Report.class);
+    }
+
+    @Mock
+    private cn.jualn.miniapp.module.authorization.service.CurrentAuthorization authorization;
+
     @Mock
     private ReportMapper reportMapper;
 
@@ -52,10 +61,10 @@ class ReportServiceImplTest {
     private ReportConverter reportConverter;
 
     @Mock
-    private TargetValidator targetValidator;
+    private SubjectExistenceService targetValidator;
 
     @Mock
-    private UserService userService;
+    private UserAccountService userService;
 
     @InjectMocks
     private ReportServiceImpl service;
@@ -117,6 +126,13 @@ class ReportServiceImplTest {
     @Test
     void createReport_shouldPersistAndReturnBO() {
         doNothing().when(targetValidator).assertExists(any(), any());
+        // MySQL supplies these defaults; this unit fixture does not execute INSERT.
+        org.mockito.Mockito.doAnswer(invocation -> {
+            Report row = invocation.getArgument(0);
+            row.setStatus(ReportStatus.PENDING.getCode());
+            row.setCreatedAt(LocalDateTime.now());
+            return 1;
+        }).when(reportMapper).insert(any(Report.class));
 
         ReportCreateBO request = ReportCreateBO.builder()
                 .targetType(TargetType.POST)
@@ -177,7 +193,7 @@ class ReportServiceImplTest {
     @Test
     void handleReport_shouldUpdateHandledFields() {
         when(userService.getUserAuthInfo(10L)).thenReturn(UserAuthBO.builder().role(UserRole.ADMIN).build());
-        when(reportMapper.selectById(1L)).thenReturn(Report.builder()
+        when(reportMapper.selectById(any())).thenReturn(Report.builder()
                 .id(1L)
                 .reporterId(20L)
                 .status(ReportStatus.PENDING.getCode())

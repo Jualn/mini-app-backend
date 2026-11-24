@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.person.mapper.MentorWorkflowMapper">
+ <sql id="candidateFrom">FROM person_profile p WHERE p.status='ACTIVE' AND LOCATE(#{q},p.real_name)&gt;0</sql>
+ <select id="candidates" resultType="cn.jualn.miniapp.module.person.bo.MentorWorkflowBO$Candidate">
+ SELECT p.id person_id,p.real_name,CONCAT('档案 ',RIGHT(p.id,8)) distinguishing_label,
+ EXISTS(SELECT 1 FROM mentor_profile m WHERE m.person_id=p.id) has_mentor_profile
+ <include refid="candidateFrom"/> ORDER BY p.id LIMIT #{limit} OFFSET #{offset}
+ </select>
+ <select id="candidateCount" resultType="long">SELECT COUNT(*) <include refid="candidateFrom"/></select>
+</mapper>

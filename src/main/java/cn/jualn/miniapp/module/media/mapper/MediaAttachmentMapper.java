@@ -13,6 +13,15 @@ import cn.jualn.miniapp.module.media.bo.AttachmentTargetBO;
 @Mapper
 public interface MediaAttachmentMapper extends BaseMapper<MediaAttachment> {
 
+    @org.apache.ibatis.annotations.Select("SELECT id,target_type,target_id,type,kind,registered,registered_by,object_key,url,original_name,sort_order,content_type,size_bytes,width,height,duration_seconds,verified,retention,expires_at,deleted,created_at FROM media_attachment WHERE id=#{id} FOR UPDATE")
+    MediaAttachment lock(@Param("id") long id);
+
+    List<MediaAttachment> selectMine(com.baomidou.mybatisplus.extension.plugins.pagination.Page<MediaAttachment> page,
+            @Param("actor") long actor,@Param("legacy") boolean legacy,@Param("types") List<Integer> types,@Param("articleAllowed") boolean articleAllowed,@Param("orgs") List<String> orgs);
+
+    List<Long> readableArticleMedia(@Param("ids") List<Long> ids,@Param("actor") long actor,@Param("articleAllowed") boolean allowed,@Param("orgs") List<String> orgs);
+    List<AttachmentAccessRow> selectBatchAccess(@Param("ids") Collection<Long> ids, @Param("actor") long actor);
+
     int insertBatch(@Param("list") List<MediaAttachment> attachments);
 
     List<MediaAttachmentSimpleBO> selectSimpleBatchByTargetIds(

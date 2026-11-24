@@ -26,7 +26,14 @@ public class Comment {
 
     private Long parentId;
 
+    private Boolean communityThread;
     private Long replyToUid;
+    private Long replyToCommentId;
+    private String mentorEvidence;
+    private String questionVersion;
+    private String mentorAttribution;
+    private String submissionNotice;
+    private LocalDateTime firstPublishedAt;
 
     private String content;
 

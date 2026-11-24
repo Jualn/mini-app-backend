@@ -6,6 +6,7 @@ import cn.jualn.miniapp.common.exception.SystemException;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.ss.usermodel.*;
+
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -14,6 +15,7 @@ import java.time.format.DateTimeFormatterBuilder;
 import java.time.temporal.ChronoField;
 import java.util.List;
 import java.util.Objects;
+
 import org.apache.poi.ss.util.CellRangeAddress;
 
 final class ActivityRegistrationExport {
@@ -24,7 +26,10 @@ final class ActivityRegistrationExport {
             .appendLiteral(' ')
             .appendOffset("+HH:MM", "+00:00")
             .toFormatter();
-    private ActivityRegistrationExport() {}
+
+    private ActivityRegistrationExport() {
+    }
+
     static byte[] xlsx(String formVersion, JsonNode schema, List<ActivityRegistration> rows) {
         try (XSSFWorkbook book = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             List<JsonNode> fields = orderedFields(schema);
@@ -63,13 +68,15 @@ final class ActivityRegistrationExport {
             sheet.setColumnWidth(1, 27 * 256);
             sheet.setColumnWidth(2, 27 * 256);
             for (int i = fixed.length; i <= lastColumn; i++) sheet.setColumnWidth(i, 24 * 256);
-            book.write(out); return out.toByteArray();
+            book.write(out);
+            return out.toByteArray();
         } catch (SystemException exception) {
             throw exception;
         } catch (RuntimeException | java.io.IOException exception) {
             throw new SystemException("报名 XLSX 生成失败", exception);
         }
     }
+
     static byte[] csv(JsonNode schema, List<ActivityRegistration> rows) {
         StringBuilder csv = new StringBuilder("\uFEFF");
         List<String> headers = new java.util.ArrayList<>(List.of(
@@ -85,12 +92,15 @@ final class ActivityRegistrationExport {
                     row.getFormVersion() == null ? "" : row.getFormVersion()));
             JsonNode data = ActivityFormPolicy.parse(row.getFormData());
             for (JsonNode field : fields) {
-                String key = ActivityFormPolicy.fieldKey(field); JsonNode answer = data == null ? null : data.get(key);
+                String key = ActivityFormPolicy.fieldKey(field);
+                JsonNode answer = data == null ? null : data.get(key);
                 String type = ActivityFormPolicy.fieldType(field);
                 if (answer != null && "multi_select".equals(type)) {
                     var labels = new java.util.ArrayList<String>();
-                    for (JsonNode selected : answer) for (JsonNode option : field.path("options"))
-                        if (ActivityFormPolicy.optionKey(option).equals(selected.asText())) labels.add(option.path("label").asText());
+                    for (JsonNode selected : answer)
+                        for (JsonNode option : field.path("options"))
+                            if (ActivityFormPolicy.optionKey(option).equals(selected.asText()))
+                                labels.add(option.path("label").asText());
                     values.add(new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(labels).toString());
                 } else values.add(ActivityFormPolicy.display(field, answer));
             }
@@ -98,6 +108,7 @@ final class ActivityRegistrationExport {
         }
         return csv.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
     }
+
     private static List<JsonNode> orderedFields(JsonNode schema) {
         if (schema == null) return List.of();
         List<JsonNode> fields = new java.util.ArrayList<>();
@@ -106,6 +117,7 @@ final class ActivityRegistrationExport {
                 .thenComparing(ActivityFormPolicy::fieldKey));
         return fields;
     }
+
     private static void validateXlsxRows(String formVersion, JsonNode schema, List<ActivityRegistration> rows) {
         if (rows.size() > MAX_DATA_ROWS) throw new SystemException("报名 XLSX 超过工作表行数上限");
         if (rows.isEmpty()) return;
@@ -122,14 +134,17 @@ final class ActivityRegistrationExport {
             }
         }
     }
+
     private static String status(ActivityRegistration row) {
         if (Integer.valueOf(1).equals(row.getStatus())) return "已报名";
         if (Integer.valueOf(2).equals(row.getStatus())) return "已取消";
         throw new SystemException("XLSX 包含不支持的报名状态: registrationId=" + row.getId());
     }
+
     private static String xlsxTime(LocalDateTime value) {
         return value == null ? "" : value.atZone(ZoneId.of("Asia/Shanghai")).format(XLSX_TIME);
     }
+
     private static String xlsxDisplay(JsonNode field, JsonNode answer) {
         if (answer == null || answer.isNull()) return "";
         String type = ActivityFormPolicy.fieldType(field);
@@ -149,16 +164,25 @@ final class ActivityRegistrationExport {
         }
         throw new SystemException("报名答案无法按冻结表单解释: fieldKey=" + ActivityFormPolicy.fieldKey(field));
     }
-    private static String time(LocalDateTime value) { return value == null ? "" : value.atOffset(java.time.ZoneOffset.ofHours(8)).toString(); }
-    private static void line(StringBuilder target, List<String> cells) { target.append(cells.stream().map(ActivityRegistrationExport::csvCell).collect(java.util.stream.Collectors.joining(","))).append("\r\n"); }
+
+    private static String time(LocalDateTime value) {
+        return value == null ? "" : value.atOffset(java.time.ZoneOffset.ofHours(8)).toString();
+    }
+
+    private static void line(StringBuilder target, List<String> cells) {
+        target.append(cells.stream().map(ActivityRegistrationExport::csvCell).collect(java.util.stream.Collectors.joining(","))).append("\r\n");
+    }
+
     private static String csvCell(String value) {
         String safe = value == null ? "" : value;
         if (!safe.isEmpty() && ("=+-@\t\r".indexOf(safe.charAt(0)) >= 0)) safe = "'" + safe;
         return "\"" + safe.replace("\"", "\"\"") + "\"";
     }
+
     private static void cell(Row row, int column, String value, CellStyle style) {
         // Explicit STRING cells (including headers) preserve leading zeroes and cannot execute formulas.
         Cell cell = row.createCell(column, CellType.STRING);
-        cell.setCellStyle(style); cell.setCellValue(value);
+        cell.setCellStyle(style);
+        cell.setCellValue(value);
     }
 }

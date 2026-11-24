@@ -14,6 +14,8 @@ public interface MediaUploadRecordMapper extends BaseMapper<MediaUploadRecord> {
 
     MediaUploadRecord selectForUpdate(@Param("objectKey") String objectKey);
 
+    Integer selectRegisteredPurpose(@Param("attachmentId") Long attachmentId, @Param("operatorId") long operatorId);
+
     List<MediaUploadRecord> selectExpiredCandidates(@Param("now") LocalDateTime now,
             @Param("afterId") long afterId, @Param("limit") int limit);
 

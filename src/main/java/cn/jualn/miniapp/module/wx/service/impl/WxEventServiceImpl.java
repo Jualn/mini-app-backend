@@ -41,19 +41,17 @@ public class WxEventServiceImpl implements WxEventService {
             throw new IllegalArgumentException("微信事件 XML 无法解析", e);
         }
 
-        log.debug("接收微信事件：accountType={}, msgType={}, event={}",
-                accountType, message.getMsgType(), message.getEvent());
+        log.debug("接收微信事件：accountType={}", accountType);
 
         String handlerKey = resolveKey(accountType, message);
         if (!StringUtils.hasText(handlerKey)) {
-            log.warn("未识别的微信事件，accountType={}, msgType={}, event={}",
-                    accountType, message.getMsgType(), message.getEvent());
+            log.debug("未识别的微信事件，accountType={}", accountType);
             return "success";
         }
 
         WxEventHandler handler = handlers.get(handlerKey);
         if (handler == null) {
-            log.warn("未找到微信事件处理器，handlerKey={}，直接跳过", handlerKey);
+            log.debug("未找到微信事件处理器，accountType={}", accountType);
             return "success";
         }
 

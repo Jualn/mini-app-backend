@@ -35,7 +35,7 @@ public class OutboxService {
         event.setAggregateType(aggregateType);
         event.setAggregateId(aggregateId);
         event.setPayload(write(payload));
-        event.setNextAttemptAt(LocalDateTime.now());
+        event.setNextAttemptAt(LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")));
         mapper.insert(event);
         return event.getMessageId();
     }

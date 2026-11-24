@@ -6,11 +6,16 @@ import cn.jualn.miniapp.module.notify.entity.NotifyPlan;
 public final class ReminderOccurrence {
     private ReminderOccurrence() { }
     public static String sourceKey(NotifyPlan plan, long userId) {
-        if (plan.getNotifyType() != null && plan.getNotifyType() >= 8 && plan.getNotifyType() <= 11
+        return sourceKey(ReminderPlanSnapshot.of(plan), userId);
+    }
+
+    public static String sourceKey(cn.jualn.miniapp.module.notify.bo.ReminderPlanBO plan, long userId) {
+        var type = cn.jualn.miniapp.module.notify.enums.NotifyType.fromCode(plan.getNotifyType());
+        if (type != null && type.isTimedReminder()
                 && (plan.getSubjectStartsAt() == null || plan.getSourceId() == null)) {
             throw new IllegalStateException("Canonical reminder has no frozen business anchor; reconcile before execution");
         }
-        if (plan.getNotifyType() == null || plan.getNotifyType() < 8 || plan.getNotifyType() > 11) {
+        if (type == null || !type.isTimedReminder()) {
             // Pre-anchor compatibility plans cannot invent an occurrence from sendAt or current subject state.
             return "plan:" + plan.getId() + ":user:" + userId;
         }

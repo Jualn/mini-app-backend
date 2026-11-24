@@ -12,7 +12,9 @@ public class CommentCreateBO {
     private TargetType targetType;
     private Long targetId;
     private Long parentId;
+    private Long replyToCommentId;
     private Long replyToUid;
+    private String questionVersion;
     private String content;
     private String imageUrl;
     private String imageObjectKey;

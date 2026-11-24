@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.wx.notice.builder;
 
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.module.notify.payload.NotifyPayload;
 import org.springframework.stereotype.Component;
 
@@ -20,8 +20,8 @@ public class ActivityRemindBuilder implements WxNoticeBuilder {
         Map<String, Object> data = new HashMap<>();
 
         // 1. 触发路径：有 wxData 则作为基础
-        if (payload.getWxData() != null) {
-            data.putAll(payload.getWxData().toMap());
+        if (payload.getContentData() != null) {
+            data.putAll(payload.getContentData().toMap());
         }
 
         // 历史 payload 只允许消费已冻结字段；微信映射层不得回查 Activity。

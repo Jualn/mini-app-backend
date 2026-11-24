@@ -24,6 +24,8 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class AdminSystemServiceImpl implements AdminSystemService {
+    private final cn.jualn.miniapp.module.authorization.service.CurrentAuthorization authorization;
+
 
     private final DataSource dataSource;
     private final RedisConnectionFactory redisConnectionFactory;
@@ -34,7 +36,9 @@ public class AdminSystemServiceImpl implements AdminSystemService {
 
     @Override
     public AdminSystemOverviewBO getOverview() {
-        OffsetDateTime checkedAt = OffsetDateTime.now();
+        authorization.require(cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong(),"system:read","SYSTEM","system:read");
+
+        OffsetDateTime checkedAt = OffsetDateTime.now(java.time.ZoneId.of("Asia/Shanghai"));
         List<AdminSystemOverviewBO.ServiceHealthBO> services = new ArrayList<>();
         services.add(healthy(
                 "admin-api",

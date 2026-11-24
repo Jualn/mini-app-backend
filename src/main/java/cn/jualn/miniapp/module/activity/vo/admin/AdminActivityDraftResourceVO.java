@@ -10,6 +10,8 @@ import lombok.Data;
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class AdminActivityDraftResourceVO {
+    private Boolean allowRegistrationAfterStart;
+
     private String title;
     private String summary;
     private String coverAttachmentId;

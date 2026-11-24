@@ -1,0 +1,12 @@
+# Merge with the real production Compose file AFTER renaming backend to its actual service name.
+# This file deliberately has no image, credentials, ports, volumes or deployment commands.
+services:
+  backend:
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+        mode: non-blocking
+        max-buffer-size: "4m"

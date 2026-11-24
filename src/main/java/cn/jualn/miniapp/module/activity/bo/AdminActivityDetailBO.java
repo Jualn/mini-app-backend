@@ -1,9 +1,9 @@
 package cn.jualn.miniapp.module.activity.bo;
 
-import cn.jualn.miniapp.common.enums.ActivityCategory;
-import cn.jualn.miniapp.common.enums.ActivityStatus;
+import cn.jualn.miniapp.module.activity.enums.ActivityCategory;
+import cn.jualn.miniapp.module.activity.enums.ActivityStatus;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
-import cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO;
+import cn.jualn.miniapp.module.timeline.bo.TimelineFactBO;
 import cn.jualn.miniapp.module.user.bo.UserSimpleBO;
 import lombok.Builder;
 import lombok.Data;
@@ -14,6 +14,10 @@ import java.util.List;
 @Data
 @Builder
 public class AdminActivityDetailBO {
+    private Boolean allowRegistrationAfterStart;
+    private java.time.LocalDateTime deletedAt;
+    private Long deletedBy;
+
     private Long contractVersion;
     private Integer lifecycleStatus;
     private String formVersion;
@@ -57,7 +61,6 @@ public class AdminActivityDetailBO {
     private Integer auditStatus;
     private String rejectReason;
     private String organizer;
-    private Integer audienceScope;
     private String contactName;
     private String contactPhone;
     private String joinMethod;
@@ -77,5 +80,5 @@ public class AdminActivityDetailBO {
     private LocalDateTime updatedAt;
     private UserSimpleBO author;
     private List<MediaAttachmentBO> attachments;
-    private List<TimelineItemDTO> timeline;
+    private List<TimelineFactBO> timeline;
 }

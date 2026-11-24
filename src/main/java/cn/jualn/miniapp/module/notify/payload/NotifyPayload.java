@@ -1,25 +1,14 @@
 package cn.jualn.miniapp.module.notify.payload;
 
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.common.enums.TargetType;
-import cn.jualn.miniapp.module.wx.notice.data.NoticeData;
+import cn.jualn.miniapp.module.notify.payload.data.NoticeData;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/**
- * 个人通知 Payload（所有通知路径最终都用这个发）。
- * <p>
- * wxData 用 NoticeData 接口约束类型，各通知类型有对应的 record 实现：
- * COMMENT → CommentNoticeData
- * REPLY   → ReplyNoticeData
- * LIKE    → LikeNoticeData
- * ACTIVITY→ ActivityRemindNoticeData
- * EXAM    → ExamRemindNoticeData
- * AUDIT   → AuditResultNoticeData
- * SYSTEM  → BroadcastNoticeData
- */
+/** Channel-neutral personal notification command with Notify-owned content facts. */
 @Getter
 @Builder
 @NoArgsConstructor
@@ -56,9 +45,24 @@ public class NotifyPayload {
     private Long targetId;
     /** 稳定业务来源；需要幂等的通知必须提供。 */
     private String sourceKey;
+    /** Internal execution evidence, excluded from all public notification projections. */
+    private Long reminderPlanId;
+    /** Exact business anchor frozen by the reminder producer, never reconstructed by a renderer. */
+    private java.time.LocalDateTime businessTime;
+    private String businessLocation;
+    private java.time.LocalDateTime registrationDeadlineTime;
+    private java.time.LocalDateTime occurredAt;
+    /** True only after the mentor answer publication guard has accepted the answer. */
+    private boolean mentorAnswer;
     private cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot snapshot;
     /**
-     * 微信模板变量值，按类型使用不同的 NoticeData 实现
+     * 通知内容事实；持久 JSON 沿用 wxData 字段名，以读取既有载荷
      */
-    private NoticeData wxData;
+    @com.fasterxml.jackson.annotation.JsonProperty("wxData")
+    private NoticeData contentData;
+    /** Internal binding evidence, never exposed as template fields or a public response. */
+    private String recipientPersonId;
+    private String recipientBindingId;
+    /** Optional upper bound only; never grants a channel or overrides user preferences/capability. */
+    private java.util.Set<cn.jualn.miniapp.module.notify.model.NotificationChannel> allowedChannels;
 }

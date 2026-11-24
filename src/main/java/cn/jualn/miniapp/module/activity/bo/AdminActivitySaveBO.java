@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.activity.bo;
 
-import cn.jualn.miniapp.common.enums.ActivityCategory;
+import cn.jualn.miniapp.module.activity.enums.ActivityCategory;
 import cn.jualn.miniapp.module.media.bo.AttachmentLinkBO;
 import cn.jualn.miniapp.module.timeline.bo.TimelineItemBO;
 import lombok.Builder;
@@ -11,6 +11,8 @@ import java.util.List;
 @Data
 @Builder
 public class AdminActivitySaveBO {
+    private Boolean allowRegistrationAfterStart;
+
     private boolean canonicalFullReplacement;
     private com.fasterxml.jackson.databind.JsonNode formSchema;
     private String summary;
@@ -32,7 +34,6 @@ public class AdminActivitySaveBO {
     private String location;
     private ActivityCategory category;
     private String organizer;
-    private Integer audienceScope;
     private List<TimelineItemBO> timelineItems;
     private List<AttachmentLinkBO> attachmentLinks;
 }

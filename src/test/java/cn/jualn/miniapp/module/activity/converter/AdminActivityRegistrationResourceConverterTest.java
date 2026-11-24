@@ -14,7 +14,7 @@ class AdminActivityRegistrationResourceConverterTest {
     @Test
     void exposesRawContractAnswersWithoutPersonalCapabilities() {
         var row = new ActivityRegistrationBO();
-        row.setId(3L); row.setActivityId(7L); row.setUserId(9L); row.setStatus(2);
+        row.setContractVersion(1L); row.setId(3L); row.setActivityId(7L); row.setUserId(9L); row.setStatus(2);
         row.setFormVersion("form-v1"); row.setFormData(ActivityFormPolicy.parse("{\"track\":[\"ai\"]}"));
         row.setSubmittedAt(LocalDateTime.of(2026, 9, 14, 10, 0));
         row.setUpdatedAt(LocalDateTime.of(2026, 9, 14, 11, 0));

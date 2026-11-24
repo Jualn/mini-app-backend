@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.audit.bo;
 
-import cn.jualn.miniapp.common.enums.AuditScene;
+import cn.jualn.miniapp.module.audit.enums.AuditScene;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

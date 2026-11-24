@@ -19,6 +19,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class ReportBO {
 
+    private String outcome;
     private Long id;
 
     private Long reporterId;

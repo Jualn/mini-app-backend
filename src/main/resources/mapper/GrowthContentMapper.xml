@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.content.mapper.GrowthContentMapper">
+ <select id="locations" resultType="cn.jualn.miniapp.module.content.mapper.GrowthContentMapper$Location">
+ SELECT r.type,r.id,CASE r.type WHEN 'post' THEN 'POST' WHEN 'activity' THEN 'ACTIVITY'
+ ELSE CASE c.target_type WHEN 1 THEN 'POST' WHEN 2 THEN 'ACTIVITY' WHEN 3 THEN 'PUBLIC_EVENT' WHEN 8 THEN 'ARTICLE' END END namespace,
+ g.organization_id
+ FROM (<foreach collection="references" item="r" separator=" UNION ALL ">SELECT #{r.type} type,#{r.id} id</foreach>) r
+ LEFT JOIN comment c ON r.type='comment' AND c.id=r.id
+ LEFT JOIN post p ON p.id=CASE WHEN r.type='post' THEN r.id WHEN c.target_type=1 THEN c.target_id END
+ LEFT JOIN activity a ON a.id=CASE WHEN r.type='activity' THEN r.id WHEN c.target_type=2 THEN c.target_id END
+ LEFT JOIN public_event e ON c.target_type=3 AND e.id=c.target_id
+ LEFT JOIN article ar ON c.target_type=8 AND ar.id=c.target_id
+ LEFT JOIN post_growth_record g ON g.post_id=p.id
+ WHERE (r.type='post' AND p.id IS NOT NULL) OR (r.type='activity' AND a.id IS NOT NULL)
+ OR (r.type='comment' AND c.id IS NOT NULL AND (p.id IS NOT NULL OR a.id IS NOT NULL OR e.id IS NOT NULL OR ar.id IS NOT NULL))
+ </select>
+</mapper>

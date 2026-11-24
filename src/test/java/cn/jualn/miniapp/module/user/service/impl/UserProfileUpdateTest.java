@@ -5,8 +5,8 @@ import cn.jualn.miniapp.module.user.controller.UserController;
 import cn.jualn.miniapp.module.user.converter.UserConverter;
 import cn.jualn.miniapp.module.user.dto.request.UserProfileUpdateRequest;
 import cn.jualn.miniapp.module.user.service.UserService;
-import cn.jualn.miniapp.common.enums.UserRole;
-import cn.jualn.miniapp.common.enums.UserStatus;
+import cn.jualn.miniapp.module.user.enums.UserRole;
+import cn.jualn.miniapp.module.user.enums.UserStatus;
 import org.junit.jupiter.api.Test;
 import org.mapstruct.factory.Mappers;
 import static org.junit.jupiter.api.Assertions.*;
@@ -21,7 +21,7 @@ class UserProfileUpdateTest {
                 .nickname("最终昵称").avatarUrl("https://media.example/avatar").bio("简介")
                 .role(UserRole.USER).status(UserStatus.NORMAL).build());
         var request = new UserProfileUpdateRequest(); request.setNickname("最终昵称");
-        var response = new UserController(service, Mappers.getMapper(UserConverter.class)).updateCurrentProfile(request);
+        var response = new UserController(service, org.mockito.Mockito.mock(cn.jualn.miniapp.module.user.service.UserAgreementService.class), Mappers.getMapper(UserConverter.class)).updateCurrentProfile(request);
         assertEquals(7L, response.getData().getId());
         assertEquals("最终昵称", response.getData().getNickname());
         assertEquals("https://media.example/avatar", response.getData().getAvatarUrl());

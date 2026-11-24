@@ -10,10 +10,19 @@ import lombok.Data;
 @Data
 public class PostPageQuery {
 
-    /** 游标分页：上一页最后一条帖子 ID，首次查询可为空。 */
+    /**
+     * 游标分页：上一页最后一条帖子 ID，首次查询可为空。
+     */
     private Long lastId;
+    private String postType = "NORMAL";
+    private Long categoryId;
+    private Long topicId;
+    private String cursor;
+    private String answerState;
 
-    /** 每页条数。 */
+    /**
+     * 每页条数。
+     */
     @Min(value = 1, message = "pageSize 最小为1")
     @Max(value = 50, message = "pageSize 最大为50")
     private Integer pageSize = 20;

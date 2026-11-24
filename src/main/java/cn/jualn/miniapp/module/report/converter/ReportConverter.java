@@ -18,7 +18,7 @@ import java.util.List;
 /**
  * 举报对象转换器。
  */
-@Mapper(componentModel = "spring",uses = {EnumConverter.class})
+@Mapper(componentModel = "spring",uses = {EnumConverter.class, cn.jualn.miniapp.module.report.converter.ReportEnumMappings.class})
 public interface ReportConverter {
 
     ReportCreateBO toBO(ReportCreateRequest request);

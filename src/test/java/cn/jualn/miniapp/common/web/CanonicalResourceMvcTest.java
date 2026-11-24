@@ -1,7 +1,7 @@
 package cn.jualn.miniapp.common.web;
 
-import cn.jualn.miniapp.common.enums.ActivityCategory;
-import cn.jualn.miniapp.common.enums.MediaType;
+import cn.jualn.miniapp.module.activity.enums.ActivityCategory;
+import cn.jualn.miniapp.module.media.enums.MediaType;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.exception.ContractProblemException;
 import cn.jualn.miniapp.common.exception.GlobalExceptionHandler;
@@ -18,20 +18,20 @@ import cn.jualn.miniapp.module.activity.converter.ActivityResourceConverter;
 import cn.jualn.miniapp.module.activity.converter.PersonalRegistrationConverter;
 import cn.jualn.miniapp.module.activity.service.ActivityEnrollmentService;
 import cn.jualn.miniapp.module.activity.service.ActivityRegistrationService;
-import cn.jualn.miniapp.module.activity.service.ActivityService;
+import cn.jualn.miniapp.module.activity.service.ActivityQueries;
 import cn.jualn.miniapp.module.eventcontent.bo.EventContactBO;
 import cn.jualn.miniapp.module.eventcontent.bo.EventActionBO;
-import cn.jualn.miniapp.module.exam.bo.ExamDetailBO;
-import cn.jualn.miniapp.module.exam.bo.PublicEventSubscriptionBO;
-import cn.jualn.miniapp.module.exam.controller.CanonicalPublicEventController;
-import cn.jualn.miniapp.module.exam.converter.PublicEventResourceConverter;
-import cn.jualn.miniapp.module.exam.service.ExamService;
-import cn.jualn.miniapp.module.exam.service.ExamSubscriptionService;
+import cn.jualn.miniapp.module.publicevent.bo.PublicEventDetailBO;
+import cn.jualn.miniapp.module.publicevent.bo.PublicEventSubscriptionBO;
+import cn.jualn.miniapp.module.publicevent.controller.CanonicalPublicEventController;
+import cn.jualn.miniapp.module.publicevent.converter.PublicEventResourceConverter;
+import cn.jualn.miniapp.module.publicevent.service.PublicEventQueries;
+import cn.jualn.miniapp.module.publicevent.service.PublicEventSubscriptionService;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
 import cn.jualn.miniapp.module.media.controller.CanonicalAttachmentController;
 import cn.jualn.miniapp.module.media.converter.AttachmentConverter;
 import cn.jualn.miniapp.module.media.service.AttachmentReadService;
-import cn.jualn.miniapp.module.media.service.MediaService;
+import cn.jualn.miniapp.module.media.TestMediaService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -60,13 +60,13 @@ class CanonicalResourceMvcTest {
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule())
             .addMixIn(org.springframework.http.ProblemDetail.class, org.springframework.http.converter.json.ProblemDetailJacksonMixin.class)
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-    private final ActivityService activities = mock(ActivityService.class);
+    private final ActivityQueries activities = mock(ActivityQueries.class);
     private final ActivityEnrollmentService subscriptions = mock(ActivityEnrollmentService.class);
     private final ActivityRegistrationService registrations = mock(ActivityRegistrationService.class);
-    private final ExamService events = mock(ExamService.class);
-    private final ExamSubscriptionService eventSubscriptions = mock(ExamSubscriptionService.class);
+    private final PublicEventQueries events = mock(PublicEventQueries.class);
+    private final PublicEventSubscriptionService eventSubscriptions = mock(PublicEventSubscriptionService.class);
     private final AttachmentReadService attachments = mock(AttachmentReadService.class);
-    private final MediaService media = mock(MediaService.class);
+    private final TestMediaService media = mock(TestMediaService.class);
     private MockMvc mvc;
 
     @BeforeEach
@@ -75,7 +75,7 @@ class CanonicalResourceMvcTest {
                 new CanonicalActivityController(activities, subscriptions, new ActivityResourceConverter(mapper)),
                 new CanonicalActivityRegistrationController(registrations, new PersonalRegistrationConverter()),
                 new CanonicalPublicEventController(events, eventSubscriptions, new PublicEventResourceConverter()),
-                new CanonicalAttachmentController(attachments, media, new AttachmentConverter()))
+                new CanonicalAttachmentController(attachments, media, org.mockito.Mockito.mock(cn.jualn.miniapp.module.media.service.AttachmentRegistrationService.class), new AttachmentConverter(), org.mockito.Mockito.mock(cn.jualn.miniapp.module.media.service.AttachmentManagementService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper)).build();
     }
@@ -96,12 +96,12 @@ class CanonicalResourceMvcTest {
 
     @Test
     void activityPreservesContactKeysAndDoesNotInventPlatformCount() throws Exception {
-        var deadline = cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO.builder()
+        var deadline = cn.jualn.miniapp.module.timeline.bo.TimelineFactBO.builder()
                 .nodeKey("deadline").nodeType("REGISTRATION_END").label("截止")
                 .startTime(LocalDateTime.of(2026, 10, 1, 18, 0)).startPrecision(2)
                 .sortOrder(0).build();
         var value = ActivityDetailBO.builder().id(9L).title("Activity").summary("Summary")
-                .category(ActivityCategory.OTHER).organizer("Campus").audienceScope(1).audienceSummary("Campus")
+                .category(ActivityCategory.OTHER).organizer("Campus").audienceDepartmentIds("[]").audienceSummary("Campus")
                 .registrationMode(3).participantMode(1).publishStatus(1).lifecycleStatus(0)
                 .cardTimeline(deadline)
                 .evaluatedAt(LocalDateTime.of(2026, 9, 13, 12, 0)).participationState("EXTERNAL")
@@ -127,7 +127,7 @@ class CanonicalResourceMvcTest {
 
     @Test
     void publicEventPreservesMultipleContactsAndTerminalLifecycle() throws Exception {
-        var value = ExamDetailBO.builder().id(4L).title("Results").summary("Summary")
+        var value = PublicEventDetailBO.builder().id(4L).title("Results").summary("Summary")
                 .eventType(1).sourceName("Office").publishStatus(1).lifecycleStatus(1)
                 .contacts(List.of(new EventContactBO("one", "One", "123", null),
                         new EventContactBO("two", "Two", "456", null)))
@@ -197,7 +197,7 @@ class CanonicalResourceMvcTest {
                                 ? "mailto:office@example.test" : "https://example.test/action/" + index)
                         .sortOrder(index).build()).toList();
         var value = ActivityDetailBO.builder().id(9L).title("Activity").summary("Summary")
-                .category(ActivityCategory.OTHER).organizer("Campus").audienceScope(1).audienceSummary("Campus")
+                .category(ActivityCategory.OTHER).organizer("Campus").audienceDepartmentIds("[]").audienceSummary("Campus")
                 .registrationMode(3).participantMode(1).publishStatus(1).lifecycleStatus(0)
                 .evaluatedAt(LocalDateTime.of(2026, 10, 8, 13, 0)).participationState("EXTERNAL")
                 .contacts(List.of()).sections(List.of()).actions(actions)

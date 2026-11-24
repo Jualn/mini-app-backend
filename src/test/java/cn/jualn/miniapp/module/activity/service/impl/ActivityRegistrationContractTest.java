@@ -40,9 +40,9 @@ class ActivityRegistrationContractTest {
         var activities = org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.mapper.ActivityMapper.class);
         var registrations = org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.mapper.ActivityRegistrationMapper.class);
         var timeline = org.mockito.Mockito.mock(cn.jualn.miniapp.module.timeline.service.TimelineService.class);
-        var availability = new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(true);
-        var service = new ActivityRegistrationServiceImpl(activities, registrations, availability,
-                new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(availability), timeline);
+
+        var service = new ActivityRegistrationServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class), activities, registrations,
+                new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(), timeline, org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityPublicHistory.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityReminderCatchUp.class));
         org.mockito.Mockito.when(timeline.listTimelinesByTarget(
                 cn.jualn.miniapp.common.enums.TargetType.ACTIVITY, 2L)).thenReturn(List.of());
         org.mockito.Mockito.when(activities.selectRegistrationActivity(2L)).thenReturn(
@@ -57,10 +57,10 @@ class ActivityRegistrationContractTest {
     void cancellationChecksObservedIdentityAndVersionInsideTheService() {
         var activities = org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.mapper.ActivityMapper.class);
         var registrations = org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.mapper.ActivityRegistrationMapper.class);
-        var availability = new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(true);
-        var service = new ActivityRegistrationServiceImpl(activities, registrations, availability,
-                new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(availability),
-                org.mockito.Mockito.mock(cn.jualn.miniapp.module.timeline.service.TimelineService.class));
+
+        var service = new ActivityRegistrationServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class), activities, registrations,
+                new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(),
+                org.mockito.Mockito.mock(cn.jualn.miniapp.module.timeline.service.TimelineService.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityPublicHistory.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityReminderCatchUp.class));
         org.mockito.Mockito.when(activities.lockRegistrationActivity(2L)).thenReturn(
                 cn.jualn.miniapp.module.activity.entity.Activity.builder().id(2L).formSchema(FORM).build());
         ActivityRegistration row = new ActivityRegistration();

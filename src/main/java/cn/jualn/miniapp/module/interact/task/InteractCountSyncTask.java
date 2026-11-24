@@ -3,10 +3,6 @@ package cn.jualn.miniapp.module.interact.task;
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.module.activity.mapper.ActivityMapper;
-import cn.jualn.miniapp.module.comment.mapper.CommentMapper;
-import cn.jualn.miniapp.module.exam.mapper.ExamInfoMapper;
-import cn.jualn.miniapp.module.post.mapper.PostMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -25,12 +21,11 @@ import java.util.Set;
 public class InteractCountSyncTask {
 
     private final RedisService redisService;
-    private final PostMapper postMapper;
-    private final ActivityMapper activityMapper;
-    private final ExamInfoMapper examInfoMapper;
-    private final CommentMapper commentMapper;
+    private final cn.jualn.miniapp.module.interact.service.InteractionSubjects subjects;
+    private final cn.jualn.miniapp.module.comment.service.CommentStatisticsService comments;
+    private final cn.jualn.miniapp.module.article.service.ArticleService articleService;
 
-    @Scheduled(cron = "0 */5 * * * ?")
+    @Scheduled(cron = "0 */5 * * * ?", zone = "Asia/Shanghai")
     public void syncInteractCounts() {
         int likeSynced = syncLikeCounts();
         int viewSynced = syncViewCounts();
@@ -101,7 +96,7 @@ public class InteractCountSyncTask {
                 // DB 更新异常，回补 delta，避免丢数
                 redisService.incrementByAndRefresh(key, delta, RedisKeyConstant.VIEW_DELTA_TTL);
                 redisService.sAdd(RedisKeyConstant.VIEW_DIRTY_SET, key);
-                log.warn("[InteractCountSyncTask] view delta 同步失败，key={}, delta={}", key, delta, e);
+                log.warn("[InteractCountSyncTask] view delta 同步失败，delta={}", delta, e);
             }
         }
 
@@ -110,10 +105,9 @@ public class InteractCountSyncTask {
 
     private boolean applyLikeCount(TargetType type, Long targetId, Long count) {
         switch (type) {
-            case POST -> postMapper.setLikeCount(targetId, count);
-            case ACTIVITY -> activityMapper.setLikeCount(targetId, count);
-            case EXAM -> examInfoMapper.setLikeCount(targetId, count);
-            case COMMENT -> commentMapper.setLikeCount(targetId, count);
+            case POST, ACTIVITY, EXAM -> subjects.require(type).setLikeCount(targetId, count);
+            case COMMENT -> comments.setLikeCount(targetId, count);
+            case ARTICLE -> articleService.rebuildStatistics(targetId);
             default -> {
                 log.warn("[InteractCountSyncTask] 跳过不支持的 like 目标类型，type={}, targetId={}", type, targetId);
                 return false;
@@ -128,9 +122,8 @@ public class InteractCountSyncTask {
         }
 
         int affected = switch (type) {
-            case POST -> postMapper.incrementViewCount(targetId, delta);
-            case ACTIVITY -> activityMapper.incrementViewCount(targetId, delta);
-            case EXAM -> examInfoMapper.incrementViewCount(targetId, delta);
+            case POST, ACTIVITY, EXAM -> subjects.require(type).incrementViews(targetId, delta);
+            case ARTICLE -> { articleService.rebuildStatistics(targetId); yield 1; }
             default -> {
                 log.warn("[InteractCountSyncTask] 跳过不支持的 view 目标类型，type={}, targetId={}", type, targetId);
                 yield 0;
@@ -148,13 +141,13 @@ public class InteractCountSyncTask {
         String body = key.substring(prefix.length());
         String[] parts = body.split(":");
         if (parts.length != 2) {
-            log.warn("[InteractCountSyncTask] key 格式非法，key={}", key);
+            log.warn("[InteractCountSyncTask] key 格式非法");
             return null;
         }
 
         TargetType type = resolveTargetType(parts[0]);
         if (type == null) {
-            log.warn("[InteractCountSyncTask] 未识别的目标类型，key={}", key);
+            log.warn("[InteractCountSyncTask] 未识别的目标类型");
             return null;
         }
 
@@ -162,7 +155,7 @@ public class InteractCountSyncTask {
             Long targetId = Long.parseLong(parts[1]);
             return new CounterTarget(type, targetId);
         } catch (NumberFormatException e) {
-            log.warn("[InteractCountSyncTask] 目标ID解析失败，key={}", key);
+            log.warn("[InteractCountSyncTask] 目标ID解析失败");
             return null;
         }
     }

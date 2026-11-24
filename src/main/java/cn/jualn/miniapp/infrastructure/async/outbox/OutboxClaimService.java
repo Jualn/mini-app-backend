@@ -15,7 +15,7 @@ public class OutboxClaimService {
 
     @Transactional
     public List<OutboxEvent> claim(String owner, int limit) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"));
         List<OutboxEvent> claimed = new ArrayList<>();
         for (OutboxEvent event : mapper.selectDueForUpdate(now, limit)) {
             if (mapper.claim(event.getId(), owner, now.plusSeconds(120)) == 1) {

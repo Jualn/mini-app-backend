@@ -44,7 +44,7 @@ public class AsyncStateMetrics {
     @Scheduled(fixedDelayString = "${async-processing.metrics.refresh-interval:30000}")
     public void refresh() {
         try {
-            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime now = LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"));
             OutboxStateSnapshot outboxState = outbox.selectStateSnapshot(now);
             JobStateSnapshot jobState = jobs.selectStateSnapshot(now);
             outboxPending.set((double) outboxState.pending());

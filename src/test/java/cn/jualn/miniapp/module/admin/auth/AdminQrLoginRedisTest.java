@@ -7,8 +7,12 @@ import cn.dev33.satoken.context.mock.*;
 import cn.dev33.satoken.dao.SaTokenDaoForRedisTemplate;
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.enums.*;
+import cn.jualn.miniapp.module.user.enums.UserRole;
+import cn.jualn.miniapp.module.user.enums.UserStatus;
 import cn.jualn.miniapp.common.exception.*;
 import cn.jualn.miniapp.common.security.AdminStpUtil;
+import cn.jualn.miniapp.module.admin.auth.store.AdminAuthStore;
+import cn.jualn.miniapp.module.admin.auth.store.AdminQrLoginStore;
 import cn.jualn.miniapp.infrastructure.cache.*;
 import cn.jualn.miniapp.module.admin.auth.bo.qrlogin.*;
 import cn.jualn.miniapp.module.admin.auth.config.*;
@@ -42,6 +46,7 @@ class AdminQrLoginRedisTest {
     private AdminTokenService tokens;
     private UserService users;
     private AdminQrLoginService service;
+    private cn.jualn.miniapp.module.authorization.service.CurrentAuthorization authorization;
     private final AtomicLong subjects = new AtomicLong(8000000000L);
     private cn.dev33.satoken.dao.SaTokenDao oldDao;
     private SaTokenConfig oldConfig;
@@ -67,13 +72,14 @@ class AdminQrLoginRedisTest {
         store = new AdminQrLoginStore(redis, registry);
         users = mock(UserService.class);
         when(users.getUserProfile(anyLong())).thenAnswer(inv -> profile(inv.getArgument(0)));
-        tokens = new AdminTokenService(users, new AdminPermissionPolicy(), new AdminAuthStore(redis),
-                new AdminAuthProperties(), store, new ObjectMapper().findAndRegisterModules());
+        authorization = assignmentAuthorization(users);
+        tokens = new AdminTokenService(users, mock(cn.jualn.miniapp.module.user.service.UserAccountService.class), new AdminPermissionPolicy(), new AdminAuthStore(redis),
+                new AdminAuthProperties(), store, new ObjectMapper().findAndRegisterModules(), authorization);
         service = service(tokens);
     }
     private AdminQrLoginService service(AdminTokenService tokenService) {
         return new AdminQrLoginServiceImpl(store, tokenService, users, new AdminPermissionPolicy(),
-                new AdminQrLoginProperties(), mock(WxClient.class), registry);
+                new AdminQrLoginProperties(), mock(WxClient.class), registry, authorization);
     }
     @AfterAll void teardown() {
         if (oldDao != null) SaManager.setSaTokenDao(oldDao);
@@ -85,6 +91,20 @@ class AdminQrLoginRedisTest {
     @AfterEach void context() { SaTokenContextMockUtil.clearContext(); }
     private UserProfileBO profile(long id) {
         return UserProfileBO.builder().id(id).nickname("Synthetic operator").role(UserRole.ADMIN).status(UserStatus.NORMAL).build();
+    }
+    /** Synthetic Assignment fixture: Redis state-machine tests do not assert database authorization. */
+    private static cn.jualn.miniapp.module.authorization.service.CurrentAuthorization assignmentAuthorization(UserService users) {
+        var auth=mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class);
+        when(auth.current(anyLong())).thenAnswer(inv -> {
+            long id=inv.getArgument(0);
+            var user=users==null?null:users.getUserProfile(id);
+            boolean eligible=users==null || user!=null && user.getStatus()==UserStatus.NORMAL;
+            var grants=List.of(new cn.jualn.miniapp.module.authorization.model.RbacModels.Grant("synthetic-grant","NOTICE_MONITOR","SYSTEM","GLOBAL",List.of("system:read"),null));
+            return new cn.jualn.miniapp.module.authorization.model.RbacModels.Decision(id,
+                    cn.jualn.miniapp.module.authorization.model.RbacModels.Source.ASSIGNMENT,"fixture","fixture",
+                    java.time.LocalDateTime.now(),eligible,List.of(),grants);
+        });
+        return auth;
     }
     private record Fixture(String id, String scene, String secret, String sceneHash, String secretHash) {}
     private Fixture pending() {
@@ -199,6 +219,24 @@ class AdminQrLoginRedisTest {
                 () -> service.consumeSession(f.id(), f.secret(), "synthetic-recovery")).getType());
     }
 
+    @Test void browserResumeUsesTheCommittedSessionWithoutRenewingIt() {
+        long subject = subjects.incrementAndGet();
+        Fixture fixture = confirmed(subject);
+        var result = service.consumeSession(fixture.id(), fixture.secret(), "synthetic-browser");
+        long originalTimeout = AdminStpUtil.STP_LOGIC.getTokenTimeout(result.token());
+        SaTokenContextMockUtil.setMockContext();
+        var resumed = tokens.resumeBrowserSession(result.token());
+        assertEquals(result.token(), resumed.token());
+        assertEquals(Long.toString(subject), resumed.profile().id());
+        assertEquals("ASSIGNMENT", resumed.profile().authorizationModel());
+        assertTrue(AdminStpUtil.STP_LOGIC.getTokenTimeout(result.token()) <= originalTimeout);
+        tokens.logoutCurrent();
+        SaTokenContextMockUtil.clearContext();
+        SaTokenContextMockUtil.setMockContext();
+        assertThrows(cn.dev33.satoken.exception.NotLoginException.class,
+                () -> tokens.resumeBrowserSession(result.token()));
+    }
+
     @Test void cancelAndExpiryBeatLateFinalizationWithoutActivatingCandidate() {
         for (boolean expiry : List.of(false, true)) {
             long subject = subjects.incrementAndGet(); Fixture f = confirmed(subject);
@@ -239,7 +277,7 @@ class AdminQrLoginRedisTest {
         when(users.getUserProfile(subject)).thenThrow(new SystemException("Synthetic database failure"));
         assertThrows(SystemException.class, () -> service.consumeSession(f.id(), f.secret(), "synthetic-db"));
         assertEquals(CONFIRMED, web(f, "read").session().status());
-        UserProfileBO denied = profile(subject); denied.setRole(UserRole.USER);
+        UserProfileBO denied = profile(subject); denied.setStatus(UserStatus.BANNED);
         doReturn(denied).when(users).getUserProfile(subject);
         assertEquals("/problems/admin-access-denied", assertThrows(ContractProblemException.class,
                 () -> service.consumeSession(f.id(), f.secret(), "synthetic-db")).getType());
@@ -254,12 +292,12 @@ class AdminQrLoginRedisTest {
     }
 
     @Test void createKeepsIndependentCredentialsHasPrivateCachedImageAndProviderFailureDoesNotPublish() throws Exception {
-        var props = new AdminQrLoginProperties(); props.setEnabled(true); props.setEnvVersion("trial"); props.validate();
+        var props = new AdminQrLoginProperties(); props.setEnvVersion("trial"); props.validate();
         WxClient wx = mock(WxClient.class);
         var bytes = new java.io.ByteArrayOutputStream();
         javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(430, 430, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", bytes);
         when(wx.generateMiniProgramCode(any(), any(), any(), anyBoolean())).thenReturn(bytes.toByteArray());
-        var enabled = new AdminQrLoginServiceImpl(store, tokens, users, new AdminPermissionPolicy(), props, wx, registry);
+        var enabled = new AdminQrLoginServiceImpl(store, tokens, users, new AdminPermissionPolicy(), props, wx, registry, authorization);
         var created = enabled.createSession("synthetic-create");
         assertEquals(22, created.session().sessionId().length()); assertEquals(43, created.pollSecret().length());
         var captor = org.mockito.ArgumentCaptor.forClass(String.class);
@@ -280,8 +318,8 @@ class AdminQrLoginRedisTest {
     }
 
     @Test void invalidConfigCannotEnableUnspecifiedEnvironmentOrUnboundedExpiry() {
-        var config = new AdminQrLoginProperties(); config.validate(); assertFalse(config.isEnabled());
-        config.setEnabled(true); assertThrows(IllegalArgumentException.class, config::validate);
+        var config = new AdminQrLoginProperties();
+        assertThrows(IllegalArgumentException.class, config::validate);
         config.setEnvVersion("trial"); config.validate();
         config.setSessionTtl(Duration.ofMinutes(6)); assertThrows(IllegalArgumentException.class, config::validate);
         config.setSessionTtl(Duration.ofMinutes(2)); config.setRetention(Duration.ofMinutes(4)); assertThrows(IllegalArgumentException.class, config::validate);
@@ -319,8 +357,8 @@ class AdminQrLoginRedisTest {
         factory.afterPropertiesSet(); factory.start(); redis = new StringRedisTemplate(factory);
         var dao = new SaTokenDaoForRedisTemplate(); dao.init(factory); SaManager.setSaTokenDao(dao);
         store = new AdminQrLoginStore(redis, registry);
-        tokens = new AdminTokenService(users, new AdminPermissionPolicy(), new AdminAuthStore(redis),
-                new AdminAuthProperties(), store, new ObjectMapper().findAndRegisterModules()); service = service(tokens);
+        tokens = new AdminTokenService(users, mock(cn.jualn.miniapp.module.user.service.UserAccountService.class), new AdminPermissionPolicy(), new AdminAuthStore(redis),
+                new AdminAuthProperties(), store, new ObjectMapper().findAndRegisterModules(), authorization); service = service(tokens);
         assertEquals(original, service.consumeSession(f.id(), f.secret(), "synthetic-redis-restart"));
         assertEquals(CONSUMED, web(f, "read").session().status());
         assertTrue(store.activated(f.id(), AdminAuthCrypto.sha256(original.token()), subject));
@@ -437,8 +475,8 @@ class AdminQrLoginRedisTest {
             SaManager.setConfig(new SaTokenConfig().setTokenName("Authorization").setTokenPrefix("Bearer")
                     .setJwtSecretKey("synthetic-isolated-admin-qr-test-secret-1234567890").setIsConcurrent(true).setIsShare(false));
             AdminQrLoginStore store = new AdminQrLoginStore(redis, new SimpleMeterRegistry());
-            AdminTokenService tokens = new AdminTokenService(mock(UserService.class), new AdminPermissionPolicy(),
-                    new AdminAuthStore(redis), new AdminAuthProperties(), store, new ObjectMapper());
+            AdminTokenService tokens = new AdminTokenService(mock(UserService.class), mock(cn.jualn.miniapp.module.user.service.UserAccountService.class), new AdminPermissionPolicy(),
+                    new AdminAuthStore(redis), new AdminAuthProperties(), store, new ObjectMapper(), assignmentAuthorization(null));
             long subject = Long.parseLong(args[3]);
             UserProfileBO user = UserProfileBO.builder().id(subject).nickname("Synthetic operator").role(UserRole.ADMIN).status(UserStatus.NORMAL).build();
             var current = store.web("read", args[1], args[2], null, null);

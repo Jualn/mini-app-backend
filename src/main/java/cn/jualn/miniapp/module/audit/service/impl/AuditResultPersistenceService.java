@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.audit.service.impl;
 
-import cn.jualn.miniapp.common.enums.AuditScene;
+import cn.jualn.miniapp.module.audit.enums.AuditScene;
 import cn.jualn.miniapp.infrastructure.async.outbox.OutboxService;
 import cn.jualn.miniapp.module.audit.async.AuditCompletedEventPayload;
 import cn.jualn.miniapp.module.audit.entity.ContentAuditLog;
@@ -20,6 +20,8 @@ public class AuditResultPersistenceService {
 
     private final ContentAuditLogMapper auditLogMapper;
     private final OutboxService outboxService;
+    @org.springframework.beans.factory.annotation.Autowired
+    private cn.jualn.miniapp.module.audit.service.ContentSafetyReviewService reviews;
 
     @Transactional(rollbackFor = Exception.class)
     public boolean completeText(long auditLogId, AuditScene scene, long targetId, String wxTraceId,
@@ -47,15 +49,18 @@ public class AuditResultPersistenceService {
     private boolean updateAndAppend(LambdaUpdateWrapper<ContentAuditLog> condition, long auditLogId,
                                     AuditScene scene, long targetId, String wxTraceId,
                                     AuditStatus result, String wxDetail, String reason) {
+        boolean versioned = reviews != null && reviews.forCheck(auditLogId) != null;
+        var observation = versioned ? cn.jualn.miniapp.module.audit.service.ContentSafetyResults.interpret(new com.fasterxml.jackson.databind.ObjectMapper(),wxDetail) : null;
         ContentAuditLog update = ContentAuditLog.builder()
                 .wxTraceId(wxTraceId)
                 .wxResult(result == AuditStatus.PASS ? WX_RESULT_NORMAL : WX_RESULT_RISK)
                 .wxDetail(wxDetail)
-                .finalResult(result.getCode())
+                .finalResult(versioned && "unknown".equals(observation.result()) ? AuditStatus.PENDING.getCode() : result.getCode())
                 .build();
         if (auditLogMapper.update(update, condition) != 1) {
             return false;
         }
+        if (versioned) reviews.observe(auditLogId,wxDetail);
         outboxService.append("audit.completed", 1, MDC.get("operationId"), "audit-log",
                 String.valueOf(auditLogId),
                 new AuditCompletedEventPayload(auditLogId, scene, targetId,

@@ -21,8 +21,13 @@ public class NotificationDelivery {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long notificationId;
+    private Integer notificationType;
+    private String preferenceCategory;
     private String channel;
     private String status;
+    /** NULL only for pre-V34 intents: never backfilled from current configuration. */
+    private Integer templateSnapshotVersion;
+    private String templateSnapshot;
     private Integer attemptCount;
     private String providerMessageId;
     private String resultCategory;

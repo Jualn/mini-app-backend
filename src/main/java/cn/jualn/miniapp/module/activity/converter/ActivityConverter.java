@@ -2,13 +2,15 @@ package cn.jualn.miniapp.module.activity.converter;
 
 import cn.jualn.miniapp.module.activity.bo.*;
 import cn.jualn.miniapp.module.activity.dto.request.ActivityCreateRequest;
-import cn.jualn.miniapp.module.activity.dto.request.ActivityPageQuery;
 import cn.jualn.miniapp.module.activity.dto.request.ActivityUpdateRequest;
+import cn.jualn.miniapp.module.activity.dto.request.EventActionRequest;
+import cn.jualn.miniapp.module.activity.dto.request.EventSectionRequest;
 import cn.jualn.miniapp.module.activity.entity.Activity;
+import cn.jualn.miniapp.module.activity.vo.EventActionVO;
+import cn.jualn.miniapp.module.activity.vo.EventSectionVO;
 import cn.jualn.miniapp.module.timeline.converter.TimelineConverter;
 import cn.jualn.miniapp.common.mapper.EnumConverter;
 import cn.jualn.miniapp.module.activity.vo.ActivityDetailVO;
-import cn.jualn.miniapp.module.activity.vo.ActivityListVO;
 import org.mapstruct.*;
 
 import java.util.List;
@@ -16,37 +18,36 @@ import java.util.List;
 /**
  * 活动对象转换器。
  */
-@Mapper(componentModel = "spring", uses = {TimelineConverter.class, EnumConverter.class})
+@Mapper(componentModel = "spring", uses = {TimelineConverter.class, EnumConverter.class, ActivityEnumMappings.class})
 public interface ActivityConverter {
-    cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO toEventSectionBO(cn.jualn.miniapp.module.activity.dto.request.EventSectionRequest request);
-    cn.jualn.miniapp.module.activity.vo.EventSectionVO toEventSectionVO(cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO bo);
-    java.util.List<cn.jualn.miniapp.module.activity.vo.EventSectionVO> toEventSectionVOs(java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO> bo);
+    cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO toEventSectionBO(EventSectionRequest request);
 
-    cn.jualn.miniapp.module.eventcontent.bo.EventActionBO toEventActionBO(cn.jualn.miniapp.module.activity.dto.request.EventActionRequest request);
-    cn.jualn.miniapp.module.activity.vo.EventActionVO toEventActionVO(cn.jualn.miniapp.module.eventcontent.bo.EventActionBO bo);
-    java.util.List<cn.jualn.miniapp.module.activity.vo.EventActionVO> toEventActionVOs(java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventActionBO> bo);
+    EventSectionVO toEventSectionVO(cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO bo);
+
+    List<EventSectionVO> toEventSectionVOs(java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO> bo);
+
+    cn.jualn.miniapp.module.eventcontent.bo.EventActionBO toEventActionBO(EventActionRequest request);
+
+    EventActionVO toEventActionVO(cn.jualn.miniapp.module.eventcontent.bo.EventActionBO bo);
+
+    List<EventActionVO> toEventActionVOs(List<cn.jualn.miniapp.module.eventcontent.bo.EventActionBO> bo);
 
 
     ActivityCreateBO toCreateBO(ActivityCreateRequest request);
 
     ActivityUpdateBO toUpdateBO(ActivityUpdateRequest request);
 
-    @Mapping(target = "audienceFilter", ignore = true)
-    @Mapping(target = "departmentId", ignore = true)
-    @Mapping(target = "audienceUserId", ignore = true)
-    ActivityPageBO toPageBO(ActivityPageQuery query);
-
     /**
      * 将更新参数应用到活动对象。
      *
      * <p>该方法实现部分更新逻辑：只更新BO对象中非null的字段到Entity对象。</p>
      *
-     * @param entity 待更新的活动Entity对象
-     * @param updateBO  包含更新值的BO对象（null字段将被忽略）
+     * @param entity   待更新的活动Entity对象
+     * @param updateBO 包含更新值的BO对象（null字段将被忽略）
      */
-    @Mapping(target="formSchema", ignore=true)
-    @Mapping(target="cancelledAt", ignore=true)
-    @Mapping(target="cancelReason", ignore=true)
+    @Mapping(target = "formSchema", ignore = true)
+    @Mapping(target = "cancelledAt", ignore = true)
+    @Mapping(target = "cancelReason", ignore = true)
     @Mapping(target = "userId", ignore = true)
     @Mapping(target = "publishStatus", ignore = true)
     @Mapping(target = "commentCount", ignore = true)
@@ -67,9 +68,9 @@ public interface ActivityConverter {
     void updateEntityFromUpdateBO(@MappingTarget Activity entity, ActivityUpdateBO updateBO);
 
     @Mapping(target = "id", ignore = true)
-    @Mapping(target="formSchema", ignore=true)
-    @Mapping(target="cancelledAt", ignore=true)
-    @Mapping(target="cancelReason", ignore=true)
+    @Mapping(target = "formSchema", ignore = true)
+    @Mapping(target = "cancelledAt", ignore = true)
+    @Mapping(target = "cancelReason", ignore = true)
     @Mapping(target = "userId", ignore = true)
     @Mapping(target = "publishStatus", ignore = true)
     @Mapping(target = "commentCount", ignore = true)
@@ -88,9 +89,9 @@ public interface ActivityConverter {
     @Mapping(target = "coverAttachmentId", ignore = true)
     Activity toEntity(ActivityCreateBO request);
 
-    @Mapping(target="formSchema", ignore=true)
-    @Mapping(target="cancelledAt", ignore=true)
-    @Mapping(target="cancelReason", ignore=true)
+    @Mapping(target = "formSchema", ignore = true)
+    @Mapping(target = "cancelledAt", ignore = true)
+    @Mapping(target = "cancelReason", ignore = true)
     @Mapping(target = "userId", ignore = true)
     @Mapping(target = "publishStatus", ignore = true)
     @Mapping(target = "commentCount", ignore = true)
@@ -126,12 +127,9 @@ public interface ActivityConverter {
     @Mapping(target = "cardTimeline", ignore = true)
     ActivityDetailBO toDetailBO(Activity activity);
 
-    ActivityListVO toVO(ActivityDetailBO detailBO);
 
     ActivityDetailVO toDetailVO(ActivityDetailBO detailBO);
 
-    @Mapping(target = "activityPhase", ignore = true)
-    @Mapping(target = "registrationStatus", ignore = true)
     @Mapping(target = "participationState", ignore = true)
     @Mapping(target = "submittedCount", ignore = true)
     @Mapping(target = "evaluatedAt", ignore = true)
@@ -141,7 +139,6 @@ public interface ActivityConverter {
 
     List<ActivityListBO> toListBOList(List<Activity> activities);
 
-    List<ActivityListVO> toVOList(List<ActivityListBO> detailVOList);
 
     ActivitySearchBO toSearchBO(Activity activity);
 }

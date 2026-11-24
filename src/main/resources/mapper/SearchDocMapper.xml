@@ -27,7 +27,7 @@
         <choose>
             <when test="targetType != null and targetType == 1">
                 SELECT
-                1 AS targetType,
+                'POST' AS targetType,
                 sd.target_id AS targetId,
                 COALESCE(NULLIF(p.title, ''), LEFT(p.content, 40)) AS title,
                 IF(CHAR_LENGTH(p.content) &gt; 120, CONCAT(LEFT(p.content, 120), '...'),
@@ -37,7 +37,7 @@
                 IFNULL(p.view_count, 0) AS viewCount,
                 sd.published_at AS publishedAt
                 FROM search_doc sd
-                JOIN post p ON p.id = sd.target_id AND p.deleted_at IS NULL
+                JOIN post p ON p.id = sd.target_id AND p.deleted_at IS NULL AND p.post_type='NORMAL' AND p.status=2 AND p.admin_hidden=FALSE AND (p.audit_status=1 OR (p.audit_status=0 AND p.community_version=TRUE AND p.temporary_visible_until &gt; NOW(6)))
                 WHERE sd.target_type = 1
                 AND sd.status = 1
                 AND MATCH(sd.search_text) AGAINST(#{keyword} IN BOOLEAN MODE)
@@ -52,7 +52,7 @@
             </when>
             <when test="targetType != null and targetType == 2">
                 SELECT
-                2 AS targetType,
+                'ACTIVITY' AS targetType,
                 sd.target_id AS targetId,
                 a.title AS title,
                 IF(CHAR_LENGTH(CONCAT_WS(' ', a.location, a.summary)) &gt; 120, CONCAT(LEFT(CONCAT_WS(' ', a.location,
@@ -79,7 +79,7 @@
                 SELECT *
                 FROM (
                 SELECT
-                1 AS targetType,
+                'POST' AS targetType,
                 sd.target_id AS targetId,
                 COALESCE(NULLIF(p.title, ''), LEFT(p.content, 40)) AS title,
                 IF(CHAR_LENGTH(p.content) &gt; 120, CONCAT(LEFT(p.content, 120), '...'), p.content) AS summary,
@@ -88,7 +88,7 @@
                 IFNULL(p.view_count, 0) AS viewCount,
                 sd.published_at AS publishedAt
                 FROM search_doc sd
-                JOIN post p ON p.id = sd.target_id AND p.deleted_at IS NULL
+                JOIN post p ON p.id = sd.target_id AND p.deleted_at IS NULL AND p.post_type='NORMAL' AND p.status=2 AND p.admin_hidden=FALSE AND (p.audit_status=1 OR (p.audit_status=0 AND p.community_version=TRUE AND p.temporary_visible_until &gt; NOW(6)))
                 WHERE sd.target_type = 1
                 AND sd.status = 1
                 AND MATCH(sd.search_text) AGAINST(#{keyword} IN BOOLEAN MODE)
@@ -96,7 +96,7 @@
                 UNION ALL
 
                 SELECT
-                2 AS targetType,
+                'ACTIVITY' AS targetType,
                 sd.target_id AS targetId,
                 a.title AS title,
                 IF(CHAR_LENGTH(CONCAT_WS(' ', a.location, a.summary)) &gt; 120, CONCAT(LEFT(CONCAT_WS(' ',
@@ -125,10 +125,11 @@
 
     <select id="selectTabCounts" resultType="cn.jualn.miniapp.module.search.bo.SearchTabCountBO">
         SELECT
-            sd.target_type AS targetType,
+            CASE sd.target_type WHEN 1 THEN 'POST' WHEN 2 THEN 'ACTIVITY' END AS targetType,
             COUNT(*) AS count
         FROM search_doc sd
         WHERE sd.status = 1
+          AND (sd.target_type != 1 OR EXISTS(SELECT 1 FROM post p WHERE p.id=sd.target_id AND p.deleted_at IS NULL AND p.post_type='NORMAL' AND p.status=2 AND p.admin_hidden=FALSE AND (p.audit_status=1 OR (p.audit_status=0 AND p.community_version=TRUE AND p.temporary_visible_until &gt; NOW(6)))))
           AND MATCH(sd.search_text) AGAINST(#{keyword} IN BOOLEAN MODE)
         GROUP BY sd.target_type
         ORDER BY sd.target_type

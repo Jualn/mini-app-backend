@@ -50,7 +50,7 @@ public class MybatisPlusConfig {
         return new MetaObjectHandler() {
             @Override
             public void insertFill(MetaObject metaObject) {
-                LocalDateTime now = LocalDateTime.now();
+                LocalDateTime now = LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"));
                 this.strictInsertFill(metaObject, "createdAt", LocalDateTime.class, now);
                 this.strictInsertFill(metaObject, "updatedAt", LocalDateTime.class, now);
                 this.strictInsertFill(metaObject, "agreedAt", LocalDateTime.class, now);
@@ -58,7 +58,7 @@ public class MybatisPlusConfig {
 
             @Override
             public void updateFill(MetaObject metaObject) {
-                this.strictUpdateFill(metaObject, "updatedAt", LocalDateTime.class, LocalDateTime.now());
+                this.strictUpdateFill(metaObject, "updatedAt", LocalDateTime.class, LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")));
             }
         };
     }

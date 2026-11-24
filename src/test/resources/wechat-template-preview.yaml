@@ -1,0 +1,28 @@
+# Synthetic offline fixture. Limits here are NOT certified WeChat constraints.
+wx:
+  notification:
+    environment: fixture
+    definitions:
+      fixture-start:
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        product: MINI_PROGRAM_SUBSCRIBE
+        title: 合成活动提醒
+        subscription-kind: ONE_TIME
+        template-id: fixture-template-not-for-send
+        version: 1
+        evidence-ref: test-fixture
+        fields:
+          thing1: {data-type: TEXT, required: true, max-length: 3}
+          time2: {data-type: DATETIME, required: true}
+    bindings:
+      fixture-activity-start:
+        notification-type: ACTIVITY_START_REMINDER
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: fixture-start
+        version: 1
+        jump-target: ACTIVITY_DETAIL
+        fields:
+          thing1: {source: subjectTitle, formatter: text, overflow: truncate}
+          time2: {source: businessTime, formatter: datetime, zone: Asia/Shanghai}

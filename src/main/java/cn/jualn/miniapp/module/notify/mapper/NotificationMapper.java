@@ -10,8 +10,7 @@ import java.util.List;
 
 public interface NotificationMapper extends BaseMapper<Notification> {
 
-    @Select("SELECT (read_at IS NOT NULL) FROM notification WHERE id = #{id} AND user_id = #{userId}")
-    Integer selectIsReadByIdAndUserId(Long id, Long userId);
+    default Integer selectIsReadByIdAndUserId(Long id, Long userId) { return selectCanonicalReadState(id, userId); }
 
     List<Notification> selectCanonicalInbox(
             @Param("userId") long userId,
@@ -56,4 +55,16 @@ public interface NotificationMapper extends BaseMapper<Notification> {
     long countUnreadThrough(@Param("userId") long userId, @Param("head") long head);
     long countNewThrough(@Param("userId") long userId, @Param("after") long after, @Param("head") long head);
     Notification selectLatestThrough(@Param("userId") long userId, @Param("after") long after, @Param("head") long head);
+    int deleteOwnedInbox(@Param("id") long id, @Param("userId") long userId);
+    Notification selectBySourceForUpdate(@Param("sourceKey") String sourceKey);
+    boolean isExpiredInApp(@Param("id") long id);
+    boolean canEnterInbox(@Param("id") long id);
+
+    @org.apache.ibatis.annotations.Insert("INSERT INTO notification_source_receipt(source_digest,identity_digest,content_digest,notification_id,original_created_at) VALUES(#{source},#{identity},#{content},0,#{created}) ON DUPLICATE KEY UPDATE source_digest=source_digest")
+    void claimSource(@Param("source") String source, @Param("identity") String identity,
+            @Param("content") String content, @Param("created") LocalDateTime created);
+    @Select("SELECT * FROM notification_source_receipt WHERE source_digest=#{source} FOR UPDATE")
+    cn.jualn.miniapp.module.notify.entity.NotificationSourceReceipt lockSource(@Param("source") String source);
+    @org.apache.ibatis.annotations.Update("UPDATE notification_source_receipt SET notification_id=#{id},original_created_at=#{created} WHERE source_digest=#{source} AND notification_id=0")
+    int finishSource(@Param("source") String source, @Param("id") long id, @Param("created") LocalDateTime created);
 }

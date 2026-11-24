@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.person.mapper.QualificationMapper">
+ <sql id="importColumns">id,organization_id,creator,source_reference,file_fingerprint,workbook,columns_json,mapping_json,preview,state,revision,row_count,invalid_row_count,imported_count,expires_at,approved_by,last_event_id,plan_id,plan_fingerprint,plan_expires_at,namespace,file_retain_until</sql>
+ <sql id="importReadColumns">i.id,i.organization_id,i.creator,i.source_reference,i.file_fingerprint,i.workbook,i.columns_json,i.mapping_json,i.preview,i.state,i.revision,i.row_count,i.invalid_row_count,i.imported_count,i.expires_at,i.approved_by,i.last_event_id,i.plan_id,i.plan_fingerprint,i.plan_expires_at,i.namespace,i.file_retain_until</sql>
+ <select id="rosterImport" resultType="cn.jualn.miniapp.module.person.entity.QualificationRows$Import" flushCache="true" useCache="false">SELECT <include refid="importReadColumns"/> FROM party_roster_import i WHERE i.id=#{id}</select>
+ <select id="imports" resultType="cn.jualn.miniapp.module.person.entity.QualificationRows$Import" flushCache="true" useCache="false">
+ SELECT <include refid="importReadColumns"/>
+ FROM party_roster_import i JOIN person_foundation_event created ON created.aggregate_type='ROSTER_IMPORT' AND created.aggregate_id=i.id AND created.aggregate_version=1
+ WHERE i.creator=#{actor} ORDER BY created.recorded_at DESC,i.id DESC
+ </select>
+ <update id="completeUploadReceipt">
+ UPDATE person_command_receipt SET result_json=#{resultJson},etag=#{etag},location=#{location},status=#{status},event_id=#{eventId},created_at=#{createdAt}
+ WHERE id=#{id} AND status=202 AND operation='createPartyRosterImport' AND fingerprint=#{fingerprint} AND event_id IS NULL
+ </update>
+ <delete id="abandonUpload">DELETE FROM person_command_receipt WHERE actor=#{actor} AND operation='createPartyRosterImport' AND target=#{organization} AND command_key=#{key} AND fingerprint=#{fingerprint} AND status=202 AND event_id IS NULL</delete>
+ <update id="restartUpload">UPDATE person_command_receipt SET created_at=#{at} WHERE id=#{id} AND status=202 AND event_id IS NULL AND created_at&lt;=TIMESTAMPADD(MINUTE,-2,#{at})</update>
+ <insert id="insertImport">INSERT INTO party_roster_import(<include refid="importColumns"/>) VALUES(#{id},#{organizationId},#{creator},#{sourceReference},#{fileFingerprint},#{workbook},#{columnsJson},#{mappingJson},#{preview},#{state},#{revision},#{rowCount},#{invalidRowCount},#{importedCount},#{expiresAt},#{approvedBy},#{lastEventId},#{planId},#{planFingerprint},#{planExpiresAt},#{namespace},#{fileRetainUntil})</insert>
+ <update id="saveImport">UPDATE party_roster_import SET mapping_json=#{mappingJson},preview=#{preview},state=#{state},revision=#{revision},row_count=#{rowCount},invalid_row_count=#{invalidRowCount},imported_count=#{importedCount},approved_by=#{approvedBy},file_retain_until=#{fileRetainUntil},last_event_id=#{lastEventId} WHERE id=#{id} AND revision=#{revision}-1</update>
+ <update id="savePlan">UPDATE party_roster_import SET plan_id=#{planId},plan_fingerprint=#{planFingerprint},plan_expires_at=#{planExpiresAt} WHERE id=#{id} AND revision=#{revision}</update>
+ <sql id="entryColumns">id,import_id,organization_id,private_values,student_digest,expected_stage_id,baseline_status,person_id,revision,source_reference,source_approver,last_event_id</sql>
+ <select id="entry" resultType="cn.jualn.miniapp.module.person.entity.QualificationRows$Entry" flushCache="true" useCache="false">SELECT <include refid="entryColumns"/>,(SELECT b.user_id FROM person_account_binding b WHERE b.person_id=party_roster_entry.person_id AND b.status='ACTIVE') linked_user_id FROM party_roster_entry WHERE id=#{id}</select>
+ <select id="entriesAfter" resultType="cn.jualn.miniapp.module.person.entity.QualificationRows$Entry" flushCache="true" useCache="false">SELECT <include refid="entryColumns"/>,(SELECT b.user_id FROM person_account_binding b WHERE b.person_id=party_roster_entry.person_id AND b.status='ACTIVE') linked_user_id FROM party_roster_entry <if test="after != null">WHERE id&gt;#{after}</if> ORDER BY id LIMIT #{limit}</select>
+ <select id="byStudent" resultType="cn.jualn.miniapp.module.person.entity.QualificationRows$Entry" flushCache="true" useCache="false">SELECT <include refid="entryColumns"/>,(SELECT b.user_id FROM person_account_binding b WHERE b.person_id=party_roster_entry.person_id AND b.status='ACTIVE') linked_user_id FROM party_roster_entry WHERE student_digest=#{digest} AND baseline_status='ACTIVE' ORDER BY id</select>
+ <select id="linkedUser" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM person_account_binding WHERE user_id=#{user} AND status='ACTIVE'</select>
+ <insert id="insertEntry">INSERT INTO party_roster_entry(<include refid="entryColumns"/>) VALUES(#{id},#{importId},#{organizationId},#{privateValues},#{studentDigest},#{expectedStageId},#{baselineStatus},#{personId},#{revision},#{sourceReference},#{sourceApprover},#{lastEventId})</insert>
+ <update id="saveEntry">UPDATE party_roster_entry SET private_values=#{privateValues},student_digest=#{studentDigest},expected_stage_id=#{expectedStageId},baseline_status=#{baselineStatus},person_id=#{personId},revision=#{revision},last_event_id=#{lastEventId} WHERE id=#{id} AND revision=#{revision}-1</update>
+ <select id="application" resultType="cn.jualn.miniapp.module.person.entity.QualificationRows$Application" flushCache="true" useCache="false">SELECT id,applicant,roster_entry_id,organization_id,source_version,submitted_at,last_event_id,person_id,binding_id FROM party_identity_application WHERE applicant=#{user} ORDER BY submitted_at DESC,id DESC LIMIT 1</select>
+ <select id="applications" resultType="cn.jualn.miniapp.module.person.entity.QualificationRows$Application" flushCache="true" useCache="false">SELECT id,applicant,roster_entry_id,organization_id,source_version,submitted_at,last_event_id,person_id,binding_id FROM party_identity_application WHERE applicant=#{user} ORDER BY submitted_at DESC,id DESC LIMIT #{limit} OFFSET #{offset}</select>
+ <select id="applicationForBinding" resultType="cn.jualn.miniapp.module.person.entity.QualificationRows$Application" flushCache="true" useCache="false">SELECT id,applicant,roster_entry_id,organization_id,source_version,submitted_at,last_event_id,person_id,binding_id FROM party_identity_application WHERE binding_id=#{binding}</select>
+ <select id="applicationEventVersion" resultType="long" flushCache="true" useCache="false">SELECT COALESCE(MAX(aggregate_version),0) FROM person_foundation_event WHERE aggregate_type='PARTY_APPLICATION' AND aggregate_id=#{application}</select>
+ <select id="applicationCount" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM party_identity_application WHERE applicant=#{user}</select>
+ <insert id="insertApplication">INSERT INTO party_identity_application(id,applicant,roster_entry_id,organization_id,source_version,submitted_at,last_event_id,person_id,binding_id) VALUES(#{id},#{applicant},#{rosterEntryId},#{organizationId},#{sourceVersion},#{submittedAt},#{lastEventId},#{personId},#{bindingId})</insert>
+ <sql id="mentorColumns">m.person_id,p.real_name,m.position,m.affiliation,m.revision,m.qualification_id,m.qualification_state,m.valid_from,m.valid_until,m.verified_at,m.verified_by,m.verification_reference,m.last_event_id</sql>
+ <select id="mentor" resultType="cn.jualn.miniapp.module.person.entity.QualificationRows$Mentor" flushCache="true" useCache="false">SELECT <include refid="mentorColumns"/> FROM mentor_profile m JOIN person_profile p ON p.id=m.person_id WHERE m.person_id=#{person}</select>
+ <select id="mentors" resultType="cn.jualn.miniapp.module.person.entity.QualificationRows$Mentor" flushCache="true" useCache="false">SELECT <include refid="mentorColumns"/> FROM mentor_profile m JOIN person_profile p ON p.id=m.person_id ORDER BY m.person_id</select>
+ <sql id="mentorStatus">CASE WHEN m.qualification_id IS NULL THEN 'NOT_GRANTED' WHEN m.qualification_state='REVOKED' THEN 'REVOKED'
+ WHEN m.valid_from&gt;#{at} THEN 'NOT_YET_VALID' WHEN m.valid_until IS NOT NULL AND m.valid_until&lt;=#{at} THEN 'EXPIRED' ELSE 'ACTIVE' END</sql>
+ <sql id="mentorVisible"><if test="visible != null"><choose><when test="!visible.isEmpty()">AND m.person_id IN <foreach collection="visible" item="v" open="(" separator="," close=")">#{v}</foreach></when><otherwise>AND 1=0</otherwise></choose></if></sql>
+<sql id="mentorFilter">WHERE TRUE <include refid="mentorVisible"/>
+ <if test="q != null">AND (LOCATE(#{q},p.real_name)&gt;0 OR LOCATE(#{q},m.position)&gt;0 OR LOCATE(#{q},m.affiliation)&gt;0)</if>
+ <if test="status != null">AND (<include refid="mentorStatus"/>)=#{status}</if>
+ <if test="bindingState != null">AND (CASE WHEN EXISTS(SELECT 1 FROM person_account_binding b WHERE b.person_id=m.person_id AND b.status='ACTIVE') THEN 'BOUND' ELSE 'UNBOUND' END)=#{bindingState}</if>
+ </sql>
+ <sql id="mentorPageFrom">FROM mentor_profile m JOIN person_profile p ON p.id=m.person_id LEFT JOIN person_account_binding b ON b.person_id=m.person_id AND b.status='ACTIVE' LEFT JOIN user_profile u ON u.id=b.user_id <include refid="mentorFilter"/></sql>
+ <select id="mentorPage" resultType="cn.jualn.miniapp.module.person.entity.QualificationRows$Mentor" flushCache="true" useCache="false">
+ SELECT <include refid="mentorColumns"/>,p.status person_status,
+ CASE WHEN b.id IS NULL THEN 'UNBOUND' ELSE 'BOUND' END binding_state,
+ CASE WHEN b.id IS NULL THEN 'UNBOUND' WHEN u.id IS NULL OR u.status IS NULL OR u.status NOT IN (1,2,3) THEN NULL
+ WHEN u.deleted_at IS NULL AND (u.status=1 OR u.ban_expire_at&lt;=CONVERT_TZ(#{at},'+00:00','+08:00')) THEN 'AVAILABLE' ELSE 'UNAVAILABLE' END account_availability
+ <include refid="mentorPageFrom"/> ORDER BY m.person_id LIMIT #{limit} OFFSET #{offset}
+ </select>
+ <select id="mentorCount" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM mentor_profile m JOIN person_profile p ON p.id=m.person_id <include refid="mentorFilter"/></select>
+ <select id="mentorListCorruption" resultType="long" flushCache="true" useCache="false">
+ SELECT COUNT(*) FROM mentor_profile m
+ LEFT JOIN person_foundation_event e ON e.id=m.last_event_id
+ LEFT JOIN person_command_receipt r ON r.id=e.receipt_id
+ LEFT JOIN person_foundation_event q ON q.id=m.qualification_id
+ WHERE (<include refid="mentorInvalid"/>) <include refid="mentorVisible"/>
+ </select>
+ <select id="createdMentors" resultType="string">SELECT DISTINCT aggregate_id FROM person_foundation_event WHERE aggregate_type='MENTOR' AND aggregate_version=1 AND operator_user_id=#{actor}</select>
+<insert id="insertMentor">INSERT INTO mentor_profile(person_id,position,affiliation,revision,qualification_id,qualification_state,valid_from,valid_until,verified_at,verified_by,verification_reference,last_event_id) VALUES(#{personId},#{position},#{affiliation},#{revision},#{qualificationId},#{qualificationState},#{validFrom},#{validUntil},#{verifiedAt},#{verifiedBy},#{verificationReference},#{lastEventId})</insert>
+ <update id="saveMentor">UPDATE mentor_profile SET position=#{position},affiliation=#{affiliation},revision=#{revision},qualification_id=#{qualificationId},qualification_state=#{qualificationState},valid_from=#{validFrom},valid_until=#{validUntil},verified_at=#{verifiedAt},verified_by=#{verifiedBy},verification_reference=#{verificationReference},last_event_id=#{lastEventId} WHERE person_id=#{personId} AND revision=#{revision}-1</update>
+ <sql id="eventColumns">id,aggregate_type,aggregate_id,aggregate_version,operation,before_json,after_json,operator_user_id,recorded_at,reason,verification_reference,source,corrects_event_id,receipt_id,trace_id,verification_method,source_reference,source_version,source_approver</sql>
+ <select id="history" resultType="cn.jualn.miniapp.module.person.entity.PersonRows$Event" flushCache="true" useCache="false">SELECT <include refid="eventColumns"/> FROM person_foundation_event WHERE aggregate_type=#{type} AND aggregate_id=#{id} ORDER BY recorded_at DESC,id DESC LIMIT #{limit} OFFSET #{offset}</select>
+ <select id="historyCount" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM person_foundation_event WHERE aggregate_type=#{type} AND aggregate_id=#{id}</select>
+ <select id="identityHistory" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) FROM person_foundation_event WHERE aggregate_type='PERSON' AND aggregate_id=#{person} AND operation IN ('RECORD','TRANSITION','CORRECT','ROSTER_IDENTITY')</select>
+ <sql id="answerCandidates">FROM comment c JOIN post p ON p.id=c.target_id
+ WHERE c.target_type=1 AND c.parent_id IS NULL AND p.post_type='MENTOR_QA'
+ <if test="author != null">AND c.user_id=#{author}</if>
+ </sql>
+ <sql id="answerFrom"><include refid="answerCandidates"/>
+ AND JSON_UNQUOTE(JSON_EXTRACT(<include refid="cn.jualn.miniapp.module.comment.mapper.CommunityCommentMapper.originalProof"/>,'$.personId'))=#{person}
+ </sql>
+ <!-- Corrupt/absent identities cannot safely be excluded by Person: return unavailable, never a false empty page. -->
+ <select id="answerCorruption" resultType="long" flushCache="true" useCache="false">
+ SELECT COUNT(*) <include refid="answerCandidates"/> AND (<include refid="cn.jualn.miniapp.module.comment.mapper.CommunityCommentMapper.invalidProof"/>)
+ </select>
+ <select id="answers" resultType="cn.jualn.miniapp.module.person.bo.QualificationBO$Answer" flushCache="true" useCache="false">SELECT CAST(p.id AS CHAR) post_id,CAST(c.id AS CHAR) comment_id,c.created_at <include refid="answerFrom"/> ORDER BY c.created_at DESC,c.id DESC LIMIT #{limit} OFFSET #{offset}</select>
+ <select id="answerCount" resultType="long" flushCache="true" useCache="false">SELECT COUNT(*) <include refid="answerFrom"/></select>
+ <sql id="mentorInvalid">(m.qualification_id IS NOT NULL AND (m.qualification_state NOT IN ('APPROVED','REVOKED') OR m.valid_from IS NULL OR m.verified_at IS NULL OR m.verified_by IS NULL OR NULLIF(TRIM(m.verification_reference),'') IS NULL)) OR e.id IS NULL OR e.aggregate_type&lt;&gt;'MENTOR' OR e.aggregate_id&lt;&gt;m.person_id
+ OR e.aggregate_version&lt;&gt;m.revision OR r.id IS NULL OR r.event_id&lt;&gt;e.id OR NOT COALESCE(r.result_json=e.after_json,FALSE)
+ OR JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.position'))&lt;&gt;m.position
+ OR JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.affiliation'))&lt;&gt;m.affiliation
+ OR NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.version'))=CAST(m.revision AS CHAR),FALSE)
+ OR NOT (NULLIF(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.qualificationId')),'null') &lt;=&gt; m.qualification_id)
+ OR (m.qualification_state='REVOKED' AND NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.qualificationStatus'))='REVOKED',FALSE))
+ OR (m.qualification_state='APPROVED' AND JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.qualificationStatus'))='REVOKED')
+ OR (m.qualification_id IS NOT NULL AND (q.id IS NULL OR q.aggregate_type&lt;&gt;'MENTOR' OR q.aggregate_id&lt;&gt;m.person_id
+ OR q.operation&lt;&gt;'APPROVE' OR q.source&lt;&gt;'ADMIN_VERIFIED_SOURCE'
+ OR NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(q.after_json,'$.qualificationId'))=q.id,FALSE)
+ OR NOT (NULLIF(JSON_UNQUOTE(JSON_EXTRACT(q.after_json,'$.verifiedByUserId')),'null') &lt;=&gt; CAST(m.verified_by AS CHAR))
+ OR NOT (NULLIF(JSON_UNQUOTE(JSON_EXTRACT(q.after_json,'$.verificationReference')),'null') &lt;=&gt; m.verification_reference)
+ OR NOT (CAST(REPLACE(REPLACE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(q.after_json,'$.validFrom')),'null'),'T',' '),'Z','') AS DATETIME(6)) &lt;=&gt; m.valid_from)
+ OR NOT (CAST(REPLACE(REPLACE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(q.after_json,'$.validUntil')),'null'),'T',' '),'Z','') AS DATETIME(6)) &lt;=&gt; m.valid_until)
+ OR NOT (CAST(REPLACE(REPLACE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(q.after_json,'$.verifiedAt')),'null'),'T',' '),'Z','') AS DATETIME(6)) &lt;=&gt; m.verified_at)))</sql>
+ <select id="mentorCorruption" resultType="long" flushCache="true" useCache="false">
+ SELECT COUNT(*) FROM mentor_profile m
+ LEFT JOIN person_foundation_event e ON e.id=m.last_event_id
+ LEFT JOIN person_command_receipt r ON r.id=e.receipt_id
+ LEFT JOIN person_foundation_event q ON q.id=m.qualification_id
+ WHERE m.person_id=#{person} AND (<include refid="mentorInvalid"/>)
+ </select>
+ <select id="entryCorruption" resultType="long" flushCache="true" useCache="false">
+ SELECT COUNT(*) FROM party_roster_entry b
+ LEFT JOIN person_foundation_event e ON e.id=b.last_event_id
+ LEFT JOIN party_roster_import i ON i.id=b.import_id
+ WHERE b.id=#{id} AND (<include refid="entryInvalid"/>)
+ </select>
+ <sql id="entryInvalid">e.id IS NULL OR e.aggregate_type&lt;&gt;'ROSTER_ENTRY' OR e.aggregate_id&lt;&gt;b.id OR e.aggregate_version&lt;&gt;b.revision
+ OR NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.version'))=CAST(b.revision AS CHAR),FALSE)
+ OR NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.organizationId'))=b.organization_id,FALSE)
+ OR NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.expectedStageId'))=b.expected_stage_id,FALSE)
+ OR NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.baselineStatus'))=b.baseline_status,FALSE)
+ OR NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.personId'))=b.person_id,FALSE)
+ OR i.id IS NULL OR i.state&lt;&gt;'COMMITTED' OR i.organization_id&lt;&gt;b.organization_id OR NOT (i.approved_by &lt;=&gt; b.source_approver)
+ </sql>
+ <select id="importCorruption" resultType="long" flushCache="true" useCache="false">
+ SELECT COUNT(*) FROM party_roster_import i LEFT JOIN person_foundation_event e ON e.id=i.last_event_id
+ WHERE i.id=#{id} AND (<include refid="importInvalid"/>)
+ </select>
+ <sql id="importInvalid">e.id IS NULL OR e.aggregate_type&lt;&gt;'ROSTER_IMPORT' OR e.aggregate_id&lt;&gt;i.id OR e.aggregate_version&lt;&gt;i.revision
+ OR e.operator_user_id&lt;&gt;i.creator
+ OR NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.state'))=i.state,FALSE)
+ OR NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.organizationId'))=i.organization_id,FALSE)
+ OR NOT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(e.after_json,'$.sourceReference'))=i.source_reference,FALSE)
+ </sql>
+ <select id="importResult" resultType="string" flushCache="true" useCache="false">
+ SELECT e.after_json FROM person_foundation_event e JOIN person_command_receipt r ON r.id=e.receipt_id AND r.event_id=e.id
+ WHERE e.aggregate_type='ROSTER_TRACE' AND e.aggregate_id=#{id} AND e.aggregate_version=1
+ AND e.operation='recordPartyPersonnelImportResults'
+ </select>
+ <select id="committedImportCount" resultType="long" flushCache="true" useCache="false">
+ SELECT COUNT(*) FROM party_roster_import WHERE organization_id=#{organization} AND state='COMMITTED'
+ </select>
+ <select id="committedImports" resultType="cn.jualn.miniapp.module.person.mapper.QualificationMapper$CommittedImport" flushCache="true" useCache="false">
+ SELECT i.id import_id,i.source_reference,e.recorded_at committed_at,i.imported_count
+ FROM party_roster_import i JOIN person_foundation_event e ON e.id=i.last_event_id
+ WHERE i.organization_id=#{organization} AND i.state='COMMITTED'
+ ORDER BY e.recorded_at DESC,i.id DESC LIMIT #{limit} OFFSET #{offset}
+ </select>
+ <update id="purgeFiles">UPDATE party_roster_import SET workbook=NULL,preview=NULL,plan_id=NULL,plan_fingerprint=NULL,plan_expires_at=NULL
+ WHERE file_retain_until&lt;=UTC_TIMESTAMP(6) AND (workbook IS NOT NULL OR preview IS NOT NULL) ORDER BY file_retain_until,id LIMIT 100</update>
+</mapper>

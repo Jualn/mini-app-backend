@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.person.mapper.LearningRecipientMapper">
+ <select id="selectedNames" resultType="cn.jualn.miniapp.module.person.mapper.LearningRecipientMapper$Candidate">
+  <choose>
+   <when test="account">
+    SELECT CAST(u.id AS CHAR) id, NULL person_id, u.nickname name, NULL disambiguation
+    FROM user_profile u WHERE u.deleted_at IS NULL AND u.id IN
+   </when>
+   <otherwise>
+    SELECT p.id, p.id person_id, p.real_name name, r.major_class disambiguation
+    FROM person_profile p LEFT JOIN person_major_class_registration r ON r.person_id=p.id AND r.last_action='SET'
+    WHERE p.id IN
+   </otherwise>
+  </choose>
+  <foreach collection="ids" item="id" open="(" close=")" separator=","><choose><when test="account">CAST(#{id} AS UNSIGNED)</when><otherwise>#{id}</otherwise></choose></foreach>
+ </select>
+ <select id="organizations" resultType="cn.jualn.miniapp.module.person.mapper.LearningRecipientMapper$Candidate">
+  SELECT id,NULL person_id,name,NULL disambiguation FROM person_organization WHERE status='ACTIVE'
+  <if test="!platform"><choose><when test="!ids.isEmpty()">AND id IN <foreach collection="ids" item="id" open="(" close=")" separator=",">#{id}</foreach></when><otherwise>AND 1=0</otherwise></choose></if>
+  <if test="q!=null">AND LOCATE(#{q},name)&gt;0</if><if test="after!=null">AND id&gt;#{after}</if>
+  ORDER BY id LIMIT #{limit}
+ </select>
+ <select id="candidates" resultType="cn.jualn.miniapp.module.person.mapper.LearningRecipientMapper$Candidate">
+  SELECT <choose><when test="account">CAST(u.id AS CHAR) id,b.person_id, u.nickname name,r.major_class disambiguation
+   FROM user_profile u LEFT JOIN person_account_binding b ON b.user_id=u.id AND b.status='ACTIVE' AND b.ended_at IS NULL
+    AND b.verification_method IN ('ADMIN_MANUAL','ROSTER_EXACT_MATCH') AND b.source_reference IS NOT NULL AND TRIM(b.source_reference)&lt;&gt;''
+   LEFT JOIN person_profile p ON p.id=b.person_id
+   LEFT JOIN person_major_class_registration r ON r.person_id=p.id AND r.last_action='SET'
+  </when><otherwise>p.id,p.id person_id,p.real_name name,r.major_class disambiguation FROM person_profile p
+   LEFT JOIN person_major_class_registration r ON r.person_id=p.id AND r.last_action='SET'
+  </otherwise></choose>
+  WHERE
+  <if test="account">u.deleted_at IS NULL AND</if>
+  (<foreach collection="ceilings" item="c" separator=" OR ">
+    <choose><when test="c.type=='PLATFORM'">1=1</when>
+    <when test="c.type=='PERSON'">p.id=#{c.personId}</when>
+    <otherwise>EXISTS(SELECT 1 FROM person_membership m WHERE m.person_id=p.id AND m.organization_id=#{c.organizationId}
+      AND m.ended_event_id IS NULL AND m.valid_from&lt;=#{at} AND (m.valid_until IS NULL OR m.valid_until&gt;#{at}))</otherwise></choose>
+  </foreach><if test="ceilings.isEmpty()">1=0</if>)
+  <if test="!organizations.isEmpty()">AND EXISTS(SELECT 1 FROM person_membership m WHERE m.person_id=p.id AND m.organization_id IN
+    <foreach collection="organizations" item="o" open="(" close=")" separator=",">#{o}</foreach>
+    AND m.ended_event_id IS NULL AND m.valid_from&lt;=#{at} AND (m.valid_until IS NULL OR m.valid_until&gt;#{at}))</if>
+  <if test="!stages.isEmpty()">AND EXISTS(SELECT 1 FROM person_fact_current f WHERE f.person_id=p.id AND f.stage_id IN
+    <foreach collection="stages" item="s" open="(" close=")" separator=",">#{s}</foreach>
+    AND f.identity_verification='VERIFIED' AND f.identity_presence='RECORDED' AND f.identity_status='ACTIVE'
+    AND f.identity_valid_from&lt;=#{at} AND (f.identity_valid_until IS NULL OR f.identity_valid_until&gt;#{at}))</if>
+  <if test="q!=null">AND LOCATE(#{q},<choose><when test="account">u.nickname</when><otherwise>p.real_name</otherwise></choose>)&gt;0</if>
+  <if test="after!=null">AND <choose><when test="account">CAST(u.id AS CHAR)</when><otherwise>p.id</otherwise></choose>&gt;#{after}</if>
+  ORDER BY id LIMIT #{limit}
+ </select>
+</mapper>

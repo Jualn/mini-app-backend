@@ -192,15 +192,16 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           rm -rf release-content release-dist
-          mkdir -p release-content/db/migration release-dist
+          mkdir -p release-content/db/migration release-content/tools release-dist
 
           cp "$JAR_PATH" release-content/app.jar
+          install -m 0755 tools/invoke-root-operations.sh release-content/tools/invoke-root-operations.sh
           cp "$MIGRATION_PATH"/V*__*.sql release-content/db/migration/
           printf '%s\n' "$GITHUB_SHA" > release-content/RELEASE_COMMIT
 
           (
             cd release-content
-            find app.jar RELEASE_COMMIT db/migration -type f -print0 \
+            find app.jar RELEASE_COMMIT db/migration tools -type f -print0 \
               | sort -z \
               | xargs -0 sha256sum > SHA256SUMS
           )

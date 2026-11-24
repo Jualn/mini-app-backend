@@ -11,10 +11,14 @@ import org.springframework.stereotype.Component;
 public class MediaUploadCleanupTask {
 
     private final MediaUploadRecordService uploadRecordService;
+    private final PointMaterialService pointMaterials;
+    private final LearningMaterialService learningMaterials;
 
-    @Scheduled(cron = "0 */10 * * * ?")
+    @Scheduled(cron = "0 */10 * * * ?", zone = "Asia/Shanghai")
     public void cleanupExpiredUploads() {
         int cleaned = uploadRecordService.cleanupExpiredBatch();
+        cleaned += pointMaterials.cleanupExpiredBatch();
+        cleaned += learningMaterials.cleanupExpiredBatch();
         if (cleaned > 0) {
             log.info("[MediaUploadCleanupTask] 清理完成，count={}", cleaned);
         }

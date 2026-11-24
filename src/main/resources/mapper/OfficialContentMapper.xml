@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.officialcontent.mapper.OfficialContentMapper">
+  <select id="list" resultType="cn.jualn.miniapp.module.officialcontent.entity.OfficialContent">
+    SELECT id,title,summary,publisher,category,publish_status,revision,published_at
+    FROM official_content
+    <where>
+      <if test="category != null">category=#{category}</if>
+      <if test="status != null">AND publish_status=#{status}</if>
+      <if test="lastId != null">AND id &lt; #{lastId}</if>
+    </where>
+    ORDER BY id DESC LIMIT #{limit}
+  </select>
+</mapper>

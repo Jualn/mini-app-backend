@@ -23,6 +23,7 @@ public class ViewLog {
     private Integer targetType;
 
     private Long targetId;
+    private java.time.LocalDate viewDay;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

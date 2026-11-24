@@ -2,7 +2,7 @@ package cn.jualn.miniapp.module.notify.service.impl;
 
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.constant.UserContext;
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.PageResult;
@@ -12,9 +12,6 @@ import cn.jualn.miniapp.infrastructure.async.job.JobDefinition;
 import cn.jualn.miniapp.common.observability.ObservabilityContext;
 import cn.jualn.miniapp.infrastructure.async.job.JobService;
 import cn.jualn.miniapp.infrastructure.async.job.JobExecutionContext;
-import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
-import cn.jualn.miniapp.module.activity.service.ActivityEnrollmentService;
-import cn.jualn.miniapp.module.exam.service.ExamSubscriptionService;
 import cn.jualn.miniapp.module.notify.bo.NotificationBO;
 import cn.jualn.miniapp.module.notify.bo.NotificationPageBO;
 import cn.jualn.miniapp.module.notify.converter.NotifyConverter;
@@ -27,22 +24,13 @@ import cn.jualn.miniapp.module.notify.async.NotificationPlanJobPayload;
 import cn.jualn.miniapp.module.notify.async.ActivityBusinessNotificationJobPayload;
 import cn.jualn.miniapp.module.notify.async.BusinessNotificationJobPayload;
 import cn.jualn.miniapp.module.notify.entity.NotificationPreference;
-import cn.jualn.miniapp.module.notify.mapper.NotificationPreferenceMapper;
-import cn.jualn.miniapp.module.notify.mapper.NotificationPreferenceOwnerMapper;
 import cn.jualn.miniapp.module.notify.model.NotificationCategory;
 import cn.jualn.miniapp.module.notify.model.NotificationChannel;
-import cn.jualn.miniapp.module.notify.service.NotificationDeliveryService;
 import cn.jualn.miniapp.module.notify.service.NotifyService;
 import cn.jualn.miniapp.module.notify.reminder.ReminderSubjectStatus;
 import cn.jualn.miniapp.module.notify.reminder.ReminderSpec;
 import cn.jualn.miniapp.module.notify.reminder.ReminderReconcileService;
-import cn.jualn.miniapp.module.setting.bo.UserSettingBO;
-import cn.jualn.miniapp.module.setting.service.SettingService;
 import cn.jualn.miniapp.module.user.service.UserService;
-import cn.jualn.miniapp.module.user.mapper.UserProfileMapper;
-import cn.jualn.miniapp.module.wx.notice.data.ActivityRemindNoticeData;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -68,25 +56,40 @@ public class NotifyServiceImpl implements NotifyService {
 
     private final NotificationMapper notificationMapper;
     private final io.micrometer.core.instrument.MeterRegistry meters;
-    private final cn.jualn.miniapp.module.notify.service.NotificationInboxService inboxService;
     private final NotifyPlanMapper notifyPlanMapper;
-    private final ActivityEnrollmentService enrollmentService;
-    private final ExamSubscriptionService examSubService;
     private final UserService userService;
-    private final SettingService settingService;
+    private final List<cn.jualn.miniapp.module.notify.service.NotificationSource> sources;
     private final RedisService redisService;
-    private final TargetValidator targetValidator;
     private final NotifyConverter notifyConverter;
     private final JobService jobService;
     private final TransactionTemplate transactionTemplate;
     private static final int BATCH_SIZE = 100;
-    private final NotificationDeliveryService deliveryService;
-    private final ObjectMapper objectMapper;
+    private final cn.jualn.miniapp.module.notify.service.NotificationAcceptance creationService;
     private final List<ReminderSubjectStatus> reminderSubjectStatuses;
     private final ReminderReconcileService reminderReconcileService;
-    private final NotificationPreferenceMapper preferenceMapper;
-    private final NotificationPreferenceOwnerMapper preferenceOwnerMapper;
-    private final UserProfileMapper userProfileMapper;
+
+    @Override
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    public void catchUpReminder(cn.jualn.miniapp.module.notify.async.ReminderCatchUpPayload payload, JobExecutionContext context) {
+        var rule = payload.rule();
+        var now = LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"));
+        if (rule == null || rule.sendAt().isAfter(now) || rule.subjectStartsAt() == null || !rule.subjectStartsAt().isAfter(now)) return;
+        var intent = new cn.jualn.miniapp.module.notify.reminder.ReminderExecution(payload.activityId(), null,
+                rule.timelineId(), rule.notificationType().getCode(), rule.ruleKey(), rule.subjectStartsAt(), rule.sendAt());
+        var owner = reminderSubjectStatuses.stream().filter(status -> status.sourceType() == 1).findFirst();
+        if (owner.isEmpty() || !owner.get().lockCurrentAndEligible(intent, now)) return;
+        if (context != null) context.requireOwnership();
+        if (!source(1).recipients(payload.activityId(), rule.recipientScope(), payload.userId() - 1, payload.userId(), 1).contains(payload.userId())) return;
+        var plan = NotifyPlan.builder().sourceType(1).sourceId(payload.activityId()).timelineId(rule.timelineId())
+                .ruleKey(rule.ruleKey()).generation(Math.addExact(notifyPlanMapper.maxGeneration(1, payload.activityId(), rule.timelineId(), rule.ruleKey()), 1))
+                .recipientScope(rule.recipientScope()).notifyType(rule.notificationType().getCode())
+                .title(rule.title()).content(rule.content()).subjectStartsAt(rule.subjectStartsAt()).subjectLocation(rule.subjectLocation())
+                .scope(0).scene(rule.ruleKey()).sendAt(rule.sendAt()).status(1)
+                .recipientUpperUserId(payload.userId()).completedAt(now).build();
+        notifyPlanMapper.insert(plan);
+        var notifications = buildNotifyPayloads(List.of(payload.userId()), plan);
+        if (!notifications.isEmpty()) creationService.acceptBatch(notifications);
+    }
 
     @Override
     public PageResult<NotificationBO> pageCurrentUserNotifications(NotificationPageBO query) {
@@ -108,23 +111,9 @@ public class NotifyServiceImpl implements NotifyService {
     @Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public Long countCurrentUnreadNotifications() {
         Long userId = requireCurrentUserId();
-        String cacheKey = RedisKeyConstant.userUnreadCount(userId) + ":" + notificationMapper.selectUnreadProjectionVersion(userId);
-        Long cached = redisService.getLong(cacheKey);
-        if (cached != null) {
-            return Math.max(cached, 0L);
-        }
+        Long count = notificationMapper.countCanonicalUnread(userId);
+        return count == null ? 0L : count;
 
-        Long selected;
-        try {
-            selected = notificationMapper.countCanonicalUnread(userId);
-        } catch (RuntimeException failure) {
-            meters.counter("jualn.notification.unread.rebuild", "result", "database_failure").increment();
-            throw failure;
-        }
-        long dbCount = selected == null ? 0L : selected;
-        boolean rebuilt = redisService.setCacheProjection(cacheKey, dbCount, java.time.Duration.ofSeconds(15));
-        meters.counter("jualn.notification.unread.rebuild", "result", rebuilt ? "success" : "cache_failure").increment();
-        return dbCount;
     }
 
     @Override
@@ -186,7 +175,7 @@ public class NotifyServiceImpl implements NotifyService {
         if ((type != TargetType.ACTIVITY && type != TargetType.EXAM) || id == null)
             throw new BusinessException(ResultCode.INVALID_OPERATION, "提醒来源不合法");
         int sourceType = type == TargetType.ACTIVITY ? 1 : 2;
-        reminderReconcileService.reconcile(sourceType, id, 0L, List.of(), LocalDateTime.now());
+        reminderReconcileService.reconcile(sourceType, id, 0L, List.of(), LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")));
         // A non-null legacy sendAt is intentionally ignored. Canonical owners evaluate their
         // subject-specific Timeline policy and call reconcileReminders with a real generation.
     }
@@ -224,7 +213,7 @@ public class NotifyServiceImpl implements NotifyService {
                 "activity:" + activityId + ":event:" + eventKey,
                 "activity", String.valueOf(activityId),
                 new ActivityBusinessNotificationJobPayload(activityId, eventKey, title, content),
-                LocalDateTime.now(), 6));
+                LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")), 6));
     }
 
     @Override
@@ -240,26 +229,32 @@ public class NotifyServiceImpl implements NotifyService {
     public void enqueueBusinessNotification(TargetType targetType, Long targetId, String eventIdentity,
             NotifyType notificationType, String recipientScope, String title, String content,
             cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot snapshot) {
-        if (!Set.of(TargetType.ACTIVITY, TargetType.EXAM).contains(targetType) || targetId == null
+        if (sources.stream().noneMatch(owner->owner.targetType()==targetType) || targetId == null
                 || eventIdentity == null || eventIdentity.isBlank() || categoryOf(notificationType) == null) {
             throw new BusinessException(ResultCode.INVALID_OPERATION, "业务通知事件身份不完整");
         }
         BusinessNotificationJobPayload payload = new BusinessNotificationJobPayload(
                 targetType.getCode(), targetId, eventIdentity, notificationType.getCode(),
-                recipientScope, title, content, snapshot);
+                recipientScope, title, content, snapshot, cn.jualn.miniapp.module.notify.service.NotificationObservation.now());
         jobService.create(new JobDefinition("business-notification.fanout", 1,
                 ObservabilityContext.ensureOperationId(), eventIdentity, targetType.name(),
-                String.valueOf(targetId), payload, LocalDateTime.now(), 6));
+                String.valueOf(targetId), payload, LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")), 6));
     }
 
     @Override
     public void notifyActivitySubscribers(Long activityId, String eventKey, String title, String content) {
+        notifyActivitySubscribers(activityId,eventKey,title,content,null);
+    }
+
+    @Override
+    public void notifyActivitySubscribers(Long activityId,String eventKey,String title,String content,JobExecutionContext context) {
         if (activityId == null) {
             throw new BusinessException(ResultCode.ACTIVITY_PARAM_INVALID, "activityId 不能为空");
         }
         long lastId = 0L;
         while (true) {
-            List<Long> userIds = enrollmentService.listEnrolledUserIds(activityId, lastId, BATCH_SIZE);
+            if(context!=null) context.prepareBatch();
+            List<Long> userIds = source(1).recipients(activityId, "SUBSCRIBERS", lastId, Long.MAX_VALUE, BATCH_SIZE);
             if (userIds.isEmpty()) {
                 return;
             }
@@ -274,7 +269,10 @@ public class NotifyServiceImpl implements NotifyService {
                         .targetId(activityId)
                         .sourceKey("activity:" + activityId + ":event:" + eventKey + ":user:" + userId)
                         .build();
-                transactionTemplate.executeWithoutResult(status -> processNotificationPayload(payload));
+                transactionTemplate.executeWithoutResult(status -> {
+                    if(context!=null) context.requireOwnership();
+                    creationService.accept(payload);
+                });
             }
             if (userIds.size() < BATCH_SIZE) {
                 return;
@@ -299,12 +297,25 @@ public class NotifyServiceImpl implements NotifyService {
             return;
         }
         if (Integer.valueOf(0).equals(plan.getStatus())) {
-            if (notifyPlanMapper.startFanOut(planId) != 1) return;
+            int started = context == null ? notifyPlanMapper.startFanOut(planId)
+                    : transactionTemplate.execute(tx -> { context.requireOwnership(); return notifyPlanMapper.startFanOut(planId); });
+            if (started != 1) return;
             plan = notifyPlanMapper.selectById(planId);
         }
 
         long lastId = 0L;
         int total = 0;
+        if (plan.getRecipientUpperUserId() == null) {
+            long bound = Integer.valueOf(3).equals(plan.getSourceType()) ? Long.MAX_VALUE
+                    : source(plan.getSourceType()).upperBound(plan.getSourceId(), plan.getRecipientScope() == null ? "SUBSCRIBERS" : plan.getRecipientScope());
+            if (context == null) notifyPlanMapper.freezeRecipientUpperBound(planId, bound);
+            else transactionTemplate.executeWithoutResult(tx -> {
+                context.requireOwnership(); notifyPlanMapper.freezeRecipientUpperBound(planId, bound);
+            });
+            plan = notifyPlanMapper.selectById(planId);
+            if (plan == null || plan.getRecipientUpperUserId() == null) return;
+        }
+        long upperBound = plan.getRecipientUpperUserId();
 
         while (true) {
             if (context != null) context.prepareBatch();
@@ -319,16 +330,37 @@ public class NotifyServiceImpl implements NotifyService {
                 });
                 return;
             }
-            List<Long> userIds = queryUserIds(plan, lastId);
+            List<Long> userIds = queryUserIds(plan, lastId, upperBound);
             if (userIds.isEmpty()) {
                 break;
             }
 
             NotifyPlan batchPlan = plan;
-            List<NotifyPayload> payloads = userIds.stream().map(uid -> buildNotifyPayload(uid, batchPlan))
-                    .filter(java.util.Objects::nonNull).toList();
+            long batchLastId = lastId;
+            Boolean batchValid = transactionTemplate.execute(tx -> {
+                var intent = reminderIntent(batchPlan);
+                var owner = reminderSubjectStatuses.stream().filter(status -> status.sourceType() == batchPlan.getSourceType()).findFirst();
+                if (!Integer.valueOf(3).equals(batchPlan.getSourceType())
+                        && (owner.isEmpty() || !owner.get().lockCurrentAndEligible(intent,
+                            LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))))) return false;
+                if (context != null) context.requireOwnership();
+                NotifyPlan currentPlan = notifyPlanMapper.selectById(planId);
+                if (currentPlan == null || !Integer.valueOf(3).equals(currentPlan.getStatus())
+                        || !java.util.Objects.equals(reminderIntent(currentPlan), intent)) return false;
+                Set<Long> currentRecipients = new HashSet<>(queryUserIds(currentPlan, batchLastId,
+                        userIds.get(userIds.size() - 1)));
+                List<NotifyPayload> payloads = buildNotifyPayloads(userIds.stream().filter(currentRecipients::contains).toList(), currentPlan);
+                creationService.acceptBatch(payloads);
+                return true;
+            });
+            if (!Boolean.TRUE.equals(batchValid)) {
+                transactionTemplate.executeWithoutResult(tx -> {
+                    if (context != null) context.requireOwnership();
+                    notifyPlanMapper.cancelPlan(planId);
+                });
+                return;
+            }
             meters.counter("jualn.notification.recipients", "type", "reminder").increment(userIds.size());
-            processBatch(payloads, context);
 
             total += userIds.size();
 
@@ -337,6 +369,7 @@ public class NotifyServiceImpl implements NotifyService {
             }
 
             lastId = userIds.get(userIds.size() - 1);
+            if (lastId >= upperBound) break;
         }
 
         transactionTemplate.executeWithoutResult(status -> {
@@ -344,8 +377,7 @@ public class NotifyServiceImpl implements NotifyService {
             notifyPlanMapper.completeFanOut(planId);
         });
 
-        // TODO 后续可把 status=1 语义改为 FANOUT_DONE，而不是“已发送”。
-        // TODO 后续可加 CAS 抢占，避免多个消费者重复 fan-out。
+        // status=1 records completed fan-out, independent of channel delivery outcomes.
         log.info("[Broadcast] fan-out 完成，planId={}，共 {} 人", planId, total);
     }
 
@@ -359,83 +391,7 @@ public class NotifyServiceImpl implements NotifyService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void processNotificationPayload(NotifyPayload payload) {
-        if (payload == null) {
-            log.warn("[Notify] payload 为空");
-            return;
-        }
-        PlanningSnapshot planning = categoryOf(payload.getType()) == null
-                ? new PlanningSnapshot(Set.of(), Map.of(), Set.of())
-                : planningSnapshot(List.of(payload.getReceiverId()));
-        processNotificationPayload(payload, planning);
-    }
-
-    private void processNotificationPayload(NotifyPayload payload, PlanningSnapshot planning) {
-        if (payload == null || payload.getReceiverId() == null || payload.getType() == null) {
-            log.warn("[Notify] payload 非法，缺少 receiverId 或 type");
-            return;
-        }
-
-        if (java.util.Objects.equals(payload.getSenderId(), payload.getReceiverId())) {
-            return;
-        }
-        if (shouldValidateTarget(payload)
-                && !targetValidator.exists(payload.getTargetType(), payload.getTargetId())) {
-            log.debug("[Notify] target 不存在，跳过，targetType={}, targetId={}",
-                    payload.getTargetType(), payload.getTargetId());
-            return;
-        }
-
-        NotificationCategory category = categoryOf(payload.getType());
-        boolean canonical = category != null && planning.canonicalOwners().contains(payload.getReceiverId());
-        Notification notification = Notification.builder()
-                .userId(payload.getReceiverId())
-                .senderId(payload.getSenderId())
-                .type(payload.getType().getCode())
-                .title(payload.getTitle())
-                .content(payload.getContent())
-                .contentSchemaVersion(1)
-                .contentPayload(writeFrozenContent(payload))
-                .targetType(payload.getTargetType() != null ? payload.getTargetType().getCode() : null)
-                .targetId(payload.getTargetId())
-                .sourceKey(payload.getSourceKey())
-                .inboxGeneration(canonical ? "CANONICAL" : "LEGACY")
-                .isRead(0)
-                .build();
-
-        try {
-            notificationMapper.insert(notification);
-        } catch (DuplicateKeyException duplicate) {
-            meters.counter("jualn.notification.creation", "result", "dedupe_suppressed").increment();
-            if (payload.getSourceKey() != null && payload.getSourceKey().startsWith("reminder:")) {
-                meters.counter("jualn.notification.reminder.dedupe").increment();
-            }
-            log.debug("通知已存在，跳过重复业务事实，sourceKey={}", payload.getSourceKey());
-            return;
-        }
-        afterCommit(() -> meters.counter("jualn.notification.creation", "result", "created").increment());
-        if (canonical) {
-            Set<NotificationChannel> enabled = new HashSet<>(planning.enabledChannels().getOrDefault(
-                    new PreferenceKey(payload.getReceiverId(), category), Set.of(NotificationChannel.IN_APP)));
-            if (!planning.officialAccountUsers().contains(payload.getReceiverId())) {
-                enabled.remove(NotificationChannel.WECHAT_OFFICIAL_ACCOUNT);
-            }
-            boolean visible = deliveryService.planCanonicalDeliveries(notification, payload.getType(), enabled);
-            if (visible) afterCommit(() -> redisService.delete(RedisKeyConstant.userUnreadCount(payload.getReceiverId())));
-            return;
-        }
-        inboxService.enter(notification);
-        afterCommit(() -> redisService.delete(RedisKeyConstant.userUnreadCount(payload.getReceiverId())));
-
-        if (!isNotifyEnabled(payload.getReceiverId(), payload.getType())) {
-            log.debug("[Notify] 用户已关闭此类通知，跳过外部推送，userId={}, type={}",
-                    payload.getReceiverId(), payload.getType());
-            return;
-        }
-
-        deliveryService.planWeChatDelivery(notification, payload.getType());
-
-        log.debug("[Notify] 个人通知处理完成，userId={}, type={}",
-                payload.getReceiverId(), payload.getType());
+        creationService.accept(payload);
     }
 
     private String planDedupeKey(Long planId) {
@@ -464,76 +420,31 @@ public class NotifyServiceImpl implements NotifyService {
      * @param lastId 上次查询的最后一个用户 ID，分页使用，初始传 0
      * @return 用户 ID 列表，按 ID 升序排列，最多 BATCH_SIZE 条
      */
-    private List<Long> queryUserIds(NotifyPlan plan, long lastId) {
+    private List<Long> queryUserIds(NotifyPlan plan, long lastId, long upperBound) {
         if (plan == null) return List.of();
-        if ("SUBSCRIBERS_NOT_REGISTERED".equals(plan.getRecipientScope())) {
-            return Integer.valueOf(1).equals(plan.getSourceType())
-                    ? enrollmentService.listNotifyEnabledUnregisteredUserIds(plan.getSourceId(), lastId, BATCH_SIZE)
-                    : List.of();
-        }
-        if (plan.getRecipientScope() != null && !"SUBSCRIBERS".equals(plan.getRecipientScope())) {
-            return List.of();
-        }
-        return switch (plan.getScope()) {
-            case 0 -> switch (plan.getSourceType()) {
-                case 1 -> enrollmentService.listEnrolledUserIds(plan.getSourceId(), lastId, BATCH_SIZE);
-                case 2 -> examSubService.listSubscriberUserIds(plan.getSourceId(), lastId, BATCH_SIZE);
-                default -> List.of();
-            };
-            case 1 -> userService.listAllUserIds(lastId, BATCH_SIZE);
-            default -> List.of();
-        };
+        if (Integer.valueOf(1).equals(plan.getScope()))
+            return userService.listAllUserIds(lastId, BATCH_SIZE).stream().filter(id->id<=upperBound).toList();
+        return source(plan.getSourceType()).recipients(plan.getSourceId(),plan.getRecipientScope(),lastId,upperBound,BATCH_SIZE);
     }
 
-    /**
-     * 构建 NotifyPayload，传入最终发送通知执行的process
-     *
-     * @param uid    接收用户 ID
-     * @param plan   通知计划
-     * @return NotifyPayload
-     */
-    private NotifyPayload buildNotifyPayload(Long uid, NotifyPlan plan) {
-        if (Integer.valueOf(8).equals(plan.getNotifyType()) && plan.getSubjectStartsAt() != null) {
-            String anchor = plan.getSubjectStartsAt().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-            if (plan.getSubjectStartsAt().getNano() == 0 && notificationMapper.selectHistoricalStartOccurrence(
-                    uid, TargetType.ACTIVITY.getCode(), plan.getSourceId(), anchor) != null) {
-                meters.counter("jualn.notification.reminder.dedupe").increment();
-                return null;
-            }
-        }
-        return NotifyPayload.builder()
-                .receiverId(uid)
-                .senderId(null)
-                .type(NotifyType.fromCode(plan.getNotifyType()))
-                .title(plan.getTitle())
-                .content(plan.getContent())
-                .targetType(sourceTypeToTargetType(plan.getSourceType()))
-                .targetId(plan.getSourceId())
-                .sourceKey(cn.jualn.miniapp.module.notify.service.ReminderOccurrence.sourceKey(plan, uid))
-                .wxData(buildReminderNoticeData(plan))
-                .build();
+    private List<NotifyPayload> buildNotifyPayloads(List<Long> users, NotifyPlan plan) {
+        if (Integer.valueOf(3).equals(plan.getSourceType())) return users.stream().map(user -> NotifyPayload.builder()
+            .receiverId(user).type(NotifyType.fromCode(plan.getNotifyType())).title(plan.getTitle()).content(plan.getContent())
+            .sourceKey("plan:"+plan.getId()+":user:"+user).build()).toList();
+        // Preserve the existing historical start-occurrence barrier while reading new business facts once per batch.
+        List<Long> eligible = users;
+        if (Integer.valueOf(1).equals(plan.getSourceType()) && Integer.valueOf(8).equals(plan.getNotifyType())
+                && plan.getSubjectStartsAt() != null && plan.getSubjectStartsAt().getNano() == 0)
+            eligible = users.stream().filter(user -> notificationMapper.selectHistoricalStartOccurrence(user, TargetType.ACTIVITY.getCode(),
+                    plan.getSourceId(), plan.getSubjectStartsAt().format(
+                        java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))) == null).toList();
+        return source(plan.getSourceType()).reminders(eligible,
+                cn.jualn.miniapp.module.notify.service.ReminderPlanSnapshot.of(plan));
     }
 
-    private cn.jualn.miniapp.module.wx.notice.data.NoticeData buildReminderNoticeData(NotifyPlan plan) {
-        NotifyType type = NotifyType.fromCode(plan.getNotifyType());
-        if (type != NotifyType.ACTIVITY_START_REMINDER || plan.getSourceId() == null
-                || plan.getTitle() == null || plan.getSubjectStartsAt() == null) {
-            return null;
-        }
-        return new ActivityRemindNoticeData(plan.getSourceId(), plan.getTitle(),
-                plan.getSubjectStartsAt(), plan.getSubjectLocation());
-    }
-
-    private TargetType sourceTypeToTargetType(Integer sourceType) {
-        if (sourceType == null) {
-            return null;
-        }
-
-        return switch (sourceType) {
-            case 1 -> TargetType.ACTIVITY;
-            case 2 -> TargetType.EXAM;
-            default -> null;
-        };
+    private cn.jualn.miniapp.module.notify.service.NotificationSource source(int type) {
+        return sources.stream().filter(owner->owner.sourceType()==type).findFirst()
+            .orElseThrow(()->new IllegalArgumentException("Notification source owner is unavailable"));
     }
 
     private Long requireCurrentUserId() {
@@ -551,63 +462,9 @@ public class NotifyServiceImpl implements NotifyService {
         return Math.min(pageSize, 50);
     }
 
-    private boolean isNotifyEnabled(Long userId, NotifyType type) {
-        if (type == NotifyType.POST_COMMENTED || type == NotifyType.COMMENT_REPLIED) {
-            type = type.legacyRepresentation();
-        }
-        if (type == null || type.getCode() > 7) return false;
-        UserSettingBO setting = settingService.getSettingByUserId(userId);
 
-        return switch (type.getCode()) {
-            case 1 -> Boolean.TRUE.equals(setting.getNotifyComment());
-            case 2 -> Boolean.TRUE.equals(setting.getNotifyReply());
-            case 3 -> Boolean.TRUE.equals(setting.getNotifyLike());
-            case 4 -> Boolean.TRUE.equals(setting.getNotifyActivityRemind());
-            case 5 -> Boolean.TRUE.equals(setting.getNotifyExamRemind());
-            case 6 -> Boolean.TRUE.equals(setting.getNotifyAuditResult());
-            case 7 -> Boolean.TRUE.equals(setting.getNotifySystem());
-            default -> false;
-        };
-    }
 
-    private String writeFrozenContent(NotifyPayload payload) {
-        Map<String, Object> content = new LinkedHashMap<>();
-        content.put("title", payload.getTitle());
-        content.put("content", payload.getContent());
-        content.put("targetId", payload.getTargetId());
-        content.put("targetType", payload.getTargetType() == null ? null : payload.getTargetType().name());
-        if (payload.getWxData() != null) {
-            content.putAll(payload.getWxData().toMap());
-        }
-        var snapshot = payload.getSnapshot();
-        if (snapshot != null) {
-            content.put("presentation", snapshot.presentation());
-            content.put("actor", snapshot.actor());
-            content.put("subject", snapshot.subject());
-            content.put("target", snapshot.target());
-        } else {
-            content.put("presentation", new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Presentation(
-                    payload.getTitle() == null || payload.getTitle().isBlank() ? "通知" : payload.getTitle(),
-                    payload.getContent(), null, null, null,
-                    payload.getType().getCode() >= 8 && payload.getType().getCode() <= 11 ? payload.getTitle() : null, null));
-            if (payload.getTargetId() != null && payload.getTargetType() != null) {
-                String id = payload.getTargetId().toString();
-                String subjectType = payload.getTargetType() == TargetType.EXAM ? "PUBLIC_EVENT" : payload.getTargetType().name();
-                content.put("subject", new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Subject(subjectType, id));
-                switch (payload.getTargetType()) {
-                    case POST -> content.put("target", cn.jualn.miniapp.module.notify.service.NotificationSnapshotProjection.post(id, null));
-                    case ACTIVITY -> content.put("target", new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Target("ACTIVITY_DETAIL", null, null, id, null));
-                    case EXAM -> content.put("target", new cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Target("PUBLIC_EVENT_DETAIL", null, null, null, id));
-                    default -> { }
-                }
-            }
-        }
-        try {
-            return objectMapper.writeValueAsString(content);
-        } catch (JsonProcessingException invalidSnapshot) {
-            throw new BusinessException(ResultCode.WX_NOTICE_PAYLOAD_INVALID, "通知冻结内容无法序列化");
-        }
-    }
+
 
     @Override
     public void broadcastBusinessNotification(BusinessNotificationJobPayload event, JobExecutionContext context) {
@@ -624,72 +481,40 @@ public class NotifyServiceImpl implements NotifyService {
             List<NotifyPayload> payloads = recipients.stream().map(userId -> NotifyPayload.builder()
                     .receiverId(userId).senderId(null).type(notificationType)
                     .title(event.title()).content(event.content()).targetType(targetType).targetId(event.targetId())
-                    .sourceKey(event.eventIdentity() + ":user:" + userId).snapshot(event.snapshot()).build()).toList();
+                    .sourceKey(event.eventIdentity() + ":user:" + userId).snapshot(event.snapshot()).occurredAt(event.occurredAt()).build()).toList();
             meters.counter("jualn.notification.recipients", "type", "business_change").increment(recipients.size());
-            processBatch(payloads, context);
+            {
+                long batchLast = lastId;
+                Boolean valid = transactionTemplate.execute(tx -> {
+                    var owner = reminderSubjectStatuses.stream().filter(status -> status.sourceType() == source(targetType).sourceType()).findFirst();
+                    if (owner.isEmpty() || !owner.get().lockBusinessEventEligible(event.targetId(), event.notificationType())) return false;
+                    context.requireOwnership();
+                    Set<Long> current = new HashSet<>(recipientBatch(targetType, event.targetId(), event.recipientScope(),
+                            batchLast, recipients.get(recipients.size() - 1)));
+                    var qualified = payloads.stream().filter(payload -> current.contains(payload.getReceiverId())).toList();
+                    creationService.acceptBatch(qualified);
+                    return true;
+                });
+                if (!Boolean.TRUE.equals(valid)) return;
+            }
             lastId = recipients.get(recipients.size() - 1);
             if (recipients.size() < BATCH_SIZE) return;
         }
     }
 
-    private void processBatch(List<NotifyPayload> payloads, JobExecutionContext context) {
-        PlanningSnapshot snapshot = planningSnapshot(payloads.stream().map(NotifyPayload::getReceiverId).toList());
-        for (NotifyPayload payload : payloads) {
-            transactionTemplate.executeWithoutResult(status -> {
-                if (context != null) context.requireOwnership();
-                processNotificationPayload(payload, snapshot);
-            });
-        }
+    private cn.jualn.miniapp.module.notify.service.NotificationSource source(TargetType type) {
+        return sources.stream().filter(owner->owner.targetType()==type).findFirst()
+            .orElseThrow(()->new IllegalArgumentException("Notification source owner is unavailable"));
     }
-
-    private PlanningSnapshot planningSnapshot(Collection<Long> rawUserIds) {
-        List<Long> userIds = rawUserIds == null ? List.of() : rawUserIds.stream()
-                .filter(java.util.Objects::nonNull).distinct().toList();
-        if (userIds.isEmpty()) return new PlanningSnapshot(Set.of(), Map.of(), Set.of());
-        Set<Long> owners = new HashSet<>(preferenceOwnerMapper.selectCanonicalUserIds(userIds));
-        List<Long> officialIds = userProfileMapper.selectOfficialAccountUserIds(userIds);
-        Set<Long> officialAccountUsers = officialIds == null ? new HashSet<>() : new HashSet<>(officialIds);
-        Map<PreferenceKey, Set<NotificationChannel>> enabled = new HashMap<>();
-        for (Long owner : owners) {
-            for (NotificationCategory category : NotificationCategory.values()) {
-                enabled.put(new PreferenceKey(owner, category), new HashSet<>(Set.of(NotificationChannel.IN_APP)));
-            }
-        }
-        for (NotificationPreference preference : preferenceMapper.selectByUserIds(userIds)) {
-            NotificationCategory category = NotificationCategory.valueOf(preference.getCategory());
-            NotificationChannel channel = NotificationChannel.valueOf(preference.getChannel());
-            Set<NotificationChannel> channels = enabled.computeIfAbsent(
-                    new PreferenceKey(preference.getUserId(), category), ignored -> new HashSet<>());
-            if (Boolean.TRUE.equals(preference.getEnabled())) channels.add(channel); else channels.remove(channel);
-        }
-        return new PlanningSnapshot(Set.copyOf(owners), enabled, Set.copyOf(officialAccountUsers));
-    }
-
-    private long recipientUpperBound(TargetType targetType, Long targetId, String scope) {
-        if (targetType == TargetType.ACTIVITY && "SUBSCRIBERS_OR_REGISTERED_USERS".equals(scope)) {
-            return enrollmentService.subscriberOrRegisteredUpperBound(targetId);
-        }
-        if (targetType == TargetType.EXAM && "SUBSCRIBERS".equals(scope)) {
-            return examSubService.subscriberUpperBound(targetId);
-        }
-        throw new IllegalArgumentException("Unsupported business notification recipient scope");
-    }
-
-    private List<Long> recipientBatch(TargetType targetType, Long targetId, String scope,
-                                      long lastId, long upperBound) {
-        if (targetType == TargetType.ACTIVITY && "SUBSCRIBERS_OR_REGISTERED_USERS".equals(scope)) {
-            return enrollmentService.listSubscriberOrRegisteredUserIds(targetId, lastId, upperBound, BATCH_SIZE);
-        }
-        if (targetType == TargetType.EXAM && "SUBSCRIBERS".equals(scope)) {
-            return examSubService.listSubscriberUserIds(targetId, lastId, upperBound, BATCH_SIZE);
-        }
-        return List.of();
+    private long recipientUpperBound(TargetType type, Long id, String scope) { return source(type).upperBound(id,scope); }
+    private List<Long> recipientBatch(TargetType type,Long id,String scope,long after,long upper) {
+        return source(type).recipients(id,scope,after,upper,BATCH_SIZE);
     }
 
     private NotificationCategory categoryOf(NotifyType type) {
         if (type == null) return null;
         return switch (type) {
-            case ACTIVITY_START_REMINDER, ACTIVITY_REGISTRATION_DEADLINE_REMINDER,
+            case ACTIVITY_START_REMINDER, ACTIVITY_REGISTRATION_START_REMINDER, ACTIVITY_REGISTRATION_DEADLINE_REMINDER,
                     ACTIVITY_CANCELLED, ACTIVITY_TIME_CHANGED, ACTIVITY_LOCATION_CHANGED,
                     ACTIVITY_ENDED_EARLY -> NotificationCategory.ACTIVITY;
             case PUBLIC_EVENT_START_REMINDER, PUBLIC_EVENT_REGISTRATION_DEADLINE_REMINDER,
@@ -699,11 +524,6 @@ public class NotifyServiceImpl implements NotifyService {
         };
     }
 
-    private record PreferenceKey(Long userId, NotificationCategory category) { }
-    private record PlanningSnapshot(Set<Long> canonicalOwners,
-                                    Map<PreferenceKey, Set<NotificationChannel>> enabledChannels,
-                                    Set<Long> officialAccountUsers) { }
-
     private boolean isReminderSubjectCurrent(NotifyPlan plan) {
         if (Integer.valueOf(3).equals(plan.getSourceType())) {
             return true; // legacy broadcast compatibility; no new producer uses ReminderPlan for broadcasts
@@ -712,9 +532,15 @@ public class NotifyServiceImpl implements NotifyService {
         return reminderSubjectStatuses.stream()
                 .filter(status -> status.sourceType() == plan.getSourceType())
                 .findFirst()
-                .map(status -> status.isCurrentAndEligible(plan.getSourceId(), plan.getGeneration(),
-                        plan.getTimelineId(), LocalDateTime.now()))
+                .map(status -> status.isCurrentAndEligible(reminderIntent(plan),
+                        LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))))
                 .orElse(false);
+    }
+
+    private cn.jualn.miniapp.module.notify.reminder.ReminderExecution reminderIntent(NotifyPlan plan) {
+        return new cn.jualn.miniapp.module.notify.reminder.ReminderExecution(
+                plan.getSourceId() == null ? 0L : plan.getSourceId(), plan.getGeneration(), plan.getTimelineId(),
+                plan.getNotifyType(), plan.getRuleKey(), plan.getSubjectStartsAt(), plan.getSendAt());
     }
 
     private boolean shouldValidateTarget(NotifyPayload payload) {

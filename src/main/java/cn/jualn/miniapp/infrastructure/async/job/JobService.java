@@ -33,7 +33,7 @@ public class JobService {
         job.setSubjectType(definition.subjectType());
         job.setSubjectId(definition.subjectId());
         job.setPayload(writePayload(definition.payload()));
-        job.setNextRunAt(definition.nextRunAt() == null ? LocalDateTime.now() : definition.nextRunAt());
+        job.setNextRunAt(definition.nextRunAt() == null ? LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")) : definition.nextRunAt());
         job.setMaxAttempts(definition.maxAttempts());
         try {
             mapper.insert(job);
@@ -52,7 +52,7 @@ public class JobService {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean cancelPending(String jobType, String dedupeKey) {
-        return mapper.cancelPendingByDedupe(jobType, dedupeKey, LocalDateTime.now()) == 1;
+        return mapper.cancelPendingByDedupe(jobType, dedupeKey, LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))) == 1;
     }
 
     @Transactional(readOnly = true)
@@ -67,7 +67,7 @@ public class JobService {
 
     @Transactional
     public boolean manualRetryDead(long jobId) {
-        return mapper.retryDead(jobId, LocalDateTime.now()) == 1;
+        return mapper.retryDead(jobId, LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))) == 1;
     }
 
     private void validate(JobDefinition definition) {

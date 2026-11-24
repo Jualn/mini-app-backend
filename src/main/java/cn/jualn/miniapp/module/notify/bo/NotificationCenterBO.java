@@ -16,7 +16,22 @@ public final class NotificationCenterBO {
             this(title, body, context, thumbnailUrl, changes, null, null);
         }
     }
-    public record Target(String type, String postId, String commentId, String activityId, String publicEventId) { }
+    public record Target(String type, String postId, String commentId, String activityId, String publicEventId,
+                         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String articleId,
+                         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String taskId,
+                         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String assignmentId,
+                         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String reportId,
+                         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) Boolean growthRecordTarget) {
+        public Target(String type,String postId,String commentId,String activityId,String publicEventId,String articleId,String taskId,String assignmentId,String reportId){this(type,postId,commentId,activityId,publicEventId,articleId,taskId,assignmentId,reportId,null);}
+        public Target(String type,String postId,String commentId,String activityId,String publicEventId,String articleId,String taskId,String assignmentId) {this(type,postId,commentId,activityId,publicEventId,articleId,taskId,assignmentId,null);}
+        public Target(String type,String postId,String commentId,String activityId,String publicEventId,String articleId,String taskId) {this(type,postId,commentId,activityId,publicEventId,articleId,taskId,null);}
+        public Target(String type,String postId,String commentId,String activityId,String publicEventId,String articleId) {
+            this(type,postId,commentId,activityId,publicEventId,articleId,null);
+        }
+        public Target(String type,String postId,String commentId,String activityId,String publicEventId) {
+            this(type,postId,commentId,activityId,publicEventId,null,null);
+        }
+    }
     public record Item(String id, String category, String type, Presentation presentation, Actor actor,
                        Subject subject, Target target, String readAt, String createdAt) { }
     public record Preview(String id, String type, String title, String body, Target target, String createdAt) { }

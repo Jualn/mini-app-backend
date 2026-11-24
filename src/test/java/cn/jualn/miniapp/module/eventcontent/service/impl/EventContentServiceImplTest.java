@@ -1,12 +1,13 @@
 package cn.jualn.miniapp.module.eventcontent.service.impl;
 
 import cn.jualn.miniapp.common.enums.*;
+import cn.jualn.miniapp.module.media.enums.MediaType;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.module.eventcontent.bo.*;
 import cn.jualn.miniapp.module.eventcontent.entity.*;
 import cn.jualn.miniapp.module.eventcontent.mapper.*;
 import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
-import cn.jualn.miniapp.module.media.service.MediaService;
+import cn.jualn.miniapp.module.media.TestMediaService;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -20,12 +21,12 @@ import static org.mockito.ArgumentMatchers.any;
 class EventContentServiceImplTest {
     EventSectionMapper sections;
     EventActionMapper actions;
-    MediaService media;
+    TestMediaService media;
     EventContentServiceImpl service;
     @BeforeEach void setup() {
         for (Class<?> type : List.of(EventSection.class, EventAction.class))
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), type);
-        sections = mock(EventSectionMapper.class); actions = mock(EventActionMapper.class); media = mock(MediaService.class);
+        sections = mock(EventSectionMapper.class); actions = mock(EventActionMapper.class); media = mock(TestMediaService.class);
         service = new EventContentServiceImpl(sections, actions, media);
     }
     @Test void emptySectionsRemainEmptyWithoutLegacyFallback() {
@@ -50,9 +51,9 @@ class EventContentServiceImplTest {
     }
     @Test void resolvesSameSaveObjectKey() {
         when(media.listAttachments(TargetType.ACTIVITY, 1L)).thenReturn(List.of(
-                MediaAttachmentBO.builder().id(9L).type(MediaType.IMAGE).objectKey("activity/1/qr.png").build()));
+                MediaAttachmentBO.builder().id(9L).type(MediaType.IMAGE).objectKey("activity/upload/1/qr.png").build()));
         service.saveActions(TargetType.ACTIVITY, 1L, List.of(EventActionBO.builder().actionKey("join").actionType(5).label("加群")
-                .attachmentObjectKey("activity/1/qr.png").isRequired(true).build()));
+                .attachmentObjectKey("activity/upload/1/qr.png").isRequired(true).build()));
         ArgumentCaptor<EventAction> captor = ArgumentCaptor.forClass(EventAction.class);
         verify(actions).insert(captor.capture());
         assertEquals(9L, captor.getValue().getAttachmentId());

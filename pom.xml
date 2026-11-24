@@ -43,6 +43,17 @@
         <poi-scratchpad>5.2.3</poi-scratchpad>
     </properties>
     <dependencies>
+        <!-- Disposable migration replay/upgrade tests; not an application startup migrator. -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- Web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -144,6 +155,13 @@
         </dependency>
 
         <!-- 微信解密用 -->
+        <!-- Article V1 requires decoding actual WebP bytes, not trusting a MIME declaration. -->
+        <dependency>
+            <groupId>com.twelvemonkeys.imageio</groupId>
+            <artifactId>imageio-webp</artifactId>
+            <version>3.15.3</version>
+        </dependency>
+
         <dependency>
             <groupId>commons-codec</groupId>
             <artifactId>commons-codec</artifactId>

@@ -36,6 +36,8 @@ public class ContentAuditLog {
      */
     private Long targetId;
 
+    private Long reviewTaskId;
+
     /**
      * 审核来源：1-微信安全 API 自动审核 2-管理员人工审核。
      */

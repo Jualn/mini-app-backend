@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.subject.mapper.SubjectExistenceMapper">
+    <sql id="table">
+        <choose>
+            <when test="type == 1">
+                post
+            </when>
+            <when test="type == 2">
+                activity
+            </when>
+            <when test="type == 3">
+                public_event
+            </when>
+            <when test="type == 4">
+                comment
+            </when>
+            <when test="type == 5">
+                notification
+            </when>
+        </choose>
+    </sql>
+
+    <select id="exists" resultType="boolean">
+        SELECT EXISTS(SELECT 1 FROM
+        <include refid="table"/>
+        WHERE id=#{id}
+        <if test="type != 5">
+            AND deleted_at IS NULL
+        </if>)
+    </select>
+
+    <select id="existingIds" resultType="java.lang.Long">
+        SELECT id FROM
+        <include refid="table"/>
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        <if test="type != 5">
+            AND deleted_at IS NULL
+        </if>
+    </select>
+</mapper>

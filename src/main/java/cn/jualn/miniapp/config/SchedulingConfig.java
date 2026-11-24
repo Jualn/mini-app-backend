@@ -1,5 +1,6 @@
 package cn.jualn.miniapp.config;
 
+import cn.jualn.miniapp.common.async.ScheduledContextDecorator;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -19,10 +20,14 @@ public class SchedulingConfig implements SchedulingConfigurer {
     @Bean("taskScheduler")
     public ThreadPoolTaskScheduler taskScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setClock(java.time.Clock.system(java.time.ZoneId.of("Asia/Shanghai")));
         // 2核机器，定时任务不多，2个线程够用
         // 当前任务：互动计数回写（可按需扩展）
         scheduler.setPoolSize(2);
         scheduler.setThreadNamePrefix("schedule-");
+        scheduler.setTaskDecorator(new ScheduledContextDecorator());
+        // Finish running work, but do not retain future delayed executions during shutdown.
+        scheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
         scheduler.setWaitForTasksToCompleteOnShutdown(true);
         scheduler.setAwaitTerminationSeconds(30);
         // 定时任务异常不影响其他任务继续执行
@@ -31,7 +36,7 @@ public class SchedulingConfig implements SchedulingConfigurer {
                 .getLogger(SchedulingConfig.class)
                 .error("定时任务异常", throwable)
         );
-        scheduler.initialize();
+
         return scheduler;
     }
 

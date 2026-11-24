@@ -3,7 +3,7 @@ package cn.jualn.miniapp.module.timeline.service.impl;
 import cn.jualn.miniapp.common.enums.TargetType;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.result.ResultCode;
-import cn.jualn.miniapp.infrastructure.validator.TargetValidator;
+import cn.jualn.miniapp.module.subject.service.SubjectExistenceService;
 import cn.jualn.miniapp.module.timeline.bo.*;
 import cn.jualn.miniapp.module.timeline.converter.TimelineConverter;
 import cn.jualn.miniapp.module.timeline.entity.Timeline;
@@ -38,7 +38,7 @@ public class TimelineServiceImpl implements TimelineService {
 
     private final TimelineMapper timelineMapper;
     private final TimelineConverter timelineConverter;
-    private final TargetValidator targetValidator;
+    private final SubjectExistenceService targetValidator;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -167,7 +167,7 @@ public class TimelineServiceImpl implements TimelineService {
     }
 
     @Override
-    public List<TimelineItemDTO> listTimelinesByTarget(TargetType targetType, Long targetId) {
+    public List<TimelineFactBO> listTimelinesByTarget(TargetType targetType, Long targetId) {
         assertTargetType(targetType);
         targetValidator.assertExists(targetType, targetId);
 
@@ -179,20 +179,20 @@ public class TimelineServiceImpl implements TimelineService {
 
         List<Timeline> timelines = timelineMapper.selectList(wrapper);
 
-        return timelineConverter.toItemDTOList(timelines);
+        return timelineConverter.toFactBOList(timelines);
     }
 
     @Override
-    public Map<Long, List<TimelineItemDTO>> listTimelinesByTargets(TargetType targetType, List<Long> targetIds) {
+    public Map<Long, List<TimelineFactBO>> listTimelinesByTargets(TargetType targetType, List<Long> targetIds) {
         assertTargetType(targetType);
         if (targetIds == null || targetIds.isEmpty()) return Map.of();
         List<Timeline> timelines = timelineMapper.selectList(Wrappers.lambdaQuery(Timeline.class)
                 .eq(Timeline::getTargetType, targetType.getCode()).in(Timeline::getTargetId, targetIds)
                 .orderByAsc(Timeline::getTargetId).orderByAsc(Timeline::getSortOrder).orderByAsc(Timeline::getId));
-        Map<Long, List<TimelineItemDTO>> result = new LinkedHashMap<>();
+        Map<Long, List<TimelineFactBO>> result = new LinkedHashMap<>();
         for (Timeline timeline : timelines) {
             result.computeIfAbsent(timeline.getTargetId(), ignored -> new java.util.ArrayList<>())
-                    .add(timelineConverter.toItemDTO(timeline));
+                    .add(timelineConverter.toFactBO(timeline));
         }
         return result;
     }

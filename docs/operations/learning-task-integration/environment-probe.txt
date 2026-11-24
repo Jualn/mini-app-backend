@@ -1,0 +1,131 @@
+observedAt=2026-10-17T20:44:01.7694105+08:00
+Authorization: human corrected mistaken User 1 to User 2, explicitly approving ROOT and LEARNING_MANAGER for User 2; current test environment only
+target=localhost:3306/jualncampus; mode=READ_ONLY; profiles=repository dev defaults, running app not established
+WX_MA_APP_ID configured=true
+WX_MA_APP_SECRET configured=true
+SA_JWT_SECRET_KEY configured=true
+[database]
+database_name=jualncampus; version=8.4.7; session_zone=SYSTEM
+[tables]
+TABLE_NAME=async_job
+TABLE_NAME=learning_task
+TABLE_NAME=learning_task_assignment
+TABLE_NAME=learning_task_audit
+TABLE_NAME=learning_task_preview
+TABLE_NAME=learning_task_request
+TABLE_NAME=learning_task_submission
+TABLE_NAME=notification
+TABLE_NAME=outbox_event
+TABLE_NAME=rbac_authorization_authority
+TABLE_NAME=rbac_authorization_change
+TABLE_NAME=rbac_offline_effect
+TABLE_NAME=rbac_offline_operation
+TABLE_NAME=rbac_permission_definition
+TABLE_NAME=rbac_role
+TABLE_NAME=rbac_role_permission
+TABLE_NAME=rbac_user_role_assignment
+[flyway]
+NOT_AVAILABLE sqlState=42S02 code=1146
+[v43_operation_ddl]
+Table=rbac_offline_operation; Create Table=CREATE TABLE `rbac_offline_operation` (
+  `id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+  `environment_id` varchar(96) COLLATE utf8mb4_0900_bin NOT NULL,
+  `kind` varchar(24) COLLATE utf8mb4_0900_bin NOT NULL,
+  `executor_ref` varchar(128) COLLATE utf8mb4_0900_bin NOT NULL,
+  `approval_ref` varchar(500) COLLATE utf8mb4_0900_bin NOT NULL,
+  `approval_sha256` char(64) COLLATE utf8mb4_0900_bin NOT NULL,
+  `request_fingerprint` char(64) COLLATE utf8mb4_0900_bin NOT NULL,
+  `request_json` json NOT NULL,
+  `approvals_json` json NOT NULL,
+  `snapshot_version` smallint unsigned NOT NULL,
+  `receipt` json NOT NULL,
+  `occurred_at` datetime(6) NOT NULL,
+  PRIMARY KEY (`id`),
+  CONSTRAINT `ck_rbac_offline_approval` CHECK (((char_length(`approval_ref`) > 0) and (json_type(`approvals_json`) = _utf8mb4'ARRAY') and (((`snapshot_version` = 1) and (json_length(`approvals_json`) = 2)) or ((`snapshot_version` in (2,3)) and (json_length(`approvals_json`) = 1))))),
+  CONSTRAINT `ck_rbac_offline_kind` CHECK ((`kind` in (_utf8mb4'BOOTSTRAP',_utf8mb4'SOURCE_SWITCH',_utf8mb4'RECOVERY',_utf8mb4'CORRECT_INITIAL_ROOT',_utf8mb4'INITIAL_ROLE_GRANT'))),
+  CONSTRAINT `ck_rbac_offline_version` CHECK ((((`snapshot_version` = 1) and (`kind` in (_utf8mb4'BOOTSTRAP',_utf8mb4'SOURCE_SWITCH',_utf8mb4'RECOVERY'))) or ((`snapshot_version` = 2) and (`kind` = _utf8mb4'BOOTSTRAP')) or ((`snapshot_version` = 3) and (`kind` in (_utf8mb4'CORRECT_INITIAL_ROOT',_utf8mb4'INITIAL_ROLE_GRANT')))))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin
+[v43_effect_ddl]
+Table=rbac_offline_effect; Create Table=CREATE TABLE `rbac_offline_effect` (
+  `id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+  `operation_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `assignment_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin DEFAULT NULL,
+  `before_snapshot` json NOT NULL,
+  `after_snapshot` json NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_rbac_offline_target` (`operation_id`,`user_id`),
+  UNIQUE KEY `uk_rbac_offline_assignment` (`assignment_id`),
+  KEY `fk_rbac_offline_user` (`user_id`),
+  CONSTRAINT `fk_rbac_offline_assignment` FOREIGN KEY (`assignment_id`) REFERENCES `rbac_user_role_assignment` (`id`),
+  CONSTRAINT `fk_rbac_offline_operation` FOREIGN KEY (`operation_id`) REFERENCES `rbac_offline_operation` (`id`),
+  CONSTRAINT `fk_rbac_offline_user` FOREIGN KEY (`user_id`) REFERENCES `user_profile` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin
+[v44_preview_ddl]
+Table=learning_task_preview; Create Table=CREATE TABLE `learning_task_preview` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `task_id` bigint unsigned NOT NULL,
+  `task_revision` bigint unsigned NOT NULL,
+  `actor_id` bigint unsigned NOT NULL,
+  `purpose` varchar(8) NOT NULL,
+  `audience` json NOT NULL,
+  `user_ids` json NOT NULL,
+  `created_at` datetime(6) NOT NULL,
+  `expires_at` datetime(6) NOT NULL,
+  `task_etag` varchar(160) CHARACTER SET ascii COLLATE ascii_bin DEFAULT NULL,
+  `new_assignment_count` int unsigned DEFAULT NULL,
+  `already_assigned_count` int unsigned DEFAULT NULL,
+  `already_assigned_user_ids` json DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_learning_preview_owner` (`task_id`,`actor_id`,`id`),
+  CONSTRAINT `fk_learning_preview_task` FOREIGN KEY (`task_id`) REFERENCES `learning_task` (`id`),
+  CONSTRAINT `chk_learning_preview_purpose` CHECK ((`purpose` in (_utf8mb4'PUBLISH',_utf8mb4'ADD'))),
+  CONSTRAINT `ck_learning_preview_classification` CHECK ((((`new_assignment_count` is null) and (`already_assigned_count` is null) and (`already_assigned_user_ids` is null)) or ((`new_assignment_count` is not null) and (`already_assigned_count` is not null) and (`already_assigned_user_ids` is not null) and (json_type(`already_assigned_user_ids`) = _utf8mb4'ARRAY') and (`already_assigned_count` = json_length(`already_assigned_user_ids`)) and ((`new_assignment_count` + `already_assigned_count`) = json_length(`user_ids`)))))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+[v44_columns]
+COLUMN_NAME=already_assigned_count; COLUMN_TYPE=int unsigned; IS_NULLABLE=YES
+COLUMN_NAME=already_assigned_user_ids; COLUMN_TYPE=json; IS_NULLABLE=YES
+COLUMN_NAME=new_assignment_count; COLUMN_TYPE=int unsigned; IS_NULLABLE=YES
+[v44_check]
+CONSTRAINT_NAME=ck_learning_preview_classification
+[users]
+total=16; eligible_explicit=16
+[authority]
+users=16; missing=0; corrupt=0
+[sources]
+source=ASSIGNMENT; count=16
+[manager]
+lifecycle=ENABLED; readiness=READY; grantable=1
+[learning_permissions]
+code=learning-task:assign; lifecycle=ENABLED; readiness=READY; grantable=1
+code=learning-task:edit; lifecycle=ENABLED; readiness=READY; grantable=1
+code=learning-task:lifecycle; lifecycle=ENABLED; readiness=READY; grantable=1
+code=learning-task:publish; lifecycle=ENABLED; readiness=READY; grantable=1
+code=learning-task:read; lifecycle=ENABLED; readiness=READY; grantable=1
+code=learning-task:revoke; lifecycle=ENABLED; readiness=READY; grantable=1
+code=learning-task:revoke-participated; lifecycle=REGISTERED; readiness=NOT_READY; grantable=0
+[grants]
+role_code=ROOT; namespace=AUTHORIZATION; current_count=1
+role_code=LEARNING_MANAGER; namespace=LEARNING_TASK; current_count=1
+[requested_test_subjects]
+user_id=1; status=1; not_deleted=1; mini_bound=1; source=ASSIGNMENT; authority_version_present=1
+user_id=2; status=1; not_deleted=1; mini_bound=1; source=ASSIGNMENT; authority_version_present=1
+user_id=3; status=1; not_deleted=1; mini_bound=1; source=ASSIGNMENT; authority_version_present=1
+[requested_user_role_assignments]
+user_id=1; role_code=ROOT; namespace=AUTHORIZATION; scope_type=GLOBAL; granted_at=2026-10-17 11:10:35.878180; expires_at=null; revoked_at=2026-10-17 12:38:38.199431
+user_id=2; role_code=ROOT; namespace=AUTHORIZATION; scope_type=GLOBAL; granted_at=2026-10-17 12:38:38.199431; expires_at=null; revoked_at=null
+user_id=2; role_code=LEARNING_MANAGER; namespace=LEARNING_TASK; scope_type=GLOBAL; granted_at=2026-10-17 12:38:38.282810; expires_at=null; revoked_at=null
+[root_definition]
+code=ROOT; lifecycle=ENABLED; readiness=READY; grantable=1
+[governance_definitions]
+code=audit-log:read; lifecycle=ENABLED; readiness=READY; grantable=1
+code=authorization:assignment-manage; lifecycle=ENABLED; readiness=READY; grantable=1
+code=authorization:read; lifecycle=ENABLED; readiness=READY; grantable=1
+code=authorization:root-manage; lifecycle=ENABLED; readiness=READY; grantable=1
+V45 initial migration preserved; V46 applied with separate backup; no Flyway baseline/repair
+Correction operation=15d2d999-eb29-4142-8726-26b758ea4f56; learning grant operation=160d02a2-6961-4e7e-bf34-ac23e34ec555; committed in one transaction
+User 1 ROOT revoked; User 2 ROOT/AUTHORIZATION/GLOBAL and LEARNING_MANAGER/LEARNING_TASK/GLOBAL active with no expiry; all others no active management grant
+Exact correction plan replay unchanged; all offline preflight anomaly sets empty; user ID/role/status/deleted_at equal pre-correction backup
+Backend restarted with dev,learning-task-integration; health http://localhost:8080/actuator/health=200/UP; PID file target/rbac-initial-correction/backend.pid
+Browser login prepared with RBAC V1 representation and redirect /users/2/role-assignments; human WeChat login as User 2 pending
+Actual WeChat content safety and successful real-client LearningTask business acceptance remain NOT RUN

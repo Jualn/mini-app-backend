@@ -1,11 +1,12 @@
 package cn.jualn.miniapp.module.activity.service.impl;
 
+import cn.jualn.miniapp.module.activity.service.ActivityTestServices;
 import cn.jualn.miniapp.common.constant.RedisKeyConstant;
 import cn.jualn.miniapp.common.constant.UserContext;
-import cn.jualn.miniapp.common.enums.ActivityStatus;
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.activity.enums.ActivityStatus;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.common.enums.TargetType;
-import cn.jualn.miniapp.common.enums.UserRole;
+import cn.jualn.miniapp.module.user.enums.UserRole;
 import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
 import cn.jualn.miniapp.module.activity.bo.ActivityCreateBO;
@@ -24,9 +25,9 @@ import cn.jualn.miniapp.module.activity.service.ActivityEnrollmentService;
 import cn.jualn.miniapp.module.activity.vo.ActivityDetailVO;
 import cn.jualn.miniapp.module.audit.bo.AuditReserveResultBO;
 import cn.jualn.miniapp.module.audit.service.AuditReservationService;
-import cn.jualn.miniapp.module.interact.service.InteractService;
+import cn.jualn.miniapp.module.interact.service.InteractionLikeQueries;
 import cn.jualn.miniapp.module.media.bo.AttachmentItemBO;
-import cn.jualn.miniapp.module.media.service.MediaService;
+import cn.jualn.miniapp.module.media.TestMediaService;
 import cn.jualn.miniapp.module.notify.service.NotifyService;
 import cn.jualn.miniapp.module.timeline.bo.TimelineItemBO;
 import cn.jualn.miniapp.module.timeline.service.TimelineService;
@@ -122,7 +123,7 @@ class ActivityServiceImplTest {
     @Mock
     private ActivityEnrollmentService activityEnrollmentService;
     @Mock
-    private MediaService mediaService;
+    private TestMediaService mediaService;
     @Mock
     private UserService userService;
     @Mock
@@ -130,7 +131,7 @@ class ActivityServiceImplTest {
     @Mock
     private RedisService redisService;
     @Mock
-    private InteractService interactService;
+    private InteractionLikeQueries interactService;
     @Mock
     private NotifyService notifyService;
     @Mock
@@ -143,20 +144,22 @@ class ActivityServiceImplTest {
 
     @Test
     void publishedUpdateFreezesTimeAndLocationBeforeLaterSubjectChanges() {
-        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false)), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
-        var previous = Activity.builder().id(102L).publishStatus(1).lifecycleStatus(0).location("old room").build();
+        ActivityTestServices service = new ActivityTestServices(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class));
+        service.managementAudit(org.mockito.Mockito.mock(cn.jualn.miniapp.module.admin.operation.service.AdminAuditJournal.class));
+        var previous = Activity.builder().id(102L).publishStatus(1).lifecycleStatus(0).participantMode(1).location("old room").build();
         var saved = Activity.builder().id(102L).publishStatus(1).lifecycleStatus(0).contractVersion(2L)
                 .title("frozen title").summary("summary").organizer("org").audienceSummary("all")
-                .category(0).audienceScope(1).participantMode(1).registrationMode(1).location("new room").build();
-        var oldNode = cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO.builder().id(10L).nodeType("ACTIVITY_START")
+                .category(0).audienceDepartmentIds("[]").participantMode(1).registrationMode(1).location("new room").build();
+        var oldNode = cn.jualn.miniapp.module.timeline.bo.TimelineFactBO.builder().id(10L).nodeType("ACTIVITY_START")
                 .label("start").startPrecision(2).startTime(LocalDateTime.of(2030, 1, 1, 15, 0)).build();
-        var newNode = cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO.builder().id(10L).nodeType("ACTIVITY_START")
+        var newNode = cn.jualn.miniapp.module.timeline.bo.TimelineFactBO.builder().id(10L).nodeType("ACTIVITY_START")
                 .label("start").startPrecision(2).startTime(LocalDateTime.of(2030, 1, 1, 17, 0)).build();
         when(activityMapper.selectForUpdate(102L)).thenReturn(previous, saved);
         when(activityMapper.update(org.mockito.ArgumentMatchers.<Activity>isNull(), any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(1);
         when(timelineService.listTimelinesByTarget(TargetType.ACTIVITY, 102L)).thenReturn(List.of(oldNode), List.of(newNode));
-        service.updateAdminActivity(cn.jualn.miniapp.module.activity.bo.AdminActivitySaveBO.builder()
+        service.drafts().updateAdminActivity(cn.jualn.miniapp.module.activity.bo.AdminActivitySaveBO.builder()
                 .id(102L).operatorId(9L).title("frozen title").location("new room").build());
         var snapshot = org.mockito.ArgumentCaptor.forClass(cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot.class);
         verify(notifyService).enqueueBusinessNotification(org.mockito.ArgumentMatchers.eq(TargetType.ACTIVITY), org.mockito.ArgumentMatchers.eq(102L),
@@ -176,16 +179,20 @@ class ActivityServiceImplTest {
 
     @Test
     void createActivity_shouldRejectLegacyWrite() {
-        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false)), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
-        assertThrows(BusinessException.class, () -> service.createActivity(null));
+        ActivityTestServices service = new ActivityTestServices(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class));
+        service.managementAudit(org.mockito.Mockito.mock(cn.jualn.miniapp.module.admin.operation.service.AdminAuditJournal.class));
+        assertThrows(BusinessException.class, () -> service.legacy().createActivity(null));
         org.mockito.Mockito.verifyNoInteractions(activityMapper, mediaService, notifyService);
     }
 
     @Test
     void getActivityDetail_shouldLoadAndEnrichWhenCacheMiss() {
-        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false)), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
+        ActivityTestServices service = new ActivityTestServices(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class));
+        service.managementAudit(org.mockito.Mockito.mock(cn.jualn.miniapp.module.admin.operation.service.AdminAuditJournal.class));
         Activity activity = Activity.builder().id(5L).userId(11L).publishStatus(1).lifecycleStatus(0).build();
         ActivityDetailBO detailBO = ActivityDetailBO.builder().id(5L).userId(11L).build();
 
@@ -198,7 +205,7 @@ class ActivityServiceImplTest {
         when(interactService.isLiked(TargetType.ACTIVITY, 5L)).thenReturn(true);
         when(activityEnrollmentService.isEnrolled(5L)).thenReturn(false);
 
-        ActivityDetailBO result = service.getActivityDetail(5L);
+        ActivityDetailBO result = service.queries().getActivityDetail(5L);
 
         assertTrue(result.getLiked());
         assertFalse(result.getEnrolled());
@@ -207,10 +214,8 @@ class ActivityServiceImplTest {
 
     @Test
     void increaseCommentCount_shouldUpdateDbAndEvictDetailCache() {
-        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false)), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
-
-        service.increaseCommentCount(88L);
+        var subject = new cn.jualn.miniapp.module.activity.service.ActivityInteractionSubject(activityMapper, redisService);
+        subject.commentApproved(88L);
 
         verify(activityMapper).increaseCommentCount(88L);
         verify(redisService).delete(RedisKeyConstant.activityDetail(88L));
@@ -218,53 +223,63 @@ class ActivityServiceImplTest {
 
     @Test
     void updateActivity_shouldRejectLegacyOwnerWrite() {
-        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false)), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
-        assertThrows(BusinessException.class, () -> service.updateActivity(null));
+        ActivityTestServices service = new ActivityTestServices(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class));
+        service.managementAudit(org.mockito.Mockito.mock(cn.jualn.miniapp.module.admin.operation.service.AdminAuditJournal.class));
+        assertThrows(BusinessException.class, () -> service.legacy().updateActivity(null));
         org.mockito.Mockito.verifyNoInteractions(activityMapper, mediaService, notifyService);
     }
 
     @Test
     void updateActivity_shouldThrowWhenUserIsNotOwner() {
-        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false)), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
-        assertThrows(BusinessException.class, () -> service.updateActivity(null));
+        ActivityTestServices service = new ActivityTestServices(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class));
+        service.managementAudit(org.mockito.Mockito.mock(cn.jualn.miniapp.module.admin.operation.service.AdminAuditJournal.class));
+        assertThrows(BusinessException.class, () -> service.legacy().updateActivity(null));
         org.mockito.Mockito.verifyNoInteractions(activityMapper, mediaService, notifyService);
     }
 
     @Test
     void removeActivity_shouldRejectLegacyAdminWrite() {
-        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false)), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
-        assertThrows(BusinessException.class, () -> service.removeActivity(1L));
+        ActivityTestServices service = new ActivityTestServices(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class));
+        service.managementAudit(org.mockito.Mockito.mock(cn.jualn.miniapp.module.admin.operation.service.AdminAuditJournal.class));
+        assertThrows(BusinessException.class, () -> service.legacy().removeActivity(1L));
         org.mockito.Mockito.verifyNoInteractions(activityMapper, mediaService, notifyService);
     }
 
     @Test
     void removeActivity_shouldThrowWhenUserIsNotOwner() {
-        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false)), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
-        assertThrows(BusinessException.class, () -> service.removeActivity(1L));
+        ActivityTestServices service = new ActivityTestServices(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class));
+        service.managementAudit(org.mockito.Mockito.mock(cn.jualn.miniapp.module.admin.operation.service.AdminAuditJournal.class));
+        assertThrows(BusinessException.class, () -> service.legacy().removeActivity(1L));
         org.mockito.Mockito.verifyNoInteractions(activityMapper, mediaService, notifyService);
     }
 
     @Test
     void pageAdminActivities_shouldReturnCanonicalPageAndTotal() {
-        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false)), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
+        cn.jualn.miniapp.security.AdminContextFixture.open(9L);
+        ActivityTestServices service = new ActivityTestServices(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class));
+        service.managementAudit(org.mockito.Mockito.mock(cn.jualn.miniapp.module.admin.operation.service.AdminAuditJournal.class));
         AdminActivityListRow row = new AdminActivityListRow();
         row.setId(101L);
         row.setCategory(0);
         row.setPublishStatus(1);
         row.setLifecycleStatus(0);
-        row.setAudienceScope(1);
 
         when(activityMapper.selectAdminActivityPage(
-                1, 0, null, null, 20, 20))
+                false,                 1, 0, null, null, 20, 20))
                 .thenReturn(List.of(row));
-        when(activityMapper.countAdminActivities(1, 0, null, null)).thenReturn(41L);
+        when(activityMapper.countAdminActivities(false, 1, 0, null, null)).thenReturn(41L);
 
-        AdminActivityPageBO result = service.pageAdminActivities(AdminActivityQueryBO.builder()
+        AdminActivityPageBO result = service.adminQueries().pageAdminActivities(AdminActivityQueryBO.builder()
                 .publishStatus(1)
                 .lifecycleStatus(0)
                 .sort("-updatedAt")
@@ -280,16 +295,20 @@ class ActivityServiceImplTest {
 
     @Test
     void submitAdminActivityReview_shouldRejectRetiredReview() {
-        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false)), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
-        assertThrows(BusinessException.class, () -> service.submitAdminActivityReview(1L, 9L));
+        ActivityTestServices service = new ActivityTestServices(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class));
+        service.managementAudit(org.mockito.Mockito.mock(cn.jualn.miniapp.module.admin.operation.service.AdminAuditJournal.class));
+        assertThrows(BusinessException.class, () -> service.reviews().submitAdminActivityReview(1L, 9L));
         org.mockito.Mockito.verifyNoInteractions(activityMapper, mediaService, notifyService);
     }
 
     @Test
     void cancelAdminActivity_shouldCancelPendingNotificationPlans() {
-        ActivityServiceImpl service = new ActivityServiceImpl(org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
-                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false)), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class), new cn.jualn.miniapp.module.activity.service.ActivityFormAvailability(false));
+        ActivityTestServices service = new ActivityTestServices(org.mockito.Mockito.mock(cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.eventcontent.service.EventContentService.class), activityMapper, activityConverter, activityEnrollmentService,
+                mediaService,
+                mediaService, userService, timelineService, redisService, interactService, notifyService, new cn.jualn.miniapp.module.eventcontent.service.EventContactCodec(new com.fasterxml.jackson.databind.ObjectMapper()), new cn.jualn.miniapp.module.activity.service.ActivityParticipationPolicy(), org.mockito.Mockito.mock(cn.jualn.miniapp.module.activity.service.ActivityRegistrationService.class));
+        service.managementAudit(org.mockito.Mockito.mock(cn.jualn.miniapp.module.admin.operation.service.AdminAuditJournal.class));
         when(activityMapper.selectForUpdate(102L)).thenReturn(Activity.builder()
                 .id(102L)
                 .title("迎新活动")
@@ -298,7 +317,7 @@ class ActivityServiceImplTest {
                 .build());
         when(activityMapper.cancelAdminActivity(102L, "场地不可用")).thenReturn(1);
 
-        service.cancelAdminActivity(102L, 9L, "场地不可用");
+        service.lifecycle().cancelAdminActivity(102L, 9L, "场地不可用");
 
         verify(notifyService).cancelActivityPlans(102L);
         var snapshot = org.mockito.ArgumentCaptor.forClass(cn.jualn.miniapp.module.notify.bo.NotificationCenterBO.Snapshot.class);
@@ -310,6 +329,8 @@ class ActivityServiceImplTest {
         verify(redisService).delete(RedisKeyConstant.activityDetail(102L));
     }
 
+
+    @org.junit.jupiter.api.AfterEach void clearAdminContext(){cn.jualn.miniapp.security.AdminContextFixture.close();}
 }
 
 

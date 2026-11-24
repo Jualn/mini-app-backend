@@ -20,14 +20,28 @@ import java.util.List;
  */
 @Mapper
 public interface ActivityMapper extends BaseMapper<Activity> {
-    @org.apache.ibatis.annotations.Select("SELECT id, publish_status, lifecycle_status, contract_version " +
+    @org.apache.ibatis.annotations.Select("SELECT id, title, registration_mode, publish_status, lifecycle_status, contract_version " +
             "FROM activity WHERE id = #{id} AND deleted_at IS NULL")
     Activity selectReminderStatus(@Param("id") Long id);
+    Activity lockReminderStatus(@Param("id") Long id);
     @org.apache.ibatis.annotations.Select("SELECT COUNT(*) > 0 FROM activity WHERE id = #{id} AND deleted_at IS NULL AND publish_status = 1")
     boolean existsPublicById(@org.apache.ibatis.annotations.Param("id") Long id);
 
+    cn.jualn.miniapp.module.activity.bo.ActivityStatisticsBO statistics(@Param("id") long id);
+    List<cn.jualn.miniapp.module.activity.bo.ActivityRegistrationCandidatePageBO.Item> registrationCandidates(
+            @Param("q") String q, @Param("offset") long offset, @Param("limit") int limit);
+    long countRegistrationCandidates(@Param("q") String q);
+    boolean hasRegistrationHistory(@Param("id") long id);
+    int recycle(@Param("id") long id, @Param("operator") long operator, @Param("restore") boolean restore);
+    int savePublicSummary(@Param("id") long id, @Param("summary") String summary);
     Activity selectRegistrationActivity(@Param("id") Long id);
     Activity lockRegistrationActivity(@Param("id") Long id);
+    List<Activity> publicOptions(@Param("id") Long id, @Param("q") String q,
+                                 @Param("campusOnly") boolean campusOnly, @Param("offset") long offset,
+                                 @Param("size") int size, @Param("lock") boolean lock);
+    long countPublicOptions(@Param("id") Long id, @Param("q") String q, @Param("campusOnly") boolean campusOnly);
+    List<Activity> publicStageCandidates(@Param("afterId") long afterId, @Param("limit") int limit);
+
     Activity selectForUpdate(@org.apache.ibatis.annotations.Param("id") Long id);
 
     /**
@@ -56,15 +70,13 @@ public interface ActivityMapper extends BaseMapper<Activity> {
      *
      * <p>该查询支持状态、分类、关键词、游标分页。复杂动态SQL在XML中实现。</p>
      *
-     * @param status 活动状态
      * @param category 分类，可为空
      * @param keyword 关键词，可为空
      * @param lastId 游标ID，可为空
      * @param limit 查询条数（通常为 pageSize + 1）
      * @return 活动列表
      */
-    List<Activity> selectPageActivities(@Param("status") Integer status,
-                                        @Param("category") Integer category,
+    List<Activity> selectPageActivities(@Param("category") Integer category,
                                         @Param("lifecycleStatus") Integer lifecycleStatus,
                                         @Param("keyword") String keyword,
                                         @Param("lastId") Long lastId,
@@ -73,6 +85,7 @@ public interface ActivityMapper extends BaseMapper<Activity> {
                                         @Param("limit") Integer limit);
 
     List<AdminActivityListRow> selectAdminActivityPage(
+            @Param("deleted") boolean deleted,
             @Param("publishStatus") Integer publishStatus,
             @Param("lifecycleStatus") Integer lifecycleStatus,
             @Param("keyword") String keyword,
@@ -81,6 +94,7 @@ public interface ActivityMapper extends BaseMapper<Activity> {
             @Param("limit") Integer limit);
 
     long countAdminActivities(
+            @Param("deleted") boolean deleted,
             @Param("publishStatus") Integer publishStatus,
             @Param("lifecycleStatus") Integer lifecycleStatus,
             @Param("keyword") String keyword,

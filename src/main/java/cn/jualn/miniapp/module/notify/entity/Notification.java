@@ -57,6 +57,8 @@ public class Notification {
 
     private LocalDateTime readAt;
 
+    private LocalDateTime deletedAt;
+
     /** Immutable per-user position assigned on first entry into the IN_APP stream. */
     private Long inboxSeq;
 

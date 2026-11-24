@@ -25,7 +25,7 @@ public class ReminderReconcileService {
     @Transactional(propagation = Propagation.MANDATORY)
     public void reconcile(int sourceType, long sourceId, long generation,
                           List<ReminderSpec> expected, LocalDateTime now) {
-        LocalDateTime evaluatedAt = now == null ? LocalDateTime.now() : now;
+        LocalDateTime evaluatedAt = now == null ? LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")) : now;
         List<ReminderSpec> validRules = expected == null ? List.of() : expected.stream()
                 .filter(spec -> spec != null && spec.sendAt() != null)
                 .toList();
@@ -34,10 +34,11 @@ public class ReminderReconcileService {
 
         for (NotifyPlan plan : current) {
             ReminderSpec match = validRules.stream()
-                    .filter(spec -> sameIntent(plan, spec))
+                    .filter(spec -> sameIntent(plan, spec, evaluatedAt))
                     .findFirst().orElse(null);
             if (match != null) {
                 kept.add(key(match));
+                planMapper.refreshPresentation(plan.getId(), match.title(), match.content(), match.subjectLocation(), match.timelineId());
             } else if (planMapper.cancelPlan(plan.getId()) == 1) {
                 jobService.cancelPending("notification.plan.fanout", planDedupeKey(plan.getId()));
             }
@@ -45,16 +46,20 @@ public class ReminderReconcileService {
 
         for (ReminderSpec spec : validRules) {
             if (kept.contains(key(spec))) continue;
-            if (!spec.sendAt().isAfter(evaluatedAt)) continue;
-            if (!Set.of("SUBSCRIBERS", "SUBSCRIBERS_NOT_REGISTERED").contains(spec.recipientScope())) {
+            boolean catchUp = sourceType == 1 && !spec.sendAt().isAfter(evaluatedAt) && spec.subjectStartsAt() != null && spec.subjectStartsAt().isAfter(evaluatedAt);
+            if (!spec.sendAt().isAfter(evaluatedAt) && !catchUp) continue;
+            if (!catchUp && spec.subjectStartsAt() != null && planMapper.hasCompletedOccurrence(sourceType, sourceId,
+                    spec.ruleKey(), spec.subjectStartsAt())) continue;
+            if (!Set.of("SUBSCRIBERS", "SUBSCRIBERS_NOT_REGISTERED", "SUBSCRIBERS_OR_REGISTERED_USERS").contains(spec.recipientScope())) {
                 throw new IllegalArgumentException("Unsupported reminder recipient scope");
             }
-            if (sourceType != 1 && "SUBSCRIBERS_NOT_REGISTERED".equals(spec.recipientScope())) {
+            if (sourceType != 1 && !"SUBSCRIBERS".equals(spec.recipientScope())) {
                 throw new IllegalArgumentException("SUBSCRIBERS_NOT_REGISTERED is Activity-only");
             }
             NotifyPlan plan = NotifyPlan.builder()
                     .sourceType(sourceType).sourceId(sourceId)
-                    .timelineId(spec.timelineId()).ruleKey(spec.ruleKey()).generation(generation)
+                    .timelineId(spec.timelineId()).ruleKey(spec.ruleKey()).generation(Math.max(generation,
+                            Math.addExact(planMapper.maxGeneration(sourceType, sourceId, spec.timelineId(), spec.ruleKey()), 1L)))
                     .recipientScope(spec.recipientScope())
                     .notifyType(spec.notificationType().getCode())
                     .title(spec.title()).content(spec.content())
@@ -69,14 +74,13 @@ public class ReminderReconcileService {
         }
     }
 
-    private boolean sameIntent(NotifyPlan plan, ReminderSpec spec) {
-        return Long.valueOf(spec.timelineId()).equals(plan.getTimelineId())
+    private boolean sameIntent(NotifyPlan plan, ReminderSpec spec, LocalDateTime now) {
+        return (Integer.valueOf(1).equals(plan.getSourceType()) || Long.valueOf(spec.timelineId()).equals(plan.getTimelineId()))
                 && spec.ruleKey().equals(plan.getRuleKey())
                 && spec.sendAt().equals(plan.getSendAt())
                 && spec.recipientScope().equals(plan.getRecipientScope())
                 && Integer.valueOf(spec.notificationType().getCode()).equals(plan.getNotifyType())
-                && java.util.Objects.equals(spec.subjectStartsAt(), plan.getSubjectStartsAt())
-                && java.util.Objects.equals(spec.subjectLocation(), plan.getSubjectLocation());
+                && java.util.Objects.equals(spec.subjectStartsAt(), plan.getSubjectStartsAt());
     }
 
     private String key(ReminderSpec spec) {

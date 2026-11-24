@@ -1,0 +1,101 @@
+{
+  "checkedAtUtc": "2026-10-16T10:27:21.2300131Z",
+  "scope": "Documentation review only; no application build/runtime/database/production operations",
+  "workspaceSnapshotComparison": {
+    "status": "PASS",
+    "expectedDocumentationChanges": [
+      "backend/docs/architecture.md",
+      "backend/docs/rbac-foundation.md",
+      "backend/src/main/resources/db/README.md"
+    ],
+    "unexpectedChanges": [],
+    "missing": []
+  },
+  "contractInputComparison": {
+    "status": "PASS",
+    "finalizationInputs": 6,
+    "liveInputs": 6,
+    "catalogCopyMatches": true
+  },
+  "d07": {
+    "status": "PASS",
+    "rows": 87,
+    "allOwnerHashesMatch": true,
+    "statuses": [
+      {
+        "status": "BLOCKED_BY_BUSINESS_FACT",
+        "rows": 8
+      },
+      {
+        "status": "BLOCKED_BY_CONTRACT",
+        "rows": 6
+      },
+      {
+        "status": "DEFERRED",
+        "rows": 55
+      },
+      {
+        "status": "READY",
+        "rows": 18
+      }
+    ],
+    "allMigrationApproval": "NOT_APPROVED"
+  },
+  "roleMembers": {
+    "status": "PASS",
+    "roles": 18,
+    "source": "contracts/api/catalogs/rbac-v1.json",
+    "partialRoleEnablement": "NOT_ALLOWED"
+  },
+  "reportLocalLinks": {
+    "status": "PASS",
+    "checked": 13,
+    "broken": []
+  },
+  "generatedAdminContract": {
+    "status": "PASS",
+    "command": "node scripts/generate-rbac-contract.mjs --check",
+    "workspace": "admin-web",
+    "exitCode": 0
+  },
+  "documentationDiffCheck": {
+    "status": "PASS",
+    "exitCode": 0
+  },
+  "runtime": "NOT RUN",
+  "databaseAndMigration": "NOT RUN",
+  "realWeChatAndDevice": "NOT RUN",
+  "productionAndDeployment": "NOT RUN",
+  "gitCommitPush": "NOT RUN",
+  "originalD07FieldsPreserved": true,
+  "affectedDocumentLocalPaths": {
+    "status": "PASS",
+    "checked": 78
+  },
+  "finalDocumentHashes": [
+    {
+      "path": "docs/operations/rbac-v1-release-review.md",
+      "sha256": "6ef16989526602d6de8ddc064b8b5f6b5cfccdb9a5c6fb2f1474de6828c697aa"
+    },
+    {
+      "path": "docs/architecture.md",
+      "sha256": "e6798045c24255046c7c63d702e9808b84b874c14d4e933e2723b94210c416f1"
+    },
+    {
+      "path": "docs/rbac-foundation.md",
+      "sha256": "345230ef1538a3667ae17bb8b9cd70ed4dfb271287e12343be404c7493d0ff1a"
+    },
+    {
+      "path": "src/main/resources/db/README.md",
+      "sha256": "21cd5f121fa2816d331f73cca7e69c33352e21f20ebf31d40c01808df44e4f8b"
+    },
+    {
+      "path": "docs/operations/rbac-v1-release-review/workspace-snapshot.json",
+      "sha256": "3fb467c489629827102440e79c11a324b136416e21f4efcc30183b41a7f2289d"
+    },
+    {
+      "path": "docs/operations/rbac-v1-release-review/d07-reviewed.csv",
+      "sha256": "de06f1c690e68b344d5baa454258f7eb6be723b6692405b0207dde7db20502ce"
+    }
+  ]
+}

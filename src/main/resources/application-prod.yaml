@@ -1,4 +1,11 @@
+logging:
+  level:
+    # Only reviewed application/lifecycle categories opt into INFO in application.yaml.
+    root: WARN
+
 app:
+  article:
+    wechat-image-audit-enabled: true
   cors:
     allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS}
 
@@ -12,6 +19,8 @@ knife4j:
   enable: false
 
 wx:
+  notification:
+    environment: ${WX_NOTIFICATION_ENVIRONMENT:prod}
   ma:
     app-id: ${WX_MA_APP_ID}
     app-secret: ${WX_MA_APP_SECRET}
@@ -65,7 +74,7 @@ spring:
   datasource:
     username: ${MYSQL_USER}
     password: ${MYSQL_PASSWORD}
-    url: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?sslMode=DISABLED&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    url: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?sslMode=DISABLED&allowPublicKeyRetrieval=true&connectionTimeZone=%2B08:00&forceConnectionTimeZoneToSession=true
   data:
     redis:
       host: redis

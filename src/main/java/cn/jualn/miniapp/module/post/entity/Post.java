@@ -19,6 +19,16 @@ public class Post {
     private Long id;
 
     private Long userId;
+    private String postType;
+    private Long categoryId;
+    private Long revision;
+    private Long auditRevision;
+    private String questionVersion;
+    private Boolean questionContentLocked;
+    private Boolean communityVersion;
+    private LocalDateTime acceptedAt;
+    private LocalDateTime temporaryVisibleUntil;
+    private Boolean adminHidden;
 
     private String title;
 

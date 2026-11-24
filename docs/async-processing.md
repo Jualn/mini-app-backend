@@ -21,6 +21,8 @@
 9. 外部写 timeout 仍是 Unknown Outcome。没有 provider idempotency / 状态查询时，不允许把 blind retry 包装成 recovery。
 10. 普通同步 CRUD、SSE 连接内 AI 建议生成和可重建的周期扫描不自动进入 Durable Job。
 
+调度与 DB DATETIME 的业务时间口径为 Asia/Shanghai：Job/Outbox 创建、due claim、retry、lease/recovery、retention 和时间填充显式使用该区的 LocalDateTime，不依赖 JVM 默认区。既有 application JDBC 配置使用 serverTimezone=Asia/Shanghai；发布时还须核对 DB session 与旧写入事实，不根据代码将历史时间列批量移位。Job 的租约认领/续租/ownership fence/完成条件在 SQL 中显式把 UTC 时钟转换为 +08:00，与 Worker 的 Asia/Shanghai 墙钟一致，不依赖连接 session time_zone；这不转换既有历史行。
+
 ## 2. 术语与职责
 
 ### 2.1 Transactional Event / Outbox
@@ -70,7 +72,8 @@ Message 是版本化 wire contract，用于传输一个已存在的事件。Redi
 | 场景 | 持久事实与执行路径 | 保护边界 |
 |---|---|---|
 | 审核提交 | audit reservation 与 async_job 同事务；typed Job Handler direct claim | provider unknown 不盲重发；结果回调由 audit 条件收尾 |
-| 审核结果传播 | audit 结果与 audit.completed Outbox 同事务；Stream Handler 的消费记录与业务效果同事务 | DB commit 后 ACK，重复 delivery 不重复效果 |
+| Article COS 视频审核 | media 登记事务通过 audit 预占资源 / 策略事实与 Job；Handler 提交并主动查询，下一次查询与状态同事务持久化 | SUBMITTING 在远程写前落库；未知停止自动重发；短事务核对 Job ownership、序号与资源身份，PASS 不触发文章发布；见 [Article](article.md) |
+| 审核结果传播 | audit 结果/版本化检查事实与 audit.completed Outbox 同事务；Stream Handler 消费记录与业务效果同事务，内容安全轮次见[实现边界](content-safety-review.md) | DB commit 后 ACK，重复 delivery 不重复效果 |
 | Reminder fan-out | notify_plan 与 fan-out Job 同事务；短批次生成 Notification | 计划 generation、lease/token、资格重检与稳定来源去重 |
 | Notification / Delivery | Notification、IN_APP 生效及外部 Delivery/Job 按本地事务边界提交 | 外部写在事务外，UNKNOWN 与 terminal repair 分责 |
 | Stream terminal evidence | async_dead_message 持久记录关联身份、错误分类与次数 | 不保存原始 payload；证据提交后才 ACK |
@@ -89,6 +92,7 @@ Message 是版本化 wire contract，用于传输一个已存在的事件。Redi
 | 由已知接收者创建站内通知 | Handler 本地事务中的业务 record；必要时由 Event 驱动 | notification source/dedupe key | event handler -> notification insert | DB UNIQUE，不靠 processed-message 全局表 |
 | 微信通知 delivery | Durable Job | `jobId` + notification/channel dedupe key | MySQL direct claim | provider idempotency/status；无能力时 timeout 转 recovery candidate，不 blind retry |
 | 活动/公共事项提醒 | `notify_plan` 是业务 schedule，`async_job` 是 execution | `planId` + fanout jobId | MySQL direct claim | plan version/status + recipient notification unique key；可安全从头重扫 |
+| Activity 临近关系补发 | 与报名/订阅写同事务的 `notification.reminder.catch-up` Job | 业务关系受理意图；效果沿主体/类型/实际锚点/接收人 | MySQL direct claim，单收件人短事务 | 重读当前规则/关系/有效期；与通常提醒共享 occurrence 去重，不受原扇出上界限制，见 [Reminder §11.2](reminder-notification.md#112-activity-reminder-v1-当前实施入口与兼容边界) |
 | 系统广播 fan-out | Durable Job | planId/jobId | MySQL direct claim，分页短批次 | 每收件人 dedupe；批次进度可选优化，不是正确性唯一保护 |
 | audit result / comment / reply notification | Transactional Event 或同事务直接写 notification + delivery Job | messageId 或业务 source key | Outbox -> Stream，或同事务 DB records | 选择最短完整链路，不为“统一”多绕一层 |
 | 互动计数同步、上传清理 | Reconstructable scheduled scan | 扫描 run 的 trace；无需逐条 jobId | Spring Scheduling -> bounded batch | durable source/dirty marker、条件更新；下次扫描恢复 |
@@ -497,7 +501,11 @@ Redis 完全丢失后：重建 group，再从 Outbox retention window replay PUB
 - publisher 和 job workers 停止 claim 并退避；不能 ACK 尚未持久完成的 Stream event。
 - 已执行外部效果但无法持久确认时为 Unknown Outcome，恢复后 reconcile，不盲重发。
 
-### 10.3 性能边界
+### 10.3 有序退出
+
+`EventStreamConsumer` 在 Redis 连接工厂与共享 executor 关闭前停止拉取；`stop(Runnable)` 仅在两个消费循环均退出后回调。停止会唤醒 Redis 故障退避，正在进行的有界阻塞读取与当前处理仍先结束，不提前 ACK，也不由消费者关闭共享线程池。调度器完成已运行任务，但取消尚未到期的延迟执行，避免未来定时任务阻塞容器退出。
+
+### 10.4 性能边界
 
 - due queries 走 `(status, next_*_at, id)`，lease recovery 走 `(status, lease_until, id)`；不在 JSON 上检索业务。
 - claim transaction 只选 ID 和更新 ownership，不在锁内执行 handler、网络调用或 sleep。

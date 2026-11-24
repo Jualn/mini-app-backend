@@ -6,12 +6,31 @@ sa-token:
   is-share: false           # 每次登录生成新 token
   token-style: uuid
   is-print: false
-  cookie-auto-fill-prefix: true # 自动填充 token 前缀, 没开启就添加前缀的话cookie就认证不成功
+  is-read-cookie: false
+  is-read-body: false
+  is-read-header: true
+  is-write-header: false
+  is-log: false
+
+app:
+  media:
+    # 本服务地址，用于帖子、评论、成长记录等受控媒体。就是通过访问这个地址然后会进行鉴权然后从cos获取能够访问的url返回给前端, 可以是本服务的域名或者是nginx的域名
+    public-base-url: ${MEDIA_PUBLIC_BASE_URL:}
+  article:
+    # Optional deep format probe for Article and Points MP4; blank keeps header checks and video upload enabled.
+    ffprobe-path: ${ARTICLE_FFPROBE_PATH:}
+  points:
+    # Environment-owned private storage. Never fall back to the public media bucket.
+    private-bucket: ${COS_PRIVATE_BUCKET:}
+    private-image-check-enabled: ${COS_IMAGE_CHECK_ENABLED:false}
+  learning-task:
+    # Enable only after this LearningTask private chain and supported consumers have been verified.
+    private-bucket: ${COS_PRIVATE_BUCKET:}
+    private-image-audit-enabled: ${COS_PRIVATE_IMAGE_AUDIT_ENABLED:false}
 
 admin-auth:
   token-ttl: 8h
   qr-login-v2:
-    enabled: true
     # Reuses wx.ma credentials; the confirmation page and AppID have been confirmed.
     env-version: ${ADMIN_QR_LOGIN_ENV_VERSION:release}
     check-path: ${ADMIN_QR_LOGIN_CHECK_PATH:true}
@@ -25,6 +44,8 @@ admin-auth:
 document-import:
   stream-timeout: 5m
   ai-read-idle-timeout: 60s
+  diagnostics-enabled: ${DOCUMENT_IMPORT_DIAGNOSTICS_ENABLED:false}
+  diagnostics-directory: ${DOCUMENT_IMPORT_DIAGNOSTICS_DIRECTORY:target/document-import-samples}
 
 async-processing:
   outbox:
@@ -52,6 +73,41 @@ mybatis-plus:
   type-aliases-package: cn.jualn.miniapp.module.*.entity
   configuration:
     map-underscore-to-camel-case: true
+    # SQL parameters can contain credentials, private source facts and user content, even in dev.
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+logging:
+  # Boot owns levels and environment overrides. Avoid global DEBUG and per-request INFO.
+  group:
+    requestlog: cn.jualn.miniapp.common.filter.RequestLogFilter
+    providerlog: cn.jualn.miniapp.config.WebClientConfig
+  level:
+    root: INFO
+    cn.jualn.miniapp: INFO
+    org.springframework: WARN
+    # Startup, web-server lifecycle and graceful shutdown are low-frequency operational evidence.
+    org.springframework.boot: INFO
+    com.zaxxer.hikari: INFO
+    org.apache: WARN
+    com.baomidou: WARN
+    org.mybatis: WARN
+    cn.dev33.satoken: WARN
+    io.lettuce: WARN
+    io.netty: WARN
+    reactor.netty: WARN
+    com.qcloud: WARN
+    com.tencent.cloud: WARN
+    # COS uses Apache HttpClient; wire/headers can expose credentials and signed URLs.
+    org.apache.http.wire: "OFF"
+    org.apache.http.headers: "OFF"
+  structured:
+    json:
+      context:
+        # Add only reviewed MDC/fluent fields in the native Boot customizer.
+        include: false
+      customizer: cn.jualn.miniapp.common.observability.LoggingJsonCustomizer
+      stacktrace:
+        printer: cn.jualn.miniapp.common.observability.SafeStackTracePrinter
 
 server:
   port: 8080
@@ -70,6 +126,22 @@ server:
       - application/xml # 压缩 XML 数据
       - image/svg+xml # 压缩 SVG 图像
       - text/plain # 压缩纯文本内容
+
+cos:
+  private-bucket: ${COS_PRIVATE_BUCKET:}
+  video-audit:
+    enabled: ${COS_VIDEO_AUDIT_ENABLED:false}
+    biz-type: ${COS_VIDEO_AUDIT_BIZ_TYPE:}
+    policy-revision: ${COS_VIDEO_AUDIT_POLICY_REVISION:1}
+    snapshot-interval-seconds: 1
+    poll-interval-seconds: 30
+    deadline-minutes: 120
+
+people-qualification:
+  encryption-key: ${PEOPLE_QUALIFICATION_ENCRYPTION_KEY:}
+  match-key: ${PEOPLE_QUALIFICATION_MATCH_KEY:}
+  student-number-namespace: ${PEOPLE_QUALIFICATION_STUDENT_NUMBER_NAMESPACE:CAMPUS_STUDENT_NUMBER}
+  student-number-display-name: ${PEOPLE_QUALIFICATION_STUDENT_NUMBER_DISPLAY_NAME:学号}
 
 spring:
   application:
@@ -104,9 +176,10 @@ spring:
           max-wait: 1500ms # 从连接池获取可用连接的最大等待时间
   datasource:
     #    关闭 SSL 连接（避免控制台报警告） 连接数据库时初始化字符集 Java 端用 UTF-8 编码即可安全存储 Emoji 等字符。JDBC 驱动会自动做编码转换
-    url: jdbc:mysql://localhost:3306/jualncampus?sslMode=DISABLED&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    url: jdbc:mysql://localhost:3306/jualncampus?sslMode=DISABLED&allowPublicKeyRetrieval=true&connectionTimeZone=%2B08:00&forceConnectionTimeZoneToSession=true
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
+      connection-init-sql: "SET time_zone = '+08:00'"
       minimum-idle: 5       # 最小空闲连接
       maximum-pool-size: 10 # 最大连接数
       connection-timeout: 30000 # 获取连接超时 30s
@@ -115,143 +188,319 @@ spring:
       auto-commit: true
 
 wx:
-  mp:
-    notice-templates:
-      audit-result:
-        type: audit_result
-        name: 审核结果通知
-        template-id: R7Eowu1hJGBxAAK3el4WK9iU6QYv9PuHp5vVQ9d_bi4
-        enabled: true
-        subscribe-visible: true
-        page-path: /pages/message/message
-
+  notification:
+    environment: ${WX_NOTIFICATION_ENVIRONMENT:local}
+    definitions:
+      mini-post-comment:
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        product: MINI_PROGRAM_SUBSCRIBE
+        title: 新的评论提醒
+        subscription-kind: ONE_TIME
+        template-id: BG9O2XEYbm3G6ulpVMmB91jHBNLScKjs6Vq620uvAHQ
+        version: 1
+        evidence-ref: docs/wechat-integration.md#168-模板使用位置
+        mini-program-state: ${WX_NOTIFICATION_MINI_PROGRAM_STATE:formal}
         fields:
-          thing5:
-            name: 审核内容
-            source: auditContent
-            required: true
-            max-length: 20
-            formatter: text
-
-          phrase1:
-            name: 审核结果
-            source: auditResult
-            required: true
-            formatter: text
-
-          thing16:
-            name: 未通过原因
-            source: auditReason
-            required: true
-            max-length: 20
-            formatter: text
-
-          date4:
-            name: 审核时间
-            source: auditTime
-            required: true
-            formatter: datetime
-
-      comment-reply:
-        type: comment_reply
-        name: 评论回复通知
-        template-id: zzmihiosaF4UVKQxeY_wakMcfQPpMnP_j1lLqMEzVug
-        enabled: true
-        subscribe-visible: true
-        page-path: /subpkg_community/pages/detail/detail?postId={postId}
-
+          thing15: {data-type: TEXT, required: false, max-length: 20}
+          thing5: {data-type: TEXT, required: false, max-length: 20}
+          thing2: {data-type: TEXT, required: false, max-length: 20}
+          time3: {data-type: DATETIME, required: true}
+      mini-activity-cancelled:
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        product: MINI_PROGRAM_SUBSCRIBE
+        title: 活动取消通知
+        subscription-kind: ONE_TIME
+        template-id: qfoppQmXVkZodGXoshR2Lcugr1k-ovx5l4Q2C4hEaVE
+        version: 1
+        evidence-ref: docs/wechat-integration.md#168-模板使用位置
+        mini-program-state: ${WX_NOTIFICATION_MINI_PROGRAM_STATE:formal}
         fields:
-          thing6:
-            name: 帖子内容
-            source: postTitle
-            required: true
-            max-length: 20
-            formatter: text
-
-          thing5:
-            name: 评论用户
-            source: replyUserName
-            required: false
-            default-value: 同学
-            max-length: 20
-            formatter: text
-
-          thing2:
-            name: 评论内容
-            source: replyContent
-            required: true
-            max-length: 20
-            formatter: text
-
-          time3:
-            name: 评论时间
-            source: replyTime
-            required: true
-            formatter: datetime
-
-      activity-start:
-        type: activity_start
-        name: 活动开始提醒
-        template-id: aqm21k-qtN07pIGKqyXyHNeIMjyWQA07BDcu2i-f_bM
-        enabled: true
-        subscribe-visible: true
-        page-path: /subpkg_activity/pages/detail/detail?activityId={activityId}
-
+          thing1: {data-type: TEXT, required: true, max-length: 20}
+          thing5: {data-type: TEXT, required: false, max-length: 20}
+          thing11: {data-type: TEXT, required: false, max-length: 20}
+      mini-activity-changed:
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        product: MINI_PROGRAM_SUBSCRIBE
+        title: 活动变更通知
+        subscription-kind: ONE_TIME
+        template-id: OfkF6B5KSnHijCpZqCL3G_YsSqQbkEkdZwALV5Gh2Ec
+        version: 1
+        evidence-ref: docs/wechat-integration.md#168-模板使用位置
+        mini-program-state: ${WX_NOTIFICATION_MINI_PROGRAM_STATE:formal}
         fields:
-          thing1:
-            name: 活动名称
-            source: activityTitle
-            required: true
-            max-length: 20
-            formatter: text
-
-          date2:
-            name: 活动时间
-            source: startTime
-            required: true
-            formatter: datetime
-
-          thing8:
-            name: 活动地点
-            source: location
-            required: false
-            default-value: 详见活动页
-            max-length: 20
-            formatter: text
-
-      reply:
-        type: reply
-        name: 新的回复提醒
-        template-id: 02lmG8krB2briz6jtYUkKo1AtKjwkDrWo5vAj19s0ZQ
-        enabled: true
-        subscribe-visible: true
-        page-path: /pages/index/index
-
+          thing2: {data-type: TEXT, required: true, max-length: 20}
+          thing6: {data-type: TEXT, required: true, max-length: 20}
+          time7: {data-type: DATETIME, required: true}
+      mini-registration-deadline:
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        product: MINI_PROGRAM_SUBSCRIBE
+        title: 报名截止通知
+        subscription-kind: ONE_TIME
+        template-id: iRp1IzWynhIb63r6iCWDYm7AoVb4apo-horNEaSLF10
+        version: 1
+        evidence-ref: docs/wechat-integration.md#168-模板使用位置
+        mini-program-state: ${WX_NOTIFICATION_MINI_PROGRAM_STATE:formal}
         fields:
-          thing8:
-            name: 原文内容
-            source: originalContent
-            required: true
-            max-length: 20
-            formatter: text
-
-          thing12:
-            name: 回复者
-            source: replyUserName
-            required: false
-            default-value: 同学
-            max-length: 20
-            formatter: text
-
-          thing2:
-            name: 回复内容
-            source: replyContent
-            required: true
-            max-length: 20
-            formatter: text
-
-          date3:
-            name: 回复时间
-            source: replyTime
-            required: true
-            formatter: datetime
+          thing1: {data-type: TEXT, required: true, max-length: 20}
+          time8: {data-type: DATETIME, required: true}
+          thing7: {data-type: TEXT, required: false, max-length: 20}
+      mini-registration-start:
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        product: MINI_PROGRAM_SUBSCRIBE
+        title: 活动报名通知
+        subscription-kind: ONE_TIME
+        template-id: kKptixXMrq2DeunJ_wfRirufR_I05w1EfIyh5MPWncQ
+        version: 1
+        evidence-ref: docs/wechat-integration.md#168-模板使用位置
+        mini-program-state: ${WX_NOTIFICATION_MINI_PROGRAM_STATE:formal}
+        fields:
+          thing1: {data-type: TEXT, required: true, max-length: 20}
+          time9: {data-type: DATETIME, required: true}
+          time22: {data-type: DATETIME, required: true}
+      mini-review-result:
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        product: MINI_PROGRAM_SUBSCRIBE
+        title: 审核结果通知
+        subscription-kind: ONE_TIME
+        template-id: ad5VbnOVMfpvO75k1vAXq4rtcbsrtJ_sXeAUtMR4vV0
+        version: 1
+        evidence-ref: docs/wechat-integration.md#168-模板使用位置
+        mini-program-state: ${WX_NOTIFICATION_MINI_PROGRAM_STATE:formal}
+        fields:
+          thing3: {data-type: TEXT, required: true, max-length: 20}
+          thing5: {data-type: TEXT, required: true, max-length: 20}
+          phrase1: {data-type: TEXT, required: true, max-length: 5, allowed-values: [已通过, 未通过]}
+          thing12: {data-type: TEXT, required: false, max-length: 20}
+          date4: {data-type: DATETIME, required: true}
+      mini-mentor-answer:
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        product: MINI_PROGRAM_SUBSCRIBE
+        title: 提问回复通知
+        subscription-kind: ONE_TIME
+        template-id: DC9OS51VOfw7Ysf9wwxrWNOw3OTqylM40v5MthgERlg
+        version: 1
+        evidence-ref: docs/wechat-integration.md#168-模板使用位置
+        mini-program-state: ${WX_NOTIFICATION_MINI_PROGRAM_STATE:formal}
+        fields:
+          thing3: {data-type: TEXT, required: false, max-length: 20}
+          thing5: {data-type: TEXT, required: false, max-length: 20}
+          thing7: {data-type: TEXT, required: false, max-length: 20}
+          time8: {data-type: DATETIME, required: true}
+      mini-activity-start:
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        product: MINI_PROGRAM_SUBSCRIBE
+        title: 活动开始提醒
+        subscription-kind: ONE_TIME
+        template-id: FTO80eROi108515ARP8h_z_iduKlL060fOAdMvftmq4
+        version: 1
+        evidence-ref: docs/wechat-integration.md#168-模板使用位置
+        mini-program-state: ${WX_NOTIFICATION_MINI_PROGRAM_STATE:formal}
+        fields:
+          thing1: {data-type: TEXT, required: true, max-length: 20}
+          date5: {data-type: DATETIME, required: true}
+          thing8: {data-type: TEXT, required: false, max-length: 20}
+          thing11: {data-type: TEXT, required: false, max-length: 20}
+      mini-comment-reply:
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        product: MINI_PROGRAM_SUBSCRIBE
+        title: 新的回复提醒
+        subscription-kind: ONE_TIME
+        template-id: wa1r7r4x5secrm8Zd4norQbXFPQKolcghNv4do29cmA
+        version: 1
+        evidence-ref: docs/wechat-integration.md#168-模板使用位置
+        mini-program-state: ${WX_NOTIFICATION_MINI_PROGRAM_STATE:formal}
+        fields:
+          thing8: {data-type: TEXT, required: false, max-length: 20}
+          thing12: {data-type: TEXT, required: false, max-length: 20}
+          thing2: {data-type: TEXT, required: false, max-length: 20}
+          date3: {data-type: DATETIME, required: true}
+    bindings:
+      mini-post-comment:
+        notification-type: POST_COMMENTED
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-post-comment
+        version: 1
+        jump-target: POST_DETAIL
+        fields:
+          thing15: {source: originalContent, formatter: text, overflow: truncate, default-value: 查看帖子详情}
+          thing5: {source: replyUserName, formatter: text, overflow: truncate, default-value: 同学}
+          thing2: {source: replyContent, formatter: text, overflow: truncate, default-value: 查看评论详情}
+          time3: {source: replyTime, formatter: datetime, zone: Asia/Shanghai}
+      mini-activity-cancelled:
+        notification-type: ACTIVITY_CANCELLED
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-activity-cancelled
+        version: 1
+        jump-target: ACTIVITY_DETAIL
+        fields:
+          thing1: {source: activityTitle, formatter: text, overflow: truncate}
+          thing5: {source: cancellationReason, formatter: text, overflow: truncate, default-value: 未提供取消原因}
+          thing11: {source: noticeHint, formatter: text, overflow: truncate, default-value: 请进入小程序查看详情}
+      mini-activity-changed-activity-time-changed:
+        notification-type: ACTIVITY_TIME_CHANGED
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-activity-changed
+        version: 1
+        jump-target: ACTIVITY_DETAIL
+        fields:
+          thing2: {source: activityTitle, formatter: text, overflow: truncate}
+          thing6: {source: changesText, formatter: text, overflow: truncate}
+          time7: {source: eventTime, formatter: datetime, zone: Asia/Shanghai}
+      mini-activity-changed-activity-location-changed:
+        notification-type: ACTIVITY_LOCATION_CHANGED
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-activity-changed
+        version: 1
+        jump-target: ACTIVITY_DETAIL
+        fields:
+          thing2: {source: activityTitle, formatter: text, overflow: truncate}
+          thing6: {source: changesText, formatter: text, overflow: truncate}
+          time7: {source: eventTime, formatter: datetime, zone: Asia/Shanghai}
+      mini-registration-deadline-activity-registration-deadline-reminder:
+        notification-type: ACTIVITY_REGISTRATION_DEADLINE_REMINDER
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-registration-deadline
+        version: 1
+        jump-target: SEMANTIC_TARGET
+        fields:
+          thing1: {source: activityTitle, formatter: text, overflow: truncate}
+          time8: {source: registrationDeadlineTime, formatter: datetime, zone: Asia/Shanghai}
+          thing7: {source: noticeHint, formatter: text, overflow: truncate, default-value: 请及时查看报名安排}
+      mini-registration-deadline-public-event-registration-deadline-reminder:
+        notification-type: PUBLIC_EVENT_REGISTRATION_DEADLINE_REMINDER
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-registration-deadline
+        version: 1
+        jump-target: SEMANTIC_TARGET
+        fields:
+          thing1: {source: activityTitle, formatter: text, overflow: truncate}
+          time8: {source: registrationDeadlineTime, formatter: datetime, zone: Asia/Shanghai}
+          thing7: {source: noticeHint, formatter: text, overflow: truncate, default-value: 请及时查看报名安排}
+      mini-registration-start:
+        notification-type: ACTIVITY_REGISTRATION_START_REMINDER
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-registration-start
+        version: 1
+        jump-target: ACTIVITY_DETAIL
+        fields:
+          thing1: {source: activityTitle, formatter: text, overflow: truncate}
+          time9: {source: registrationStartTime, formatter: datetime, zone: Asia/Shanghai}
+          time22: {source: registrationDeadlineTime, formatter: datetime, zone: Asia/Shanghai}
+      mini-review-result-audit-result:
+        notification-type: AUDIT_RESULT
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-review-result
+        version: 1
+        jump-target: INBOX
+        fields:
+          thing3: {source: noticeTitle, formatter: text, overflow: truncate}
+          thing5: {source: noticeSummary, formatter: text, overflow: truncate}
+          phrase1: {source: reviewResult, formatter: text, overflow: reject}
+          thing12: {source: noticeHint, formatter: text, overflow: truncate, default-value: 请进入小程序查看详情}
+          date4: {source: reviewTime, formatter: datetime, zone: Asia/Shanghai}
+      mini-review-result-learning-task-review-approved:
+        notification-type: LEARNING_TASK_REVIEW_APPROVED
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-review-result
+        version: 1
+        jump-target: INBOX
+        fields:
+          thing3: {source: noticeTitle, formatter: text, overflow: truncate}
+          thing5: {source: noticeSummary, formatter: text, overflow: truncate}
+          phrase1: {source: reviewResult, formatter: text, overflow: reject}
+          thing12: {source: noticeHint, formatter: text, overflow: truncate, default-value: 请进入小程序查看详情}
+          date4: {source: reviewTime, formatter: datetime, zone: Asia/Shanghai}
+      mini-review-result-learning-task-review-rejected:
+        notification-type: LEARNING_TASK_REVIEW_REJECTED
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-review-result
+        version: 1
+        jump-target: INBOX
+        fields:
+          thing3: {source: noticeTitle, formatter: text, overflow: truncate}
+          thing5: {source: noticeSummary, formatter: text, overflow: truncate}
+          phrase1: {source: reviewResult, formatter: text, overflow: reject}
+          thing12: {source: noticeHint, formatter: text, overflow: truncate, default-value: 请进入小程序查看详情}
+          date4: {source: reviewTime, formatter: datetime, zone: Asia/Shanghai}
+      mini-review-result-point-application-approved:
+        notification-type: POINT_APPLICATION_APPROVED
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-review-result
+        version: 1
+        jump-target: INBOX
+        fields:
+          thing3: {source: noticeTitle, formatter: text, overflow: truncate}
+          thing5: {source: noticeSummary, formatter: text, overflow: truncate}
+          phrase1: {source: reviewResult, formatter: text, overflow: reject}
+          thing12: {source: noticeHint, formatter: text, overflow: truncate, default-value: 请进入小程序查看详情}
+          date4: {source: reviewTime, formatter: datetime, zone: Asia/Shanghai}
+      mini-review-result-point-application-rejected:
+        notification-type: POINT_APPLICATION_REJECTED
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-review-result
+        version: 1
+        jump-target: INBOX
+        fields:
+          thing3: {source: noticeTitle, formatter: text, overflow: truncate}
+          thing5: {source: noticeSummary, formatter: text, overflow: truncate}
+          phrase1: {source: reviewResult, formatter: text, overflow: reject}
+          thing12: {source: noticeHint, formatter: text, overflow: truncate, default-value: 请进入小程序查看详情}
+          date4: {source: reviewTime, formatter: datetime, zone: Asia/Shanghai}
+      mini-mentor-answer:
+        notification-type: POST_COMMENTED
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-mentor-answer
+        version: 1
+        scenario: MENTOR_QA_ANSWER
+        jump-target: POST_DETAIL
+        fields:
+          thing3: {source: originalContent, formatter: text, overflow: truncate, default-value: 查看你的提问}
+          thing5: {source: replyUserName, formatter: text, overflow: truncate, default-value: 导师}
+          thing7: {source: replyContent, formatter: text, overflow: truncate, default-value: 查看回答详情}
+          time8: {source: replyTime, formatter: datetime, zone: Asia/Shanghai}
+      mini-activity-start:
+        notification-type: ACTIVITY_START_REMINDER
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-activity-start
+        version: 1
+        jump-target: ACTIVITY_DETAIL
+        fields:
+          thing1: {source: activityTitle, formatter: text, overflow: truncate}
+          date5: {source: startTime, formatter: datetime, zone: Asia/Shanghai}
+          thing8: {source: location, formatter: text, overflow: truncate, default-value: 详见活动安排}
+          thing11: {source: noticeHint, formatter: text, overflow: truncate, default-value: 请进入小程序查看活动详情}
+      mini-comment-reply:
+        notification-type: COMMENT_REPLIED
+        channel: WECHAT_MINI_PROGRAM
+        account-ref: ma-primary
+        definition-ref: mini-comment-reply
+        version: 1
+        jump-target: SEMANTIC_TARGET
+        fields:
+          thing8: {source: originalContent, formatter: text, overflow: truncate, default-value: 查看原评论}
+          thing12: {source: replyUserName, formatter: text, overflow: truncate, default-value: 同学}
+          thing2: {source: replyContent, formatter: text, overflow: truncate, default-value: 查看回复详情}
+          date3: {source: replyTime, formatter: datetime, zone: Asia/Shanghai}

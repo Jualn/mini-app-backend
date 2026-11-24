@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.person.mapper.DutyCandidateMapper">
+ <select id="targets" resultType="cn.jualn.miniapp.module.person.service.access.DutyCandidateDirectory$TargetRow">
+ SELECT t.type,t.person_id,t.organization_id,t.label,t.distinguishing_label FROM (
+ SELECT 'PLATFORM' type,NULL person_id,NULL organization_id,#{platformLabel} label,'平台范围' distinguishing_label
+ UNION ALL SELECT 'ORGANIZATION',NULL,id,name,CONCAT(type,' · ',id) FROM person_organization WHERE 1=1
+ <if test="!historical">AND status='ACTIVE'</if>
+ <if test="partyOnly">AND type IN ('PARTY_COMMITTEE','PARTY_GENERAL_BRANCH','PARTY_BRANCH')</if>
+ UNION ALL SELECT 'PERSON',id,NULL,real_name,CONCAT('人员 · ',id) FROM person_profile WHERE 1=1 <if test="!historical">AND status='ACTIVE'</if><if test="mentorOnly">AND EXISTS(SELECT 1 FROM mentor_profile mentor WHERE mentor.person_id=person_profile.id)</if>
+ ) t WHERE t.type IN <foreach collection="types" item="x" open="(" separator="," close=")">#{x}</foreach>
+ <if test="ceilings!=null">AND (<foreach collection="ceilings" item="c" separator=" OR ">
+  (t.type=#{c.type} AND <choose><when test="c.type=='PLATFORM'">1=1</when><when test="c.type=='PERSON'">t.person_id=#{c.personId}</when><otherwise>t.organization_id=#{c.organizationId}</otherwise></choose>)
+ </foreach><if test="ceilings.isEmpty()">1=0</if>)</if>
+ <if test="q!=null">AND LOCATE(#{q},t.label)&gt;0</if>
+ ORDER BY t.type,COALESCE(t.person_id,t.organization_id,'') LIMIT #{limit} OFFSET #{offset}
+ </select>
+ <sql id="member">EXISTS(SELECT 1 FROM person_membership m JOIN person_organization o ON o.id=m.organization_id AND o.status='ACTIVE'
+  WHERE m.person_id=p.id AND m.organization_id=#{memberOrganization} AND m.ended_event_id IS NULL
+  AND m.valid_from&lt;=#{at} AND (m.valid_until IS NULL OR m.valid_until&gt;#{at}))</sql>
+ <select id="recipients" resultType="cn.jualn.miniapp.module.person.service.access.DutyCandidateDirectory$Candidate">
+ SELECT x.* FROM (
+ SELECT CONCAT('USER:',u.id) candidate_id,u.id user_id,NULLIF(TRIM(u.nickname),'') nickname,p.id person_id,p.real_name,p.status person_status
+ FROM user_profile u LEFT JOIN person_account_binding b ON b.user_id=u.id AND b.status='ACTIVE' AND b.ended_at IS NULL
+ LEFT JOIN person_profile p ON p.id=b.person_id
+ WHERE u.deleted_at IS NULL
+ AND (b.id IS NULL OR (b.verification_method IN ('ADMIN_MANUAL','ROSTER_EXACT_MATCH') AND b.source_reference IS NOT NULL AND TRIM(b.source_reference)&lt;&gt;''))
+ <if test="!independent">AND <include refid="member"/></if>
+ UNION ALL
+ SELECT CONCAT('PERSON:',p.id),NULL,NULL,p.id,p.real_name,p.status FROM person_profile p
+ WHERE NOT EXISTS(SELECT 1 FROM person_account_binding b WHERE b.person_id=p.id AND b.status='ACTIVE')
+ <if test="!independent">AND <include refid="member"/></if>
+ ) x WHERE 1=1
+ <if test="filter!=null">AND EXISTS(SELECT 1 FROM person_membership m JOIN person_organization o ON o.id=m.organization_id AND o.status='ACTIVE'
+ WHERE m.person_id=x.person_id AND m.organization_id=#{filter} AND m.ended_event_id IS NULL AND m.valid_from&lt;=#{at} AND (m.valid_until IS NULL OR m.valid_until&gt;#{at}))</if>
+ <if test="q!=null">AND (LOCATE(#{q},x.real_name)&gt;0 OR LOCATE(#{q},x.nickname)&gt;0
+ OR EXISTS(SELECT 1 FROM person_membership m JOIN person_organization o ON o.id=m.organization_id AND o.status='ACTIVE'
+ WHERE m.person_id=x.person_id AND m.ended_event_id IS NULL AND m.valid_from&lt;=#{at} AND (m.valid_until IS NULL OR m.valid_until&gt;#{at})
+ <if test="memberOrganization!=null">AND o.id=#{memberOrganization}</if><if test="filter!=null">AND o.id=#{filter}</if> AND LOCATE(#{q},o.name)&gt;0))</if>
+ ORDER BY candidate_id LIMIT #{limit} OFFSET #{offset}
+ </select>
+ <select id="organizations" resultType="cn.jualn.miniapp.module.person.service.access.DutyCandidateDirectory$Organization">
+ SELECT DISTINCT m.person_id,o.id organization_id,o.name,CONCAT(o.type,' · ',o.id) distinguishing_label
+ FROM person_membership m JOIN person_organization o ON o.id=m.organization_id AND o.status='ACTIVE'
+ WHERE m.person_id IN <foreach collection="persons" item="p" open="(" separator="," close=")">#{p}</foreach>
+ <if test="visible!=null">AND o.id IN <foreach collection="visible" item="o" open="(" separator="," close=")">#{o}</foreach></if>
+ AND m.ended_event_id IS NULL AND m.valid_from&lt;=#{at} AND (m.valid_until IS NULL OR m.valid_until&gt;#{at}) ORDER BY m.person_id,o.id
+ </select>
+ <select id="nextBoundary" resultType="java.time.LocalDateTime">
+ SELECT MIN(boundary) FROM (
+ SELECT MIN(valid_from) boundary FROM person_membership WHERE valid_from&gt;#{at} AND ended_event_id IS NULL
+ UNION ALL SELECT MIN(valid_until) FROM person_membership WHERE valid_until&gt;#{at} AND ended_event_id IS NULL
+ UNION ALL SELECT MIN(CONVERT_TZ(ban_expire_at,'+08:00','+00:00')) FROM user_profile WHERE ban_expire_at&gt;CONVERT_TZ(#{at},'+00:00','+08:00')
+ ) b
+ </select>
+</mapper>

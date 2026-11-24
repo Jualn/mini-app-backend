@@ -1,0 +1,20 @@
+-- Publish independent mentor operations; existing assignments keep their original permissions.
+START TRANSACTION;
+UPDATE rbac_permission_definition SET catalog_digest='b894eaf9bf5b826b2f3ef202568698ee15dcc12930b4430a64cf59b10430cb36' WHERE catalog_digest='2e3736b9aa1c6d72e9f4aaea4a28af0318710dfcd7b7b989799070d26040b107';
+UPDATE rbac_role SET catalog_digest='b894eaf9bf5b826b2f3ef202568698ee15dcc12930b4430a64cf59b10430cb36' WHERE catalog_digest='2e3736b9aa1c6d72e9f4aaea4a28af0318710dfcd7b7b989799070d26040b107';
+INSERT INTO rbac_permission_definition(code,description,namespaces,lifecycle,readiness,grantable,unavailable_reason,catalog_digest) VALUES('mentor:read','查看导师；仅导师业务范围，包含完成操作所需的受限读取，不开放通用人员或账号管理','["MENTOR"]','ENABLED','READY',1,NULL,'b894eaf9bf5b826b2f3ef202568698ee15dcc12930b4430a64cf59b10430cb36');
+INSERT INTO rbac_permission_definition(code,description,namespaces,lifecycle,readiness,grantable,unavailable_reason,catalog_digest) VALUES('mentor:create','新增导师；仅导师业务范围，包含完成操作所需的受限读取，不开放通用人员或账号管理','["MENTOR"]','ENABLED','READY',1,NULL,'b894eaf9bf5b826b2f3ef202568698ee15dcc12930b4430a64cf59b10430cb36');
+INSERT INTO rbac_permission_definition(code,description,namespaces,lifecycle,readiness,grantable,unavailable_reason,catalog_digest) VALUES('mentor:profile-maintain','修改导师资料；仅导师业务范围，包含完成操作所需的受限读取，不开放通用人员或账号管理','["MENTOR"]','ENABLED','READY',1,NULL,'b894eaf9bf5b826b2f3ef202568698ee15dcc12930b4430a64cf59b10430cb36');
+INSERT INTO rbac_permission_definition(code,description,namespaces,lifecycle,readiness,grantable,unavailable_reason,catalog_digest) VALUES('mentor:qualification-decide','核准与撤销导师资格；仅导师业务范围，包含完成操作所需的受限读取，不开放通用人员或账号管理','["MENTOR"]','ENABLED','READY',1,NULL,'b894eaf9bf5b826b2f3ef202568698ee15dcc12930b4430a64cf59b10430cb36');
+INSERT INTO rbac_permission_definition(code,description,namespaces,lifecycle,readiness,grantable,unavailable_reason,catalog_digest) VALUES('mentor:binding-manage','关联与更换导师账号；仅导师业务范围，包含完成操作所需的受限读取，不开放通用人员或账号管理','["MENTOR"]','ENABLED','READY',1,NULL,'b894eaf9bf5b826b2f3ef202568698ee15dcc12930b4430a64cf59b10430cb36');
+INSERT INTO rbac_role(code,name,namespaces,lifecycle,readiness,grantable,unavailable_reason,catalog_digest) VALUES('MENTOR_READER_V1','查看导师','["MENTOR"]','ENABLED','READY',1,NULL,'b894eaf9bf5b826b2f3ef202568698ee15dcc12930b4430a64cf59b10430cb36');
+INSERT INTO rbac_role_permission(role_code,permission_code) VALUES('MENTOR_READER_V1','mentor:read');
+INSERT INTO rbac_role(code,name,namespaces,lifecycle,readiness,grantable,unavailable_reason,catalog_digest) VALUES('MENTOR_CREATOR_V1','新增导师','["MENTOR"]','ENABLED','READY',1,NULL,'b894eaf9bf5b826b2f3ef202568698ee15dcc12930b4430a64cf59b10430cb36');
+INSERT INTO rbac_role_permission(role_code,permission_code) VALUES('MENTOR_CREATOR_V1','mentor:create');
+INSERT INTO rbac_role(code,name,namespaces,lifecycle,readiness,grantable,unavailable_reason,catalog_digest) VALUES('MENTOR_PROFILE_EDITOR_V1','修改导师资料','["MENTOR"]','ENABLED','READY',1,NULL,'b894eaf9bf5b826b2f3ef202568698ee15dcc12930b4430a64cf59b10430cb36');
+INSERT INTO rbac_role_permission(role_code,permission_code) VALUES('MENTOR_PROFILE_EDITOR_V1','mentor:profile-maintain');
+INSERT INTO rbac_role(code,name,namespaces,lifecycle,readiness,grantable,unavailable_reason,catalog_digest) VALUES('MENTOR_QUALIFICATION_MANAGER_V1','核准与撤销导师资格','["MENTOR"]','ENABLED','READY',1,NULL,'b894eaf9bf5b826b2f3ef202568698ee15dcc12930b4430a64cf59b10430cb36');
+INSERT INTO rbac_role_permission(role_code,permission_code) VALUES('MENTOR_QUALIFICATION_MANAGER_V1','mentor:qualification-decide');
+INSERT INTO rbac_role(code,name,namespaces,lifecycle,readiness,grantable,unavailable_reason,catalog_digest) VALUES('MENTOR_BINDING_MANAGER_V1','关联与更换导师账号','["MENTOR"]','ENABLED','READY',1,NULL,'b894eaf9bf5b826b2f3ef202568698ee15dcc12930b4430a64cf59b10430cb36');
+INSERT INTO rbac_role_permission(role_code,permission_code) VALUES('MENTOR_BINDING_MANAGER_V1','mentor:binding-manage');
+COMMIT;

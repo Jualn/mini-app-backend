@@ -1,11 +1,7 @@
 package cn.jualn.miniapp.config;
 
 import cn.dev33.satoken.stp.StpInterface;
-import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.security.AdminStpUtil;
-import cn.jualn.miniapp.module.admin.auth.support.AdminPermissionPolicy;
-import cn.jualn.miniapp.module.user.bo.UserProfileBO;
-import cn.jualn.miniapp.module.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -18,29 +14,28 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SaPermissionProvider implements StpInterface {
 
-    private final UserService userService;
-    private final AdminPermissionPolicy permissionPolicy;
+    private final cn.jualn.miniapp.module.authorization.service.CurrentAuthorization authorization;
 
     @Override
     public List<String> getPermissionList(Object loginId, String loginType) {
-        UserProfileBO profile = loadAdminProfile(loginId, loginType);
-        return profile == null ? List.of() : permissionPolicy.permissions(profile.getRole());
+        var decision = loadAdmin(loginId,loginType);
+        return decision==null?List.of():authorization.candidates(decision);
     }
 
     @Override
     public List<String> getRoleList(Object loginId, String loginType) {
-        UserProfileBO profile = loadAdminProfile(loginId, loginType);
-        return profile == null ? List.of() : List.of(permissionPolicy.roleCode(profile.getRole()));
+        var decision=loadAdmin(loginId,loginType);
+        if(decision==null || !decision.canUseAdmin()) return List.of();
+        return decision.grants().stream().map(g->g.roleCode()).distinct().toList();
     }
 
-    private UserProfileBO loadAdminProfile(Object loginId, String loginType) {
+    private cn.jualn.miniapp.module.authorization.model.RbacModels.Decision loadAdmin(Object loginId, String loginType) {
         if (!AdminStpUtil.LOGIN_TYPE.equals(loginType) || loginId == null) {
             return null;
         }
         try {
-            UserProfileBO profile = userService.getUserProfile(Long.parseLong(loginId.toString()));
-            return permissionPolicy.canLogin(profile) ? profile : null;
-        } catch (BusinessException | NumberFormatException e) {
+            return authorization.current(Long.parseLong(loginId.toString()));
+        } catch (NumberFormatException e) {
             return null;
         }
     }

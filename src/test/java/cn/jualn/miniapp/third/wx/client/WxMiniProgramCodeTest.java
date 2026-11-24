@@ -132,16 +132,44 @@ class WxMiniProgramCodeTest {
         }
         assertEquals(0, tokens.get());
     }
-    @Test void totalDeadlineCoversTokenAndProviderChainAndDoesNotRetry() {
-        WebClient stalled = WebClient.builder().exchangeFunction(request -> reactor.core.publisher.Mono.never()).build();
+    @Test void totalDeadlineCoversTokenAndProviderChainAndDoesNotRetry() throws Exception {
+        var scheduled = new java.util.concurrent.CountDownLatch(1);
+        var requested = new java.util.concurrent.CountDownLatch(1);
+        var timeout = new java.util.concurrent.atomic.AtomicReference<Runnable>();
+        var attempts = new AtomicInteger();
+        var timer = mock(reactor.core.scheduler.Scheduler.class);
+        when(timer.schedule(any(Runnable.class), anyLong(), any(java.util.concurrent.TimeUnit.class)))
+                .thenAnswer(invocation -> {
+                    assertEquals(25, invocation.<java.util.concurrent.TimeUnit>getArgument(2)
+                            .toSeconds(invocation.getArgument(1)));
+                    timeout.set(invocation.getArgument(0));
+                    scheduled.countDown();
+                    return mock(reactor.core.Disposable.class);
+                });
+        WebClient stalled = WebClient.builder().exchangeFunction(request -> {
+            attempts.incrementAndGet(); requested.countDown();
+            return reactor.core.publisher.Mono.never();
+        }).build();
         WxProperties props = new WxProperties(null, new WxProperties.Ma("synthetic-ma", "synthetic-secret", null, null));
         RedisService redis = mock(RedisService.class);
         when(redis.getString(any())).thenReturn("synthetic-token");
         WxClient stalledClient = new WxClient(stalled, props, redis, registry);
-        long started = System.nanoTime();
-        assertThrows(ExternalServiceException.class, () -> stalledClient.generateMiniProgramCode("page", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef", "trial", true));
-        long elapsed = java.util.concurrent.TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - started);
-        assertTrue(elapsed >= 24 && elapsed < 30);
-        assertEquals(1, registry.get("jualn.admin.qr.login.wechat.code.duration").tags("result", "failure", "error.category", "timeout").timer().count());
+        var caller = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var result = caller.submit(() -> {
+                try (var schedulers = mockStatic(reactor.core.scheduler.Schedulers.class, CALLS_REAL_METHODS)) {
+                    schedulers.when(reactor.core.scheduler.Schedulers::parallel).thenReturn(timer);
+                    assertThrows(ExternalServiceException.class, () -> stalledClient.generateMiniProgramCode(
+                            "page", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef", "trial", true));
+                }
+            });
+            assertTrue(scheduled.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(requested.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            timeout.get().run();
+            result.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertEquals(1, attempts.get());
+            assertEquals(1, registry.get("jualn.admin.qr.login.wechat.code.duration")
+                    .tags("result", "failure", "error.category", "timeout").timer().count());
+        } finally { caller.shutdownNow(); }
     }
 }

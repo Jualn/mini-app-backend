@@ -5,26 +5,17 @@
 
     <sql id="ReviewFrom">
         FROM (
-            SELECT MIN(r.id) AS task_id,
-                   r.target_type,
-                   r.target_id,
-                   MIN(r.created_at) AS submitted_at
+            SELECT v.task_id,v.target_type,v.target_id,v.created_at AS submitted_at,v.state AS review_state
+            FROM content_safety_review v
+            UNION ALL
+            SELECT MIN(r.id) AS task_id,r.target_type,r.target_id,MIN(r.created_at) AS submitted_at,NULL AS review_state
             FROM content_audit_log r
-            WHERE r.audit_source = 1
-              AND r.wx_result = 1
-              AND r.final_result = 2
-              AND r.target_type IN (1, 2, 4)
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM content_audit_log pending
-                  WHERE pending.target_type = r.target_type
-                    AND pending.target_id = r.target_id
-                    AND pending.audit_source = 1
-                    AND pending.final_result = 0
-              )
-            GROUP BY r.target_type, r.target_id
+            WHERE r.audit_source=1 AND r.wx_result=1 AND r.final_result=2
+              AND r.target_type IN (1,2,4) AND r.review_task_id IS NULL
+            GROUP BY r.target_type,r.target_id
         ) review
         JOIN content_audit_log machine ON machine.id = review.task_id
+        LEFT JOIN content_safety_review versioned ON versioned.task_id=review.task_id
         JOIN (
             SELECT 1 AS target_type,
                    p.id AS target_id,
@@ -32,6 +23,7 @@
                    p.content,
                    p.user_id AS author_id,
                    p.status AS target_status,
+                   'POST' AS resource_namespace,
                    NULL AS parent_id,
                    NULL AS image_url,
                    (SELECT COUNT(*) FROM report r
@@ -46,6 +38,7 @@
                    a.summary,
                    a.user_id,
                    a.publish_status,
+                   'ACTIVITY',
                    NULL,
                    NULL,
                    0,
@@ -59,6 +52,12 @@
                    c.content,
                    c.user_id,
                    c.status,
+                   CASE c.target_type
+                       WHEN 1 THEN CASE WHEN EXISTS (SELECT 1 FROM post cp WHERE cp.id = c.target_id) THEN 'POST' END
+                       WHEN 2 THEN CASE WHEN EXISTS (SELECT 1 FROM activity ca WHERE ca.id = c.target_id) THEN 'ACTIVITY' END
+                       WHEN 3 THEN CASE WHEN EXISTS (SELECT 1 FROM public_event ce WHERE ce.id = c.target_id) THEN 'PUBLIC_EVENT' END
+                       WHEN 8 THEN CASE WHEN EXISTS (SELECT 1 FROM article cr WHERE cr.id = c.target_id) THEN 'ARTICLE' END
+                   END,
                    c.parent_id,
                    c.image_url,
                    (SELECT COUNT(*) FROM report r
@@ -70,15 +69,25 @@
         LEFT JOIN content_audit_log manual_audit ON manual_audit.id = (
             SELECT MAX(m.id)
             FROM content_audit_log m
-            WHERE m.target_type = review.target_type
-              AND m.target_id = review.target_id
+            WHERE ((m.review_task_id=review.task_id) OR (review.review_state IS NULL AND m.review_task_id IS NULL AND m.target_type=review.target_type AND m.target_id=review.target_id))
               AND m.audit_source = 2
               AND m.admin_action IN (1, 2)
         )
     </sql>
 
+    <sql id="Actionable">
+        review.review_state='pending' AND versioned.task_id IS NOT NULL AND (
+         (review.target_type=1 AND EXISTS(SELECT 1 FROM post live WHERE live.id=review.target_id AND live.deleted_at IS NULL AND live.status IN (1,2) AND live.revision=versioned.business_revision))
+         OR (review.target_type=4 AND EXISTS(SELECT 1 FROM comment live WHERE live.id=review.target_id AND live.deleted_at IS NULL AND live.status=0
+          AND (live.parent_id IS NULL OR EXISTS(SELECT 1 FROM comment root WHERE root.id=live.parent_id AND root.status=1 AND root.deleted_at IS NULL AND root.target_type=live.target_type AND root.target_id=live.target_id))
+          AND ((live.target_type=1 AND EXISTS(SELECT 1 FROM post parent WHERE parent.id=live.target_id AND parent.deleted_at IS NULL AND parent.status=2))
+           OR (live.target_type=2 AND EXISTS(SELECT 1 FROM activity parent WHERE parent.id=live.target_id AND parent.deleted_at IS NULL AND parent.publish_status=1))
+           OR (live.target_type=3 AND EXISTS(SELECT 1 FROM public_event parent WHERE parent.id=live.target_id AND parent.deleted_at IS NULL AND parent.publish_status=1))))))
+    </sql>
+
     <sql id="ReviewFilters">
         WHERE 1 = 1
+        <include refid="ReviewScope"/>
         <if test="targetType != null">
             AND review.target_type = #{targetType}
         </if>
@@ -87,21 +96,83 @@
                 <if test="keywordId != null">
                     target.target_id = #{keywordId} OR
                 </if>
-                target.title LIKE CONCAT('%', #{keyword}, '%')
-                OR target.content LIKE CONCAT('%', #{keyword}, '%')
+                COALESCE(versioned.snapshot_title,target.title) LIKE CONCAT('%', #{keyword}, '%')
+                OR COALESCE(versioned.snapshot_content,'') LIKE CONCAT('%', #{keyword}, '%')
                 OR author.nickname LIKE CONCAT('%', #{keyword}, '%')
             )
         </if>
         <choose>
             <when test="tab == 'pending'">
-                AND manual_audit.id IS NULL
+                AND (<include refid="Actionable"/>)
             </when>
             <when test="tab == 'completed'">
-                AND manual_audit.id IS NOT NULL
-                AND manual_audit.created_at &gt;= CURRENT_DATE
-                AND manual_audit.created_at &lt; DATE_ADD(CURRENT_DATE, INTERVAL 1 DAY)
+                AND (review.review_state IN ('approved','rejected') OR manual_audit.id IS NOT NULL)
+                AND COALESCE(versioned.decided_at,manual_audit.created_at) &gt;= DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR)
+                AND COALESCE(versioned.decided_at,manual_audit.created_at) &lt; DATE_ADD(DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR), INTERVAL 1 DAY)
             </when>
         </choose>
+    </sql>
+    <sql id="GrowthReviewFilters">
+        WHERE 1 = 1
+        <include refid="GrowthReviewScope"/>
+        <if test="targetType != null">
+            AND review.target_type = #{targetType}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (
+                <if test="keywordId != null">
+                    target.target_id = #{keywordId} OR
+                </if>
+                COALESCE(versioned.snapshot_title,target.title) LIKE CONCAT('%', #{keyword}, '%')
+                OR COALESCE(versioned.snapshot_content,'') LIKE CONCAT('%', #{keyword}, '%')
+                OR author.nickname LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        <choose>
+            <when test="tab == 'pending'">
+                AND (<include refid="Actionable"/>)
+            </when>
+            <when test="tab == 'completed'">
+                AND (review.review_state IN ('approved','rejected') OR manual_audit.id IS NOT NULL)
+                AND COALESCE(versioned.decided_at,manual_audit.created_at) &gt;= DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR)
+                AND COALESCE(versioned.decided_at,manual_audit.created_at) &lt; DATE_ADD(DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR), INTERVAL 1 DAY)
+            </when>
+        </choose>
+    </sql>
+
+    <!-- Filtering precedes count, cursor and LIMIT; an empty scope never means GLOBAL. -->
+    <sql id="ReviewScope">
+AND NOT EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN review.target_type=1 THEN review.target_id ELSE (SELECT gc.target_id FROM comment gc WHERE review.target_type=4 AND gc.id=review.target_id AND gc.target_type=1) END)
+        <if test="namespaces == null">AND review.review_state IS NULL</if>
+        AND (versioned.task_id IS NULL OR versioned.resource_namespace=target.resource_namespace)
+        AND target.resource_namespace IS NOT NULL
+        AND target.resource_namespace != 'ARTICLE'
+        <if test="namespaces != null">
+            <choose>
+                <when test="namespaces.size() > 0">
+                    AND target.resource_namespace IN
+                    <foreach collection="namespaces" item="space" open="(" separator="," close=")">#{space}</foreach>
+                </when>
+                <otherwise>AND 1 = 0</otherwise>
+            </choose>
+        </if>
+    </sql>
+    <sql id="GrowthReviewScope">
+AND EXISTS(SELECT 1 FROM post_growth_record g WHERE g.post_id=CASE WHEN review.target_type=1 THEN review.target_id ELSE (SELECT gc.target_id FROM comment gc WHERE review.target_type=4 AND gc.id=review.target_id AND gc.target_type=1) END
+<if test="growthType != null and growthType != 'ALL'">AND g.record_type=#{growthType}</if><if test="growthOrganizationId != null">AND g.organization_id=#{growthOrganizationId}</if>
+AND g.organization_id IN <foreach collection="growthOrganizations" item="org" open="(" separator="," close=")">#{org}</foreach>)
+        AND (versioned.task_id IS NULL OR versioned.resource_namespace=target.resource_namespace)
+        AND target.resource_namespace IS NOT NULL
+        AND target.resource_namespace != 'ARTICLE'
+        <if test="namespaces != null">
+            <choose>
+                <when test="namespaces.size() > 0">
+                    AND target.resource_namespace IN
+                    <foreach collection="namespaces" item="space" open="(" separator="," close=")">#{space}</foreach>
+                </when>
+                <otherwise>AND 1 = 0</otherwise>
+            </choose>
+        </if>
     </sql>
 
     <select id="selectAdminReviewPage"
@@ -109,8 +180,8 @@
         SELECT review.task_id,
                review.target_type,
                review.target_id,
-               target.title,
-               target.content,
+               COALESCE(versioned.snapshot_title,target.title) AS title,
+               COALESCE(versioned.snapshot_content,'') AS content,
                target.author_id,
                COALESCE(author.nickname, CONCAT('用户 #', target.author_id)) AS author_name,
                author.avatar_url,
@@ -154,29 +225,13 @@
         </choose>
         LIMIT #{limit}
     </select>
-
-    <select id="countAdminReviews" resultType="long">
-        SELECT COUNT(*)
-        <include refid="ReviewFrom"/>
-        <include refid="ReviewFilters"/>
-    </select>
-
-    <select id="selectAdminReviewSummary"
-            resultType="cn.jualn.miniapp.module.audit.mapper.AdminReviewSummaryRow">
-        SELECT COALESCE(SUM(manual_audit.id IS NULL), 0) AS pending,
-               COALESCE(SUM(manual_audit.created_at &gt;= CURRENT_DATE
-                            AND manual_audit.created_at &lt; DATE_ADD(CURRENT_DATE, INTERVAL 1 DAY)), 0) AS today_completed,
-               MIN(CASE WHEN manual_audit.id IS NULL THEN review.submitted_at END) AS oldest_pending_at
-        <include refid="ReviewFrom"/>
-    </select>
-
-    <select id="selectAdminReviewDetail"
+    <select id="selectGrowthReviewPage"
             resultType="cn.jualn.miniapp.module.audit.mapper.AdminReviewRow">
         SELECT review.task_id,
                review.target_type,
                review.target_id,
-               target.title,
-               target.content,
+               COALESCE(versioned.snapshot_title,target.title) AS title,
+               COALESCE(versioned.snapshot_content,'') AS content,
                target.author_id,
                COALESCE(author.nickname, CONCAT('用户 #', target.author_id)) AS author_name,
                author.avatar_url,
@@ -197,12 +252,92 @@
                manual_audit.admin_remark,
                manual_audit.created_at AS manual_created_at
         <include refid="ReviewFrom"/>
+        <include refid="GrowthReviewFilters"/>
+        <if test="cursorSubmittedAt != null and cursorTaskId != null">
+            <choose>
+                <when test="sort == 'newest'">
+                    AND (review.submitted_at &lt; #{cursorSubmittedAt}
+                         OR (review.submitted_at = #{cursorSubmittedAt} AND review.task_id &lt; #{cursorTaskId}))
+                </when>
+                <otherwise>
+                    AND (review.submitted_at &gt; #{cursorSubmittedAt}
+                         OR (review.submitted_at = #{cursorSubmittedAt} AND review.task_id &gt; #{cursorTaskId}))
+                </otherwise>
+            </choose>
+        </if>
+        <choose>
+            <when test="sort == 'newest'">
+                ORDER BY review.submitted_at DESC, review.task_id DESC
+            </when>
+            <otherwise>
+                ORDER BY review.submitted_at ASC, review.task_id ASC
+            </otherwise>
+        </choose>
+        LIMIT #{limit}
+    </select>
+
+    <select id="countAdminReviews" resultType="long">
+        SELECT COUNT(*)
+        <include refid="ReviewFrom"/>
+        <include refid="ReviewFilters"/>
+    </select>
+    <select id="countGrowthReviews" resultType="long">
+        SELECT COUNT(*)
+        <include refid="ReviewFrom"/>
+        <include refid="GrowthReviewFilters"/>
+    </select>
+
+    <sql id="reviewSummaryQuery">
+        SELECT COALESCE(SUM(<include refid="Actionable"/>), 0) AS pending,
+               COALESCE(SUM(COALESCE(versioned.decided_at,manual_audit.created_at) &gt;= DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR)
+                            AND COALESCE(versioned.decided_at,manual_audit.created_at) &lt; DATE_ADD(DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR), INTERVAL 1 DAY)), 0) AS today_completed,
+               MIN(CASE WHEN (<include refid="Actionable"/>) THEN review.submitted_at END) AS oldest_pending_at
+        <include refid="ReviewFrom"/>
+    </sql>
+    <select id="selectGrowthReviewSummary" resultType="cn.jualn.miniapp.module.audit.mapper.AdminReviewSummaryRow"><include refid="reviewSummaryQuery"/> WHERE 1 = 1 <include refid="GrowthReviewScope"/></select>
+    <select id="selectAdminReviewSummary" resultType="cn.jualn.miniapp.module.audit.mapper.AdminReviewSummaryRow"><include refid="reviewSummaryQuery"/> WHERE 1 = 1 <include refid="ReviewScope"/></select>
+    <select id="selectScopedReviewSummary" resultType="cn.jualn.miniapp.module.audit.mapper.AdminReviewSummaryRow"><include refid="reviewSummaryQuery"/> WHERE 1 = 1 <include refid="ReviewScope"/></select>
+
+    <select id="selectReviewNamespace" resultType="java.lang.String">
+        SELECT target.resource_namespace
+        <include refid="ReviewFrom"/>
         WHERE review.task_id = #{taskId}
+    </select>
+
+    <select id="selectAdminReviewDetail"
+            resultType="cn.jualn.miniapp.module.audit.mapper.AdminReviewRow">
+        SELECT review.task_id,
+               review.target_type,
+               review.target_id,
+               COALESCE(versioned.snapshot_title,target.title) AS title,
+               COALESCE(versioned.snapshot_content,'') AS content,
+               target.author_id,
+               COALESCE(author.nickname, CONCAT('用户 #', target.author_id)) AS author_name,
+               author.avatar_url,
+               author.role AS author_role,
+               author.status AS author_status,
+               author.created_at AS author_created_at,
+               target.image_url,
+               target.target_status,
+               target.parent_id,
+               target.report_count,
+               target.attachment_count,
+               machine.wx_trace_id,
+               machine.wx_detail,
+               review.submitted_at,
+               manual_audit.id AS manual_log_id,
+               manual_audit.final_result AS manual_result,
+               manual_audit.admin_user_id,
+               manual_audit.admin_remark,
+               manual_audit.created_at AS manual_created_at
+        <include refid="ReviewFrom"/>
+        WHERE review.task_id = #{taskId} AND target.resource_namespace IS NOT NULL AND target.resource_namespace != 'ARTICLE'
     </select>
 
     <select id="selectAdminReviewHistory"
             resultType="cn.jualn.miniapp.module.audit.entity.ContentAuditLog">
         SELECT id,
+               review_task_id,
                target_type,
                target_id,
                audit_source,
@@ -263,6 +398,7 @@
     <select id="selectManualDecisionByIdempotencyKey"
             resultType="cn.jualn.miniapp.module.audit.entity.ContentAuditLog">
         SELECT id,
+               review_task_id,
                target_type,
                target_id,
                audit_source,

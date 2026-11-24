@@ -6,6 +6,8 @@ import java.time.LocalDateTime;
 
 @Data
 public class AdminContentListRow {
+    private String postType;
+    private Long categoryId;
     private Long id;
     private String type;
     private String title;

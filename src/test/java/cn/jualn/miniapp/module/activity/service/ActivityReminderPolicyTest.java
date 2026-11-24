@@ -1,9 +1,9 @@
 package cn.jualn.miniapp.module.activity.service;
 
-import cn.jualn.miniapp.common.enums.NotifyType;
+import cn.jualn.miniapp.module.notify.enums.NotifyType;
 import cn.jualn.miniapp.module.activity.entity.Activity;
 import cn.jualn.miniapp.module.notify.reminder.ReminderSpec;
-import cn.jualn.miniapp.module.timeline.bo.TimelineItemDTO;
+import cn.jualn.miniapp.module.timeline.bo.TimelineFactBO;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
@@ -30,7 +30,7 @@ class ActivityReminderPolicyTest {
         assertEquals(NotifyType.ACTIVITY_START_REMINDER, specs.get(0).notificationType());
         assertEquals(now.plusHours(5), specs.get(0).subjectStartsAt());
         assertEquals("ACTIVITY_REGISTRATION_DEADLINE_REMINDER", specs.get(1).ruleKey());
-        assertEquals("SUBSCRIBERS_NOT_REGISTERED", specs.get(1).recipientScope());
+        assertEquals("SUBSCRIBERS", specs.get(1).recipientScope());
         assertEquals(now.plusDays(2), specs.get(1).sendAt());
     }
 
@@ -47,7 +47,7 @@ class ActivityReminderPolicyTest {
 
     @Test
     void skipsIneligibleImprecisePastAndExternalDeadlineRules() {
-        TimelineItemDTO dateOnly = point(5L, "ACTIVITY_START", now.plusDays(2), "开始", 0);
+        TimelineFactBO dateOnly = point(5L, "ACTIVITY_START", now.plusDays(2), "开始", 0);
         dateOnly.setStartPrecision(1);
         assertTrue(policy.evaluate(Activity.builder().publishStatus(0).lifecycleStatus(0).build(),
                 List.of(point(1L, "ACTIVITY_START", now.plusHours(2), "x", 0)), now).isEmpty());
@@ -61,11 +61,38 @@ class ActivityReminderPolicyTest {
         List<ReminderSpec> external = policy.evaluate(
                 Activity.builder().publishStatus(1).lifecycleStatus(0).registrationMode(3).build(),
                 List.of(point(7L, "REGISTRATION_END", now.plusDays(3), "截止", 0)), now);
-        assertTrue(external.isEmpty());
+        assertEquals(1, external.size());
     }
 
-    private TimelineItemDTO point(long id, String semantic, LocalDateTime time, String label, int order) {
-        return TimelineItemDTO.builder().id(id).nodeType(semantic).label(label).sortOrder(order)
+    private TimelineFactBO point(long id, String semantic, LocalDateTime time, String label, int order) {
+        return TimelineFactBO.builder().id(id).nodeType(semantic).label(label).sortOrder(order)
                 .startPrecision(2).endPrecision(0).startTime(time).build();
+    }
+
+    @Test void threeRulesUseExplicitPointsAndActivityRangeStartAcrossRegistrationModes() {
+        for (int mode : List.of(2,3,4)) {
+            var start = point(1,"REGISTRATION_START",now.plusDays(2),"开始",0);
+            var end = point(2,"REGISTRATION_END",now.plusDays(4),"截止",1);
+            var activityStart = point(3,"ACTIVITY_START",now.plusDays(5),"活动",2);
+            activityStart.setEndPrecision(2); activityStart.setEndTime(now.plusDays(6));
+            var specs = policy.evaluate(Activity.builder().publishStatus(1).lifecycleStatus(0).registrationMode(mode).build(),
+                    List.of(start,end,activityStart),now);
+            assertEquals(3,specs.size());
+            assertEquals("SUBSCRIBERS_OR_REGISTERED_USERS",specs.get(0).recipientScope());
+            assertEquals(NotifyType.ACTIVITY_REGISTRATION_START_REMINDER,specs.get(1).notificationType());
+            assertEquals(now.plusDays(2).minusHours(1),specs.get(1).sendAt());
+            assertEquals(now.plusDays(3),specs.get(2).sendAt());
+        }
+    }
+
+    @Test void invalidRegistrationWindowAndNoneDoNotCreateRegistrationReminders() {
+        for (int mode : List.of(1,2,3,4)) {
+            var nodes = List.of(point(1,"REGISTRATION_START",now.plusDays(4),"x",0),
+                    point(2,"REGISTRATION_END",now.plusDays(3),"y",1));
+            assertTrue(policy.evaluate(Activity.builder().publishStatus(1).lifecycleStatus(0).registrationMode(mode).build(),nodes,now).isEmpty());
+        }
+        var range = point(1,"REGISTRATION_START",now.plusDays(1),"x",0);
+        range.setEndTime(now.plusDays(2)); range.setEndPrecision(2);
+        assertTrue(policy.evaluate(Activity.builder().publishStatus(1).lifecycleStatus(0).registrationMode(3).build(),List.of(range),now).isEmpty());
     }
 }

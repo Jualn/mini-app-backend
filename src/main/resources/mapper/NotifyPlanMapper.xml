@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jualn.miniapp.module.notify.mapper.NotifyPlanMapper">
+    <update id="freezeRecipientUpperBound">
+        UPDATE notify_plan SET recipient_upper_user_id=#{upperUserId}
+        WHERE id=#{id} AND recipient_upper_user_id IS NULL AND status IN (0,3)
+    </update>
+    <update id="refreshPresentation">
+        UPDATE notify_plan SET title=#{title}, content=#{content}, subject_location=#{location}, timeline_id=#{timelineId}
+        WHERE id=#{id} AND status IN (0,3)
+    </update>
+    <select id="hasCompletedOccurrence" resultType="boolean">
+        SELECT EXISTS(SELECT 1 FROM notify_plan WHERE source_type=#{sourceType} AND source_id=#{sourceId}
+            AND rule_key=#{ruleKey} AND subject_starts_at=#{anchor} AND status=1)
+    </select>
+    <select id="maxGeneration" resultType="long">
+        SELECT COALESCE(MAX(generation),0) FROM notify_plan
+        WHERE source_type=#{sourceType} AND source_id=#{sourceId} AND timeline_id=#{timelineId} AND rule_key=#{ruleKey}
+    </select>
+</mapper>

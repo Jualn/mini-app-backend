@@ -1,6 +1,6 @@
 package cn.jualn.miniapp.module.auth.service;
 
-import cn.jualn.miniapp.module.auth.dto.LoginVO;
+import cn.jualn.miniapp.module.auth.vo.LoginVO;
 
 /**
  * 认证服务接口。
@@ -14,4 +14,6 @@ public interface AuthService {
 	 * @return 登录响应体
 	 */
 	LoginVO login(String code);
+
+    void logout();
 }

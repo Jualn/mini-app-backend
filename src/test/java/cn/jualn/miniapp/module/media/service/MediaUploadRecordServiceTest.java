@@ -47,7 +47,7 @@ class MediaUploadRecordServiceTest {
         when(recordMapper.bindPending(any(), anyLong(), anyInt(), anyLong(), any())).thenReturn(1);
 
         assertThrows(BusinessException.class, () -> service.bindPending(
-                7L, TargetType.POST, 11L, List.of("post/7/a.jpg", "post/7/b.jpg")));
+                7L, TargetType.POST, 11L, List.of("post/upload/7/a.jpg", "post/upload/7/b.jpg")));
     }
 
     @Test
@@ -55,7 +55,7 @@ class MediaUploadRecordServiceTest {
         MediaUploadRecordService service = new MediaUploadRecordService(recordMapper, cosService);
         MediaUploadRecord candidate = MediaUploadRecord.builder()
                 .id(1L)
-                .objectKey("post/7/orphan.jpg")
+                .objectKey("post/upload/7/orphan.jpg")
                 .retryCount(0)
                 .cleanupAfter(LocalDateTime.now().minusMinutes(1))
                 .build();
@@ -64,7 +64,7 @@ class MediaUploadRecordServiceTest {
 
         assertEquals(1, service.cleanupExpiredBatch());
 
-        verify(cosService).deleteObject("post/7/orphan.jpg");
+        verify(cosService).deleteObject("post/upload/7/orphan.jpg");
         verify(recordMapper).deleteById(1L);
     }
 
@@ -73,7 +73,7 @@ class MediaUploadRecordServiceTest {
         MediaUploadRecordService service = new MediaUploadRecordService(recordMapper, cosService);
         when(recordMapper.selectExpiredCandidates(any(), anyLong(), anyInt())).thenReturn(List.of(MediaUploadRecord.builder()
                 .id(1L)
-                .objectKey("post/7/bound.jpg")
+                .objectKey("post/upload/7/bound.jpg")
                 .build()));
         when(recordMapper.claimCleanup(anyLong(), any(), any())).thenReturn(0);
 
