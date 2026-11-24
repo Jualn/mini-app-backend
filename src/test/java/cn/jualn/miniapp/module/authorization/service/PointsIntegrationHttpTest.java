@@ -612,7 +612,7 @@ class PointsIntegrationHttpTest {
         @Bean @Primary PointMaterialProvider isolatedCosProvider() { return new PointMaterialProvider() {
             public PointMaterialBO.Credentials credentials(String id,List<String> keys,LocalDateTime expires) {return new PointMaterialBO.Credentials("synthetic-private","local",keys,"synthetic-id","synthetic-secret","synthetic-token",expires.toEpochSecond(ZoneOffset.UTC),"https://synthetic.invalid",id,expires);}
             public void retainAndInspect(String source,String retained,long owner,PointMaterialBO.Declaration declaration) {assertFalse(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive());var hook=COS_INSPECTION_HOOK.getAndSet(null);if(hook!=null)hook.run(); /* Explicit external object + safety provider double. */ }
-            public PointMaterialBO.Access access(String key,LocalDateTime expires) {return new PointMaterialBO.Access("https://synthetic.invalid/private/"+key+"?synthetic-signed",expires);}
+            public PointMaterialBO.Access access(String key,LocalDateTime expires) {return new PointMaterialBO.Access("https://synthetic.invalid/download/"+key+"?synthetic-signed",expires);}
             public void delete(String key) {}
         };}
     }

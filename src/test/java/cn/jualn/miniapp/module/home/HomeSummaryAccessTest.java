@@ -61,12 +61,12 @@ class HomeSummaryAccessTest {
             when(logic.getTokenValue()).thenReturn("current");
             when(logic.getLoginIdByToken("current")).thenReturn("7");
             when(logic.getExtra("current", UserAccountService.SESSION_VERSION)).thenReturn("2");
-            doThrow(new BusinessException(ResultCode.USER_BANNED)).when(accounts).assertLoginAllowed(7);
+            doThrow(new BusinessException(ResultCode.USER_BANNED)).when(accounts).assertLoginAllowed(7L);
             mvc.perform(get(HomeController.SUMMARY)).andExpect(status().isForbidden());
-            doNothing().when(accounts).assertLoginAllowed(7);
-            doThrow(new BusinessException(ResultCode.UNAUTHORIZED)).when(accounts).requireSessionVersion(7, "2");
+            doNothing().when(accounts).assertLoginAllowed(7L);
+            doThrow(new BusinessException(ResultCode.UNAUTHORIZED)).when(accounts).requireSessionVersion(7L, "2");
             mvc.perform(get(HomeController.SUMMARY)).andExpect(status().isUnauthorized());
-            doNothing().when(accounts).requireSessionVersion(7, "2");
+            doNothing().when(accounts).requireSessionVersion(7L, "2");
 
             var stopped = new CountDownLatch(1);
             when(logic.getLoginIdByToken("current")).thenAnswer(call -> {

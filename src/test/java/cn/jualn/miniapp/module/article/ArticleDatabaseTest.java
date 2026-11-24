@@ -78,7 +78,7 @@ class ArticleDatabaseTest {
   jdbc.update("DELETE FROM article_publisher_migration_evidence"); jdbc.update("DELETE FROM article_organization_audit"); jdbc.update("DELETE FROM article_publisher_organization_mapping");
   jdbc.update("DELETE FROM event_attachment_link WHERE target_type=8"); jdbc.update("DELETE FROM article"); jdbc.update("DELETE FROM article_category WHERE parent_id IS NOT NULL"); jdbc.update("DELETE FROM article_category WHERE scene_codes IS NULL OR JSON_LENGTH(scene_codes)=0"); jdbc.update("UPDATE article_category SET enabled=TRUE"); jdbc.update("DELETE FROM article_publisher");
   for(String table:List.of("comment","like_record","share_record","view_log")) jdbc.update("DELETE FROM "+table+" WHERE target_type=8");
-  jdbc.update("DELETE FROM media_upload_record WHERE target_type=8"); jdbc.update("DELETE FROM media_attachment WHERE object_key LIKE 'article-resource/%'");
+  jdbc.update("DELETE FROM media_upload_record WHERE target_type=8"); jdbc.update("DELETE FROM media_attachment WHERE object_key LIKE 'article/retained/%'");
   jdbc.update("INSERT INTO article_publisher VALUES(1,'官方发布主体',1,9,NOW(6))");
   if(jdbc.queryForObject("SELECT COUNT(*) FROM person_organization WHERE id='synthetic-article-org'",Integer.class)==0) {
    jdbc.update("INSERT IGNORE INTO user_profile(id,openid,status) VALUES(9,'article-owner-fixture',1)");
@@ -408,7 +408,7 @@ class ArticleDatabaseTest {
    .thenReturn(new ManagedArticleMediaInspector.Metadata("image/png",100,2,2,null));
   assertEquals(400,assertThrows(ContractProblemException.class,()->media.register("VIDEO","错误类型",url,9)).getStatus().value());
   var attachment=media.register("IMAGE","图片",url,9);
-  assertTrue(attachment.getVerified()); assertEquals("IMAGE",attachment.getKind()); assertTrue(attachment.getObjectKey().startsWith("article-resource/9/"));
+  assertTrue(attachment.getVerified()); assertEquals("IMAGE",attachment.getKind()); assertTrue(attachment.getObjectKey().startsWith("article/retained/9/"));
   assertEquals(attachment.getId(),jdbc.queryForObject("SELECT bound_attachment_id FROM media_upload_record WHERE object_key=? AND status=0",Long.class,attachment.getObjectKey()));
   assertEquals("CANDIDATE",attachment.getRetention());
   var draft=articles.create(command(null,attachment.getId(),"",null));
@@ -424,7 +424,7 @@ class ArticleDatabaseTest {
  @Test void videoRegistrationReservesAuditInSameTransactionAndRollsBackOnReservationFailure() {
   var cos=context.getBean(CosService.class); var media=context.getBean(ArticleMediaService.class);
   var videoSafety=context.getBean(cn.jualn.miniapp.module.audit.service.VideoSafetyChecks.class);
-  String source="article/9/video.mp4",url="https://cdn.example/"+source;
+  String source="article/upload/9/video.mp4",url="https://cdn.example/"+source;
   context.getBean(ArticleMediaWriter.class).pending(List.of(source),List.of(new ArticleUploadFileBO("视频.mp4","VIDEO","video/mp4",100)),9);
   when(cos.resolveManagedObjectKey(url)).thenReturn(source);
   when(context.getBean(ManagedArticleMediaInspector.class).inspect(anyString(),eq("VIDEO"),eq("video/mp4"),eq(100L)))
@@ -446,7 +446,7 @@ class ArticleDatabaseTest {
  }
  @Test void failedMediaRegistrationRollsBackBindingButKeepsDurableCleanupResponsibility() {
   var cos=context.getBean(CosService.class); var media=context.getBean(ArticleMediaService.class);
-  String source="article/9/failed.png"; String url="https://cdn.example/"+source;
+  String source="article/upload/9/failed.png"; String url="https://cdn.example/"+source;
   context.getBean(ArticleMediaWriter.class).pending(List.of(source),List.of(new ArticleUploadFileBO("图片.png","IMAGE","image/png",100)),9);
   when(cos.resolveManagedObjectKey(url)).thenReturn(source);
   when(context.getBean(ManagedArticleMediaInspector.class).inspect(anyString(),eq("IMAGE"),eq("image/png"),eq(100L)))
@@ -454,7 +454,7 @@ class ArticleDatabaseTest {
   jdbc.execute("CREATE TRIGGER article_test_fail_media BEFORE INSERT ON media_attachment FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='synthetic media insert failure'");
   try { assertThrows(RuntimeException.class,()->media.register("IMAGE","图片",url,9)); }
   finally { jdbc.execute("DROP TRIGGER article_test_fail_media"); }
-  assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM media_attachment WHERE object_key LIKE 'article-resource/%'",Integer.class));
+  assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM media_attachment WHERE object_key LIKE 'article/retained/%'",Integer.class));
   assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM media_upload_record WHERE target_type=8 AND status=0 AND bound_attachment_id IS NULL",Integer.class));
  }
  @Test void categoryLimitDailyDedupAndCursorIdentityBindingAreEnforced() {
@@ -481,8 +481,8 @@ class ArticleDatabaseTest {
   fixtures.add(Map.of("schema",schema,"status",response.getStatus(),"body",context.getBean(ObjectMapper.class).readTree(response.getContentAsByteArray())));
  }
  long verifiedImage() {
-  jdbc.update("INSERT INTO media_attachment(type,kind,registered,registered_by,object_key,url,original_name,sort_order,content_type,size_bytes,width,height,verified) VALUES(1,'IMAGE',1,9,'article-resource/test/image','https://cdn.example/image','图片',0,'image/png',100,20,20,1)");
-  return jdbc.queryForObject("SELECT id FROM media_attachment WHERE object_key='article-resource/test/image'",Long.class);
+  jdbc.update("INSERT INTO media_attachment(type,kind,registered,registered_by,object_key,url,original_name,sort_order,content_type,size_bytes,width,height,verified) VALUES(1,'IMAGE',1,9,'article/retained/test/image','https://cdn.example/image','图片',0,'image/png',100,20,20,1)");
+  return jdbc.queryForObject("SELECT id FROM media_attachment WHERE object_key='article/retained/test/image'",Long.class);
  }
  @Configuration @EnableTransactionManagement
  @Import({cn.jualn.miniapp.module.admin.operation.AdminAuditTestConfiguration.class,ArticleServiceImpl.class,ArticleWriter.class,ArticleBodyCodec.class,ArticleMediaService.class,ArticleMediaWriter.class,

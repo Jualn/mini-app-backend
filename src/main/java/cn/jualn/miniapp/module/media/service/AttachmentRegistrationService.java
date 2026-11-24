@@ -87,7 +87,7 @@ public class AttachmentRegistrationService {
   if(upload!=null && upload.getBoundAttachmentId()!=null) return () -> duplicate(upload.getBoundAttachmentId(),kind,name.trim());
   // Eligibility checked again under the upload lock at commit.
   if(upload==null || upload.getStatus()!=0 || upload.getCleanupStartedAt()!=null || !upload.getCleanupAfter().isAfter(now())) throw gone("attachment-candidate-expired");
-  String snapshot="attachment-resource/"+actor+"/"+UUID.randomUUID();
+  String snapshot=MediaObjectKeys.retainedPrefix(TargetType.fromCode(upload.getTargetType()),actor)+UUID.randomUUID();
   lifecycle.recordPending(actor,TargetType.fromCode(upload.getTargetType()),List.of(snapshot),upload.getCleanupAfter());
   cos.copyObject(source,snapshot);
   var metadata=inspector.inspect(snapshot,kind);

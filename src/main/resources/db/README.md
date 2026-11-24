@@ -40,7 +40,7 @@ V82 增加 Post 的独立 question_version 与永久 question_content_locked，�
 
 这是 QA writer 的 breaking 切换：迁移前备份并停止受影响旧 writer/审核 worker；部署后读取方须适配归属、当前认证、两种权限和 thread，正式回答 writer 必须发送所读 questionVersion。不得混跑缺少资格/版本复核的旧 JAR。回退保留证据与内容保护列，不能删除历史或改成 NORMAL 绕过。迁移成功不证明目标已部署或客户端已验收；实际业务库仍须单独获准执行。
 
-社区媒体受控读取复用既有 media_upload_record 的文件ID、核验事实与绑定状态，不新增DDL或改已应用迁移。private/ 命名空间路由到共享私有桶；读取方切换和历史对象核验须独立执行，不能从新Provider推断旧COS副本失效。历史核查入口为 [只读preflight](validation/community_media_preflight.sql)，发布步骤见 [runbook §14.4](../../../../docs/operations/runbook.md#144-社区媒体私有读取切换)。
+社区媒体受控读取复用既有 media_upload_record 的文件ID、核验事实与绑定状态，不新增DDL或改已应用迁移。对象键统一为 `post|comment/upload/...` 与 `post|comment/retained/...`，并路由到共享私有桶；读取方切换和实际对象核验须独立执行，不能从新Provider推断旧COS副本失效。引用与不支持键的只读核查入口为 [preflight](validation/community_media_preflight.sql)，发布核对见 [runbook §14.4](../../../../docs/operations/runbook.md#144-社区媒体私有读取切换)。
 
 ## Article 统一内容 V83
 

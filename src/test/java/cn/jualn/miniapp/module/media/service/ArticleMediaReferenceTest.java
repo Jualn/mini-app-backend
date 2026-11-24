@@ -20,7 +20,7 @@ class ArticleMediaReferenceTest {
                 mock(CosService.class), mock(MediaUploadRecordService.class), mock(ArticleMediaWriter.class),
                 mock(ManagedArticleMediaInspector.class), mock(ArticleAuthorization.class));
         var video = MediaAttachment.builder().id(1L).registered(true).verified(true).kind("VIDEO")
-                .objectKey("article-resource/9/video").contentType("video/mp4").sizeBytes(12L).build();
+                .objectKey("article/retained/9/video").contentType("video/mp4").sizeBytes(12L).build();
         when(mapper.selectBatchIds(anyCollection())).thenReturn(List.of(video));
         when(converter.toBOList(anyList())).thenReturn(List.of(MediaAttachmentBO.builder().id(1L).build()));
         assertEquals(1, service.requireAttachments(Map.of(1L, "VIDEO")).size());

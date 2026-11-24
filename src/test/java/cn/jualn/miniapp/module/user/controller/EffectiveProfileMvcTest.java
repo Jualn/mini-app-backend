@@ -70,12 +70,12 @@ class EffectiveProfileMvcTest {
     @Test void backgroundReferenceBindsAndFinalResponseContainsBackground() throws Exception {
         when(service.updateEffectiveProfile(any())).thenAnswer(call -> {
             cn.jualn.miniapp.module.user.bo.UserProfileUpdateBO command = call.getArgument(0);
-            org.junit.jupiter.api.Assertions.assertEquals("user/7/background", command.getBackgroundObjectKey());
+            org.junit.jupiter.api.Assertions.assertEquals("user/upload/7/background", command.getBackgroundObjectKey());
             return EffectiveProfileBO.builder().userId(7L).nickname("同学").bio("")
                     .backgroundUrl("https://example.com/effective-background").build();
         });
         mvc.perform(post("/v1/users/me/profile").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"backgroundObjectKey\":\"user/7/background\"}"))
+                        .content("{\"backgroundObjectKey\":\"user/upload/7/background\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.backgroundUrl").value("https://example.com/effective-background"));
     }
     @Test void nullBackgroundAndDirectBackgroundUrlAreRejected() throws Exception {

@@ -1,8 +1,12 @@
 package cn.jualn.miniapp.module.media.service.impl;
 
-import cn.jualn.miniapp.module.media.bo.ProfileMediaSnapshotBO;
+import cn.jualn.miniapp.common.exception.ContractProblemException;
+import cn.jualn.miniapp.common.security.AdminStpUtil;
+import cn.jualn.miniapp.module.authorization.service.CurrentAuthorization;
+import cn.jualn.miniapp.module.media.bo.*;
+import cn.jualn.miniapp.module.media.service.*;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataIntegrityViolationException;
-
 import cn.jualn.miniapp.common.constant.UserContext;
 import cn.jualn.miniapp.module.media.enums.MediaType;
 import cn.jualn.miniapp.common.enums.TargetType;
@@ -10,21 +14,16 @@ import cn.jualn.miniapp.common.exception.BusinessException;
 import cn.jualn.miniapp.common.exception.SystemException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.module.subject.service.SubjectExistenceService;
-import cn.jualn.miniapp.module.media.bo.AttachmentItemBO;
-import cn.jualn.miniapp.module.media.bo.AttachmentLinkBO;
 import cn.jualn.miniapp.module.media.converter.MediaConverter;
-import cn.jualn.miniapp.module.media.bo.MediaAttachmentBO;
-import cn.jualn.miniapp.module.media.bo.MediaAttachmentSaveBO;
 import cn.jualn.miniapp.module.media.entity.MediaAttachment;
 import cn.jualn.miniapp.module.media.mapper.MediaAttachmentMapper;
-import cn.jualn.miniapp.module.media.service.MediaService;
-import cn.jualn.miniapp.module.media.service.MediaUploadRecordService;
 import cn.jualn.miniapp.third.cos.dto.CosUploadCredentialDTO;
 import cn.jualn.miniapp.third.cos.service.CosService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.CollectionUtils;
@@ -33,32 +32,35 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.*;
 
-/** Media preparation, binding and durable deletion intent. Read facts and access policy are separate. */
+/**
+ * Media preparation, binding and durable deletion intent. Read facts and access policy are separate.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class MediaServiceImpl implements MediaService {
-    private static final Set<TargetType> MEDIA_SUPPORTED_TYPES = Set.of(TargetType.OFFICIAL_CONTENT,TargetType.POST,TargetType.ACTIVITY,TargetType.EXAM,TargetType.COMMENT,TargetType.USER);
-    private final cn.jualn.miniapp.module.authorization.service.CurrentAuthorization authorization;
+    private static final Set<TargetType> MEDIA_SUPPORTED_TYPES = Set.of(TargetType.OFFICIAL_CONTENT, TargetType.POST, TargetType.ACTIVITY, TargetType.EXAM, TargetType.COMMENT, TargetType.USER);
+    private final CurrentAuthorization authorization;
     private final MediaConverter mediaConverter;
     private final MediaAttachmentMapper mediaAttachmentMapper;
     private final SubjectExistenceService targetValidator;
     private final CosService cosService;
-    @org.springframework.beans.factory.annotation.Autowired private cn.jualn.miniapp.module.media.service.GrowthMediaService growth;
-    @org.springframework.beans.factory.annotation.Autowired
-    private org.springframework.beans.factory.ObjectProvider<cn.jualn.miniapp.module.media.service.MediaDeliveryUrls> deliveryUrls;
-    private String deliveryUrl(String key) {return key.startsWith("private/")?deliveryUrls.getObject().forKey(key):cosService.buildPublicUrl(key);}
-
+    private final GrowthMediaService growth;
+    private final ObjectProvider<MediaDeliveryUrls> deliveryUrls;
     private final MediaUploadRecordService uploadRecordService;
-    private final cn.jualn.miniapp.module.media.service.ArticleMediaService articleMediaService;
+    private final ArticleMediaService articleMediaService;
 
-    @Override
-    public CosUploadCredentialDTO generateArticleUploadCredential(List<cn.jualn.miniapp.module.media.bo.ArticleUploadFileBO> files, long operatorId) {
-        return articleMediaService.upload(files,operatorId);
+    private String deliveryUrl(String key) {
+        return MediaObjectKeys.isCommunityRetained(key) ? deliveryUrls.getObject().forKey(key) : cosService.buildPublicUrl(key);
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class,isolation=org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    public CosUploadCredentialDTO generateArticleUploadCredential(List<ArticleUploadFileBO> files, long operatorId) {
+        return articleMediaService.upload(files, operatorId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public void replaceAttachments(MediaAttachmentSaveBO saveDTO) {
         Long userId = UserContext.getUserId();
         Long targetId = saveDTO.getTargetId();
@@ -105,7 +107,8 @@ public class MediaServiceImpl implements MediaService {
         for (MediaAttachment incoming : mediaAttachments) {
             String identity = incoming.getType() + ":" + (StringUtils.hasText(incoming.getObjectKey())
                     ? incoming.getObjectKey() : incoming.getUrl());
-            if (!identities.add(identity)) throw new BusinessException(ResultCode.INVALID_OPERATION, "同一附件不能重复添加");
+            if (!identities.add(identity))
+                throw new BusinessException(ResultCode.INVALID_OPERATION, "同一附件不能重复添加");
             MediaAttachment existing = existingAttachments.stream()
                     .filter(old -> Objects.equals(old.getType(), incoming.getType()))
                     .filter(old -> StringUtils.hasText(incoming.getObjectKey())
@@ -147,14 +150,14 @@ public class MediaServiceImpl implements MediaService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class, isolation=org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public MediaAttachmentBO registerAttachment(String kind, String name, String url, Long operatorId) {
-        throw cn.jualn.miniapp.common.exception.ContractProblemException.validation(
-            new cn.jualn.miniapp.common.exception.ContractProblemException.Violation("header","Idempotency-Key","REQUIRED","Use the idempotent attachment registration operation"));
+        throw ContractProblemException.validation(
+                new ContractProblemException.Violation("header", "Idempotency-Key", "REQUIRED", "Use the idempotent attachment registration operation"));
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class, isolation=org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public void replaceAttachmentLinks(TargetType targetType, Long targetId, List<AttachmentLinkBO> links) {
         requireTargetId(targetId);
         if (targetType != TargetType.ACTIVITY && targetType != TargetType.EXAM && targetType != TargetType.OFFICIAL_CONTENT && targetType != TargetType.ARTICLE) {
@@ -171,14 +174,15 @@ public class MediaServiceImpl implements MediaService {
             }
         }
         Map<Long, MediaAttachmentBO> attachments = new HashMap<>();
-        if(!ids.isEmpty()) mediaConverter.toBOList(mediaAttachmentMapper.selectBatchIds(ids)).forEach(a -> attachments.put(a.getId(),a));
+        if (!ids.isEmpty())
+            mediaConverter.toBOList(mediaAttachmentMapper.selectBatchIds(ids)).forEach(a -> attachments.put(a.getId(), a));
         if (attachments.size() != ids.size()) throw new BusinessException(ResultCode.MEDIA_ATTACHMENT_NOT_FOUND);
         if (targetType != TargetType.ARTICLE && attachments.values().stream().anyMatch(a -> "VIDEO".equals(a.getKind()))) {
             throw new BusinessException(ResultCode.MEDIA_TARGET_TYPE_UNSUPPORTED);
         }
         var existingIds = mediaAttachmentMapper.selectLinked(targetType.getCode(), targetId).stream()
                 .map(MediaAttachment::getId).collect(java.util.stream.Collectors.toSet());
-        long actor = cn.jualn.miniapp.common.security.AdminStpUtil.STP_LOGIC.getLoginIdAsLong();
+        long actor = AdminStpUtil.STP_LOGIC.getLoginIdAsLong();
         for (Long id : ids.stream().sorted().toList()) {
             MediaAttachment entity = mediaAttachmentMapper.lock(id);
             if (entity == null || !Boolean.TRUE.equals(entity.getRegistered()) || Boolean.TRUE.equals(entity.getDeleted()))
@@ -187,19 +191,19 @@ public class MediaServiceImpl implements MediaService {
                 throw new BusinessException(ResultCode.FORBIDDEN, "Only the uploader can add a new attachment reference");
             if ("CANDIDATE".equals(entity.getRetention())) {
                 if (!entity.getExpiresAt().isAfter(LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))))
-                    throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict("attachment-candidate-expired", "Candidate expired");
+                    throw ContractProblemException.conflict("attachment-candidate-expired", "Candidate expired");
                 if (!Boolean.TRUE.equals(entity.getVerified()))
-                    throw cn.jualn.miniapp.common.exception.ContractProblemException.conflict("attachment-not-ready", "Candidate has not passed technical verification");
+                    throw ContractProblemException.conflict("attachment-not-ready", "Candidate has not passed technical verification");
                 uploadRecordService.retainCandidate(entity);
                 if (mediaAttachmentMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<MediaAttachment>()
-                        .set(MediaAttachment::getRetention,"FORMAL").set(MediaAttachment::getExpiresAt,null)
-                        .eq(MediaAttachment::getId,id).eq(MediaAttachment::getRetention,"CANDIDATE")) != 1)
+                        .set(MediaAttachment::getRetention, "FORMAL").set(MediaAttachment::getExpiresAt, null)
+                        .eq(MediaAttachment::getId, id).eq(MediaAttachment::getRetention, "CANDIDATE")) != 1)
                     throw new IllegalStateException("Candidate adoption failed");
             }
         }
         mediaAttachmentMapper.deleteLinks(targetType.getCode(), targetId);
         values.stream().sorted(Comparator.comparingInt(AttachmentLinkBO::displayOrder)
-                .thenComparing(AttachmentLinkBO::attachmentId))
+                        .thenComparing(AttachmentLinkBO::attachmentId))
                 .forEach(link -> mediaAttachmentMapper.insertLink(targetType.getCode(), targetId,
                         link.attachmentId(), link.displayOrder()));
     }
@@ -218,7 +222,7 @@ public class MediaServiceImpl implements MediaService {
         if (targetType != TargetType.ACTIVITY && targetType != TargetType.EXAM && targetType != TargetType.OFFICIAL_CONTENT) {
             throw new BusinessException(ResultCode.MEDIA_TARGET_TYPE_UNSUPPORTED);
         }
-        authorization.require(operatorId,targetType==TargetType.ACTIVITY?"activity:edit":targetType==TargetType.EXAM?"public-event:edit":"content:manage",cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.namespace(targetType),"media:write");
+        authorization.require(operatorId, targetType == TargetType.ACTIVITY ? "activity:edit" : targetType == TargetType.EXAM ? "public-event:edit" : "content:manage", cn.jualn.miniapp.module.authorization.service.CurrentAuthorization.namespace(targetType), "media:write");
         return generateCredential(targetType, fileNames, operatorId);
     }
 
@@ -252,28 +256,29 @@ public class MediaServiceImpl implements MediaService {
             throw new BusinessException(ResultCode.INVALID_OPERATION, "objectKey 不能为空");
         }
         String normalizedKey = objectKey.trim();
-        if((targetType==TargetType.POST || targetType==TargetType.COMMENT) && !normalizedKey.startsWith("private/"))throw new BusinessException(ResultCode.INVALID_OPERATION,"Community images require a private verified snapshot");
-        String expectedPrefix = targetCategory(targetType) + "/" + userId + "/";
-        if ((!normalizedKey.startsWith(expectedPrefix) && !uploadRecordService.isVerified(userId,targetType,normalizedKey)) || normalizedKey.contains("..")) {
+        if ((targetType == TargetType.POST || targetType == TargetType.COMMENT) && !normalizedKey.startsWith(MediaObjectKeys.retainedPrefix(targetType, userId)))
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "Community images require a private verified snapshot");
+        String expectedPrefix = MediaObjectKeys.uploadPrefix(targetType, userId);
+        if ((!normalizedKey.startsWith(expectedPrefix) && !uploadRecordService.isVerified(userId, targetType, normalizedKey)) || normalizedKey.contains("..")) {
             throw new BusinessException(ResultCode.INVALID_OPERATION, "objectKey 不属于当前用户或业务类型");
         }
         return deliveryUrl(normalizedKey);
     }
 
     @Override
-    public List<AttachmentItemBO> prepareNewAttachments(TargetType type,List<AttachmentItemBO> items) {
-        return normalizeAttachments(type,requireUserId(),items==null?List.of():items,List.of());
+    public List<AttachmentItemBO> prepareNewAttachments(TargetType type, List<AttachmentItemBO> items) {
+        return normalizeAttachments(type, requireUserId(), items == null ? List.of() : items, List.of());
     }
 
     @Override
-    public String prepareOwnedImage(TargetType type,String key) {
-        return uploadRecordService.prepareVerified(requireUserId(),type,key,"IMAGE");
+    public String prepareOwnedImage(TargetType type, String key) {
+        return uploadRecordService.prepareVerified(requireUserId(), type, key, "IMAGE");
     }
 
     @Override
     public ProfileMediaSnapshotBO prepareProfileSnapshot(String objectKey) {
-        String snapshotKey=prepareOwnedImage(TargetType.USER,objectKey);
-        return new ProfileMediaSnapshotBO(snapshotKey,cosService.buildPublicUrl(snapshotKey));
+        String snapshotKey = prepareOwnedImage(TargetType.USER, objectKey);
+        return new ProfileMediaSnapshotBO(snapshotKey, cosService.buildPublicUrl(snapshotKey));
     }
 
     @Override
@@ -309,34 +314,22 @@ public class MediaServiceImpl implements MediaService {
 
     private String buildObjectKey(TargetType type, Long userId, String fileName) {
         String safeName = sanitizeFileName(fileName);
-        String category = targetCategory(type);
         String nonce = UUID.randomUUID().toString().replace("-", "");
-        return ((type==TargetType.POST || type==TargetType.COMMENT)?"private/":"") + category + "/" + userId + "/" + System.currentTimeMillis() + "_" + nonce + "_" + safeName;
-    }
-
-    private String targetCategory(TargetType type) {
-        return switch (type) {
-            case POST -> "post";
-            case ACTIVITY -> "activity";
-            case EXAM -> "exam";
-            case COMMENT -> "comment";
-            case USER -> "user";
-            case OFFICIAL_CONTENT -> "official-content";
-            default -> throw new BusinessException(ResultCode.MEDIA_TARGET_TYPE_UNSUPPORTED);
-        };
+        return MediaObjectKeys.uploadPrefix(type, userId) + System.currentTimeMillis() + "_" + nonce + "_" + safeName;
     }
 
     @Override
     public List<AttachmentItemBO> prepareAttachments(TargetType type, Long id, List<AttachmentItemBO> items) {
-        requireTargetId(id); assertTargetTypeAllowed(type);
-        var existing=mediaAttachmentMapper.selectList(new LambdaQueryWrapper<MediaAttachment>()
-                .eq(MediaAttachment::getTargetType,type.getCode()).eq(MediaAttachment::getTargetId,id));
-        if(items==null || items.stream().anyMatch(item->item==null || item.getUrl()==null || item.getUrl().isBlank()
-                || item.getUrl().length()>512 || (item.getObjectKey()!=null && item.getObjectKey().length()>512)
-                || (item.getOriginalName()!=null && item.getOriginalName().length()>255)
-                || (item.getSortOrder()!=null && (item.getSortOrder()<0 || item.getSortOrder()>127))))
-            throw new BusinessException(ResultCode.INVALID_OPERATION,"Invalid attachment declaration");
-        return normalizeAttachments(type,requireUserId(),items,existing);
+        requireTargetId(id);
+        assertTargetTypeAllowed(type);
+        var existing = mediaAttachmentMapper.selectList(new LambdaQueryWrapper<MediaAttachment>()
+                .eq(MediaAttachment::getTargetType, type.getCode()).eq(MediaAttachment::getTargetId, id));
+        if (items == null || items.stream().anyMatch(item -> item == null || item.getUrl() == null || item.getUrl().isBlank()
+                || item.getUrl().length() > 512 || (item.getObjectKey() != null && item.getObjectKey().length() > 512)
+                || (item.getOriginalName() != null && item.getOriginalName().length() > 255)
+                || (item.getSortOrder() != null && (item.getSortOrder() < 0 || item.getSortOrder() > 127))))
+            throw new BusinessException(ResultCode.INVALID_OPERATION, "Invalid attachment declaration");
+        return normalizeAttachments(type, requireUserId(), items, existing);
     }
 
     private List<AttachmentItemBO> normalizeAttachments(
@@ -344,7 +337,7 @@ public class MediaServiceImpl implements MediaService {
             Long userId,
             List<AttachmentItemBO> attachments,
             List<MediaAttachment> existingAttachments) {
-        String expectedPrefix = userId == null ? null : targetCategory(targetType) + "/" + userId + "/";
+        String expectedPrefix = userId == null ? null : MediaObjectKeys.uploadPrefix(targetType, userId);
         List<AttachmentItemBO> normalized = new ArrayList<>(attachments.size());
         for (AttachmentItemBO item : attachments) {
             if (item == null || item.getType() == null) {
@@ -385,24 +378,31 @@ public class MediaServiceImpl implements MediaService {
                 normalized.add(item);
                 continue;
             }
-            if(growth.reserved(objectKey)) throw new BusinessException(ResultCode.INVALID_OPERATION,"Growth media cannot be referenced as ordinary attachments");
+            if (growth.reserved(objectKey))
+                throw new BusinessException(ResultCode.INVALID_OPERATION, "Growth media cannot be referenced as ordinary attachments");
             final String originalKey = objectKey;
             String validatedObjectKey = objectKey;
             boolean alreadyAttachedToTarget = existingAttachments.stream()
                     .anyMatch(existing -> Objects.equals(existing.getObjectKey(), originalKey));
-            boolean ownedNewUpload = (expectedPrefix != null && (validatedObjectKey.startsWith(expectedPrefix) || validatedObjectKey.startsWith("private/"+expectedPrefix))) || uploadRecordService.isVerified(userId,targetType,validatedObjectKey);
+            boolean ownedNewUpload = (expectedPrefix != null && validatedObjectKey.startsWith(expectedPrefix)) || uploadRecordService.isVerified(userId, targetType, validatedObjectKey);
             if ((!alreadyAttachedToTarget && !ownedNewUpload) || validatedObjectKey.contains("..")) {
                 throw new BusinessException(ResultCode.INVALID_OPERATION, "objectKey 不属于当前用户或业务类型");
             }
 
-            boolean needsPrivateSnapshot=(targetType==TargetType.POST || targetType==TargetType.COMMENT) && !validatedObjectKey.startsWith("private/");
-            if (!alreadyAttachedToTarget && (needsPrivateSnapshot || !uploadRecordService.isVerified(userId,targetType,validatedObjectKey))) {
-                if(TransactionSynchronizationManager.isActualTransactionActive())
-                    throw new BusinessException(ResultCode.INVALID_OPERATION,"Media must be verified before saving");
-                validatedObjectKey=uploadRecordService.prepareVerified(userId,targetType,validatedObjectKey,
-                    switch(item.getType()) {case IMAGE->"IMAGE";case PDF->"PDF";case WORD->"WORD";default->"LINK";});
+            boolean needsPrivateSnapshot = (targetType == TargetType.POST || targetType == TargetType.COMMENT) && !validatedObjectKey.startsWith(MediaObjectKeys.retainedPrefix(targetType, userId));
+            if (!alreadyAttachedToTarget && (needsPrivateSnapshot || !uploadRecordService.isVerified(userId, targetType, validatedObjectKey))) {
+                if (TransactionSynchronizationManager.isActualTransactionActive())
+                    throw new BusinessException(ResultCode.INVALID_OPERATION, "Media must be verified before saving");
+                validatedObjectKey = uploadRecordService.prepareVerified(userId, targetType, validatedObjectKey,
+                        switch (item.getType()) {
+                            case IMAGE -> "IMAGE";
+                            case PDF -> "PDF";
+                            case WORD -> "WORD";
+                            default -> "LINK";
+                        });
             }
-            if(!alreadyAttachedToTarget) uploadRecordService.requireVerifiedKind(userId,targetType,validatedObjectKey,item.getType());
+            if (!alreadyAttachedToTarget)
+                uploadRecordService.requireVerifiedKind(userId, targetType, validatedObjectKey, item.getType());
             normalized.add(AttachmentItemBO.builder()
                     .type(item.getType())
                     .objectKey(validatedObjectKey)

@@ -29,7 +29,7 @@ public class MediaContentService {
     @org.springframework.transaction.annotation.Transactional(readOnly=true,isolation=org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public cn.jualn.miniapp.module.media.bo.MediaContentBO require(long id,Long actor,boolean admin) {
         var file=records.selectById(id);
-        if(file==null || file.getObjectKey()==null || !file.getObjectKey().startsWith("private/") || !"VERIFIED".equals(file.getDeclaredKind())
+        if(file==null || file.getObjectKey()==null || !MediaObjectKeys.isCommunityRetained(file.getObjectKey()) || !"VERIFIED".equals(file.getDeclaredKind())
                 || file.getCleanupStartedAt()!=null || file.getDeclaredSizeBytes()==null || file.getDeclaredSizeBytes()<=0
                 || file.getDeclaredSizeBytes()>10485760 || file.getDeclaredContentType()==null
                 || !List.of("image/jpeg","image/png","image/webp","image/gif").contains(file.getDeclaredContentType()))throw missing();

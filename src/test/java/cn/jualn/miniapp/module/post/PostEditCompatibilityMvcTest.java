@@ -161,7 +161,8 @@ class PostEditCompatibilityMvcTest {
             var users = mock(cn.jualn.miniapp.module.user.service.UserAccountService.class);
             var admin = mock(cn.jualn.miniapp.module.admin.auth.service.AdminTokenService.class);
             var registry = new org.springframework.web.servlet.config.annotation.InterceptorRegistry();
-            new cn.jualn.miniapp.config.WebMvcConfig(new cn.jualn.miniapp.web.ContextInterceptor(admin), admin, users)
+            new cn.jualn.miniapp.config.WebMvcConfig(new cn.jualn.miniapp.web.ContextInterceptor(admin), admin, users,
+                    org.mockito.Mockito.mock(cn.jualn.miniapp.module.home.service.HomeSummaryAccess.class))
                     .addInterceptors(registry);
             List<org.springframework.web.servlet.HandlerInterceptor> interceptors =
                     org.springframework.test.util.ReflectionTestUtils.invokeMethod(registry, "getInterceptors");

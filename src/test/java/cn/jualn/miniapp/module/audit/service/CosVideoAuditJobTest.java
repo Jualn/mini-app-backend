@@ -21,7 +21,7 @@ class CosVideoAuditJobTest {
     final CosVideoAuditJobHandler handler=new CosVideoAuditJobHandler(writer,client,policy);
     MediaVideoAudit row(String state) {
         var row=new MediaVideoAudit(); row.setId(1L); row.setState(state); row.setBucket("bucket"); row.setRegion("region");
-        row.setObjectKey("article-resource/9/video"); row.setBizType("strategy"); row.setSnapshotIntervalSeconds(1); row.setProviderJobId("v1"); return row;
+        row.setObjectKey("article/retained/9/video"); row.setBizType("strategy"); row.setSnapshotIntervalSeconds(1); row.setProviderJobId("v1"); return row;
     }
     @Test void unknownSubmissionIsNotRetriedOrConvertedToApproval() {
         policy.setEnabled(true); when(writer.begin(payload,context)).thenReturn(row("SUBMITTING"));
@@ -33,7 +33,7 @@ class CosVideoAuditJobTest {
     }
     @Test void submissionSuccessOnlySchedulesAuthenticatedReadAndQueryFailuresCanRetry() {
         policy.setEnabled(true); when(writer.begin(payload,context)).thenReturn(row("SUBMITTING"));
-        var result=new CosVideoAuditResult("v1","article-video-audit:1","article-resource/9/video","Success",CosVideoAuditResult.Decision.PASS);
+        var result=new CosVideoAuditResult("v1","article-video-audit:1","article/retained/9/video","Success",CosVideoAuditResult.Decision.PASS);
         when(client.submit(anyString(),anyString(),anyString(),anyString(),anyString(),anyInt())).thenReturn(result);
         handler.handle(payload,context); verify(writer).submitted(payload,"v1",30,context); verify(writer,never()).observed(any(),any(),anyInt(),any());
         when(writer.begin(payload,context)).thenReturn(row("RUNNING")); when(client.query(anyString(),anyString(),anyString())).thenThrow(new ExternalServiceException(ResultCode.EXTERNAL_SERVICE_ERROR,"cos","read failed"));

@@ -14,16 +14,16 @@ class LearningTaskSubmitterSummaryTest {
     @Test void readsFixedSubmitterAndConvertsBusinessTimeToBindingUtc() {
         var names=mock(SubmissionNameReader.class);when(names.name("original-person","original-binding",99,submitted.minusHours(8))).thenReturn("Approved Name");
         var summary=new LearningTaskSubmitterSummaryReader(names).read(submission(Subject.person("original-person")));
-        assertEquals("AVAILABLE",summary.availability());assertEquals("Approved Name",summary.displayName());
+        assertEquals("AVAILABLE",summary.status());assertEquals("Approved Name",summary.displayName());
         verify(names).name("original-person","original-binding",99,submitted.minusHours(8));
     }
     @Test void accountDoesNotAcquireIdentityFromItsCurrentBindingOrNickname() {
         var names=mock(SubmissionNameReader.class);var summary=new LearningTaskSubmitterSummaryReader(names).read(submission(Subject.account(99)));
-        assertEquals("UNAVAILABLE",summary.availability());assertNull(summary.displayName());verifyNoInteractions(names);
+        assertEquals("UNAVAILABLE",summary.status());assertNull(summary.displayName());verifyNoInteractions(names);
     }
     @Test void failedLocalNameSourceDoesNotBlockAuthorizedSubmissionRead() {
         var mapper=mock(ManagedPersonMapper.class);when(mapper.binding("original-binding")).thenThrow(new org.springframework.dao.DataAccessResourceFailureException("source down"));
         var summary=new LearningTaskSubmitterSummaryReader(new SubmissionNameReader(mapper)).read(submission(Subject.person("original-person")));
-        assertEquals("UNAVAILABLE",summary.availability());assertNull(summary.displayName());
+        assertEquals("UNAVAILABLE",summary.status());assertNull(summary.displayName());
     }
 }

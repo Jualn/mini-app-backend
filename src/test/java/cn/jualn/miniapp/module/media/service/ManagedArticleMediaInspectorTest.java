@@ -42,20 +42,20 @@ class ManagedArticleMediaInspectorTest {
  @Test void rejectsMismatchedRealSizeAndInvalidVideoHeader() throws Exception {
   var cos=mock(CosService.class); var inspector=new ManagedArticleMediaInspector(cos,new ObjectMapper());
   doAnswer(i->{Files.writeString(i.getArgument(1),"bytes"); return null;}).when(cos).downloadObject(anyString(),any(Path.class),anyLong());
-  assertEquals(400,assertThrows(ContractProblemException.class,()->inspector.inspect("article-resource/9/a","IMAGE","image/png",999)).getStatus().value());
-  assertEquals(400,assertThrows(ContractProblemException.class,()->inspector.inspect("article-resource/9/b","VIDEO","video/mp4",5)).getStatus().value());
+  assertEquals(400,assertThrows(ContractProblemException.class,()->inspector.inspect("article/retained/9/a","IMAGE","image/png",999)).getStatus().value());
+  assertEquals(400,assertThrows(ContractProblemException.class,()->inspector.inspect("article/retained/9/b","VIDEO","video/mp4",5)).getStatus().value());
  }
  @Test void disabledDeepInspectionAcceptsMp4HeaderWithoutInventingPlaybackMetadata() throws Exception {
   var cos=mock(CosService.class); var inspector=new ManagedArticleMediaInspector(cos,new ObjectMapper());
   byte[] header={0,0,0,24,'f','t','y','p','i','s','o','m'};
   doAnswer(i->{Files.write(i.getArgument(1),header); return null;}).when(cos).downloadObject(anyString(),any(Path.class),anyLong());
-  var metadata=inspector.inspect("article-resource/9/b","VIDEO","video/mp4",header.length);
+  var metadata=inspector.inspect("article/retained/9/b","VIDEO","video/mp4",header.length);
   assertEquals("video/mp4",metadata.contentType()); assertNull(metadata.width()); assertNull(metadata.height()); assertNull(metadata.durationSeconds());
   var attachment=cn.jualn.miniapp.module.media.bo.MediaAttachmentBO.builder().id(1L).kind("VIDEO")
     .contentType(metadata.contentType()).url("https://media.example/video").build();
   var json=new ObjectMapper().valueToTree(new cn.jualn.miniapp.module.media.converter.AttachmentConverter().toVO(attachment));
   assertEquals(1,json.path("playback").size()); assertEquals("video/mp4",json.path("playback").path("contentType").asText());
   org.springframework.test.util.ReflectionTestUtils.setField(inspector,"ffprobePath",Path.of("target/nonexistent-ffprobe").toAbsolutePath().toString());
-  assertEquals(503,assertThrows(ContractProblemException.class,()->inspector.inspect("article-resource/9/b","VIDEO","video/mp4",header.length)).getStatus().value());
+  assertEquals(503,assertThrows(ContractProblemException.class,()->inspector.inspect("article/retained/9/b","VIDEO","video/mp4",header.length)).getStatus().value());
  }
 }

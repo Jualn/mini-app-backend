@@ -1,5 +1,6 @@
 package cn.jualn.miniapp.module.person.service.access;
 
+import cn.jualn.miniapp.common.exception.ContractProblemException;
 import cn.jualn.miniapp.module.person.entity.ManagedPersonRows;
 import cn.jualn.miniapp.module.person.entity.PersonRows;
 import cn.jualn.miniapp.module.person.mapper.ManagedPersonMapper;
@@ -12,6 +13,7 @@ import cn.jualn.miniapp.module.person.mapper.PersonMapper;
 import cn.jualn.miniapp.module.person.service.support.PersonnelValues;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -215,6 +217,20 @@ public class PersonBusinessScopes {
         if (!"ACTIVE".equals(h.getIdentityStatus()) || h.getIdentityValidFrom().isAfter(at) || (h.getIdentityValidUntil() != null && !h.getIdentityValidUntil().isAfter(at)))
             return null;
         return h.getStageId();
+    }
+
+    /**
+     * Optional display only; unknown stage evidence does not reject the caller's transaction.
+     * Stage filters and eligibility checks must use the strict developmentStage operation.
+     */
+    public String developmentStageForDisplay(String person, LocalDateTime at) {
+        try {
+            return developmentStage(person, at);
+        } catch (ContractProblemException failure) {
+            if (failure.getStatus() != HttpStatus.SERVICE_UNAVAILABLE)
+                throw failure;
+            return null;
+        }
     }
 
     public record OrganizationFact(String organizationId, String name, String status) {

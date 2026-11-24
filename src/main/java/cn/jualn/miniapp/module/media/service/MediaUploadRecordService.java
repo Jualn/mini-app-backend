@@ -103,8 +103,8 @@ public class MediaUploadRecordService {
         if(row==null || !source.equals(row.getObjectKey()) || !java.util.Objects.equals(row.getUserId(),actor) || !java.util.Objects.equals(row.getTargetType(),type.getCode())
                 || row.getStatus()!=PENDING || row.getCleanupStartedAt()!=null || !row.getCleanupAfter().isAfter(LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))))
             throw new BusinessException(ResultCode.INVALID_OPERATION,"上传引用不可用");
-        if("VERIFIED".equals(row.getDeclaredKind()) && ((type!=TargetType.POST && type!=TargetType.COMMENT) || source.startsWith("private/"))) { requireKind(row,kind);return source; }
-        String snapshot=((type==TargetType.POST || type==TargetType.COMMENT)?"private/":"")+"media-effective/"+type.getCode()+"/"+actor+"/"+java.util.UUID.randomUUID();
+        if("VERIFIED".equals(row.getDeclaredKind()) && source.startsWith(MediaObjectKeys.retainedPrefix(type,actor))) { requireKind(row,kind);return source; }
+        String snapshot=MediaObjectKeys.retainedPrefix(type,actor)+java.util.UUID.randomUUID();
         recordPending(actor,type,List.of(snapshot),row.getCleanupAfter());
         ManagedAttachmentInspector.Metadata metadata;
         try {
@@ -199,8 +199,7 @@ public class MediaUploadRecordService {
                 || !(java.util.Objects.equals(record.getTargetType(), TargetType.ACTIVITY.getCode())
                      || java.util.Objects.equals(record.getTargetType(), TargetType.EXAM.getCode())
                      || java.util.Objects.equals(record.getTargetType(), TargetType.OFFICIAL_CONTENT.getCode()))
-                || !objectKey.startsWith((java.util.Objects.equals(record.getTargetType(), TargetType.ACTIVITY.getCode())
-                     ? "activity/" : java.util.Objects.equals(record.getTargetType(), TargetType.EXAM.getCode()) ? "exam/" : "official-content/") + operatorId + "/")) {
+                || !objectKey.startsWith(MediaObjectKeys.uploadPrefix(TargetType.fromCode(record.getTargetType()),operatorId))) {
             throw new BusinessException(ResultCode.INVALID_OPERATION, "附件上传不属于当前运营身份");
         }
         boolean pending = java.util.Objects.equals(record.getStatus(), PENDING)

@@ -50,7 +50,7 @@ public class GrowthMediaService {
                 r.setOrganizationId(scope.organization());
                 r.setRecordType(scope.type());
                 r.setEditingPostId(scope.post());
-                r.setSourceKey("private/growth-upload/" + scope.user() + "/" + id + "/" + r.getFileIndex());
+                r.setSourceKey("growth-record/upload/" + scope.user() + "/" + id + "/" + r.getFileIndex());
                 r.setOriginalName(d.originalName());
                 r.setContentType(d.contentType());
                 r.setSizeBytes(d.sizeBytes());
@@ -85,7 +85,7 @@ public class GrowthMediaService {
             if (r.getBoundPostId() == null && !now().isBefore(r.getRegisteredAt() == null ? r.getExpiresAt() : r.getUnboundExpiresAt()))
                 throw missing();
             if (r.getMediaId() == null) {
-                String snapshot = "private/growth-effective/" + scope.user() + "/" + upload + "/" + index + "/" + UUID.randomUUID();
+                String snapshot = "growth-record/retained/" + scope.user() + "/" + upload + "/" + index + "/" + UUID.randomUUID();
                 uploads.recordPending(scope.user(), TargetType.POST, List.of(snapshot), r.getExpiresAt());
                 var allocated = records.selectForUpdate(snapshot);
                 contexts.register(upload, index, allocated.getId());
@@ -202,7 +202,7 @@ public class GrowthMediaService {
             Long id = urls.fileId(reference);
             if (id == null) throw missing();
             var r = records.selectById(id);
-            if (r == null || r.getStatus() != 1 || !"VERIFIED".equals(r.getDeclaredKind()) || !r.getObjectKey().startsWith("private/"))
+            if (r == null || r.getStatus() != 1 || !"VERIFIED".equals(r.getDeclaredKind()) || !MediaObjectKeys.isCommunityRetained(r.getObjectKey()))
                 throw missing();
             var context = contexts.file(id);
             return new File(id, "IMAGE", context == null ? "图片" : context.getOriginalName(), r.getDeclaredContentType(), r.getDeclaredSizeBytes(), safety, urls.adminVariant(urls.forKey(r.getObjectKey())), null);

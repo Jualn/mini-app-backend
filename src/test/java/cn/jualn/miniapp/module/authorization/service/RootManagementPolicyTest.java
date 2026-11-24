@@ -88,7 +88,7 @@ class RootManagementPolicyTest {
         var two=new LearningTask();two.setId(2L);two.setManagementTarget("{\"type\":\"ORGANIZATION\",\"organizationId\":\"B\"}");
         when(mapper.selectById(1L)).thenReturn(one);when(mapper.selectById(2L)).thenReturn(two);when(mapper.selectList(null)).thenReturn(List.of(one,two));
         when(auth.currentNow(9)).thenReturn(owner("LEARNING_TASK","learning-task:read","learning-task:edit"));
-        var policy=new LearningTaskScopePolicy(persons,auth,duties,mapper,mock(UserLearningTaskRecipientService.class),mock(UserCurrentLoginAccess.class));
+        var policy=new LearningTaskScopePolicy(persons,auth,duties,mapper,mock(UserLearningTaskRecipientService.class),mock(UserCurrentLoginAccess.class),mock(LearningTaskResponsibilities.class));
         TransactionSynchronizationManager.setActualTransactionActive(true);
         TransactionSynchronizationManager.setCurrentTransactionIsolationLevel(java.sql.Connection.TRANSACTION_REPEATABLE_READ);
         TransactionSynchronizationManager.initSynchronization();

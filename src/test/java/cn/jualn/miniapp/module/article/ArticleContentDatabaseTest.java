@@ -153,7 +153,7 @@ class ArticleContentDatabaseTest extends ArticleDatabaseTest {
   assertEquals("FORMAL",jdbc.queryForObject("SELECT retention FROM media_attachment WHERE id=?",String.class,file));
  }
  long document(String name) {
-  String key="article-resource/test/"+UUID.randomUUID();
+  String key="article/retained/test/"+UUID.randomUUID();
   jdbc.update("INSERT INTO media_attachment(type,kind,registered,registered_by,object_key,url,original_name,sort_order,content_type,size_bytes,verified,retention) VALUES(2,'PDF',1,9,?,?,?,0,'application/pdf',100,1,'FORMAL')",key,"https://cdn.example/"+key,name);
   return jdbc.queryForObject("SELECT id FROM media_attachment WHERE object_key=?",Long.class,key);
  }
@@ -267,7 +267,7 @@ class ArticleContentDatabaseTest extends ArticleDatabaseTest {
   } finally {if(task!=null) {jdbc.update("DELETE FROM learning_task_request WHERE operation='createLearningTask' AND target_id=0 AND request_key=?",requestKey);jdbc.update("DELETE FROM learning_task WHERE id=?",task);}}
  }
  @Test void documentCandidateAdoptionAndFailureKeepAllReferencesAtomic() {
-  String source="article/9/"+UUID.randomUUID()+".pdf",url="https://cdn.example/"+source;
+  String source="article/upload/9/"+UUID.randomUUID()+".pdf",url="https://cdn.example/"+source;
   var cos=context.getBean(cn.jualn.miniapp.third.cos.service.CosService.class);when(cos.resolveManagedObjectKey(url)).thenReturn(source);
   context.getBean(ArticleMediaWriter.class).pending(List.of(source),List.of(new ArticleUploadFileBO("material.pdf","PDF","application/pdf",100)),9);
   when(context.getBean(ManagedArticleMediaInspector.class).inspect(anyString(),eq("PDF"),eq("application/pdf"),eq(100L))).thenReturn(new ManagedArticleMediaInspector.Metadata("application/pdf",100,null,null,null));

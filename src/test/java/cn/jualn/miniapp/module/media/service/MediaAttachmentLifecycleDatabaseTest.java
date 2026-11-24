@@ -45,7 +45,7 @@ class MediaAttachmentLifecycleDatabaseTest {
     private MediaUploadRecordMapper records;
     private TransactionTemplate transaction;
     private CosClient cos;
-    private final String key = "activity/9/synthetic-file.pdf";
+    private final String key = "activity/upload/9/synthetic-file.pdf";
     private final String url = "https://cdn.example/" + key;
 
     @BeforeEach void setup() {

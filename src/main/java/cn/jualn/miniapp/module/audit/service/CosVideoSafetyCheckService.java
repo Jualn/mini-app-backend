@@ -35,7 +35,7 @@ public class CosVideoSafetyCheckService implements VideoSafetyChecks {
         if(!"PASS".equals(row.getState())) throw ArticleSafetyChecks.unavailable();
     }
     private MediaVideoAudit ensure(long attachmentId,String objectKey,long sizeBytes,long operatorId) {
-        if(!policy.isPolicyConfigured() || attachmentId<=0 || operatorId<=0 || sizeBytes<=0 || objectKey==null || !objectKey.matches("article-resource/[0-9]+/[A-Za-z0-9-]+")) throw ArticleSafetyChecks.unavailable();
+        if(!policy.isPolicyConfigured() || attachmentId<=0 || operatorId<=0 || sizeBytes<=0 || objectKey==null || !objectKey.matches("article/retained/[0-9]+/[A-Za-z0-9-]+")) throw ArticleSafetyChecks.unavailable();
         var row=new MediaVideoAudit(); row.setAttachmentId(attachmentId); row.setObjectKey(objectKey); row.setSizeBytes(sizeBytes);
         row.setBucket(cos.getBucket()); row.setRegion(cos.getRegion()); row.setBizType(policy.getBizType());
         row.setSnapshotIntervalSeconds(policy.getSnapshotIntervalSeconds()); row.setOperatorId(operatorId);

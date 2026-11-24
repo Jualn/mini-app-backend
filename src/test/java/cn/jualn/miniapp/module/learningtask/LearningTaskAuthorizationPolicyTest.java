@@ -32,7 +32,7 @@ import static org.mockito.Mockito.when;
 class LearningTaskAuthorizationPolicyTest {
     final CurrentAuthorization reader = mock(CurrentAuthorization.class);
     final RbacCatalog catalog = mock(RbacCatalog.class);
-    final LearningTaskAuthorizationPolicy policy = new LearningTaskAuthorizationPolicy(reader,catalog,mock(UserAccountService.class));
+    final LearningTaskAuthorizationPolicy policy = new LearningTaskAuthorizationPolicy(reader,catalog,mock(UserAccountService.class),mock(cn.jualn.miniapp.module.learningtask.service.LearningTaskScopePolicy.class));
 
     Decision decision(Source source, boolean eligible, List<Grant> grants) {
         return new Decision(9,source,"version","catalog",LocalDateTime.now(),eligible,List.of("*","content:manage"),grants);

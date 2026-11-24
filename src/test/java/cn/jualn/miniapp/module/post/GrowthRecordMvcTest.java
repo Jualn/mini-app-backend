@@ -32,7 +32,7 @@ class GrowthRecordMvcTest {
         when(records.register(anyString(),anyInt())).thenReturn(new GrowthMediaBO.File(22,"IMAGE","image.png","image/png",100,"CHECKING","https://api.example.test/v1/media/files/22/content",OffsetDateTime.now().plusHours(24)));
         mvc().perform(post("/v1/growth-media").contentType("application/json").content("{\"uploadId\":\"upload\",\"fileIndex\":0}"))
             .andExpect(status().isCreated()).andExpect(jsonPath("$.mediaId").value("22")).andExpect(jsonPath("$.sizeBytes").isNumber());
-        var credentials=new GrowthMediaBO.Credentials("private","region",List.of("private/growth-upload/key"),"id","secret","token",1900000000L,null);
+        var credentials=new GrowthMediaBO.Credentials("private","region",List.of("growth-record/upload/key"),"id","secret","token",1900000000L,null);
         when(records.upload(any())).thenReturn(new GrowthMediaBO.Upload("upload",OffsetDateTime.now().plusMinutes(10),OffsetDateTime.now().plusHours(24),credentials));
         mvc().perform(post("/v1/growth-media/uploads").contentType("application/json").content("{\"organizationId\":\"branch\",\"recordType\":\"GROWTH\",\"files\":[{\"kind\":\"IMAGE\",\"originalName\":\"image.png\",\"contentType\":\"image/png\",\"sizeBytes\":100}]}"))
             .andExpect(status().isCreated()).andExpect(jsonPath("$.credentials.expiredTime").isNumber());

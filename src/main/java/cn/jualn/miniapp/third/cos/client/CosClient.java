@@ -6,6 +6,7 @@ import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.third.cos.config.CosProperties;
 import cn.jualn.miniapp.third.cos.config.CosStorageBuckets;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qcloud.cos.COSClient;
 import com.qcloud.cos.exception.CosServiceException;
 import com.qcloud.cos.model.*;
@@ -37,9 +38,10 @@ public class CosClient {
     private final COSClient cosSdkClient;
     private final CosProperties cosProperties;
     private final ObjectProvider<CosStorageBuckets> storage;
+    private final ObjectMapper objectMapper;
 
     public String bucketFor(String key) {
-        if (key.startsWith("private/")) {
+        if (CosStorageBuckets.isPrivateKey(key)) {
             if (storage == null || storage.getIfAvailable() == null)
                 throw new IllegalStateException("Private storage configuration required");
             return storage.getObject().forKey(key);
@@ -48,7 +50,7 @@ public class CosClient {
     }
 
     private void privateReady(String key) {
-        if (key.startsWith("private/")) storage.getObject().requirePrivate(key);
+        if (CosStorageBuckets.isPrivateKey(key)) storage.getObject().requirePrivate(key);
     }
 
 
@@ -72,7 +74,11 @@ public class CosClient {
         String appid = bucket.substring(bucket.lastIndexOf('-') + 1);
         var resources = keys.stream().map(k -> "qcs::cos:" + cosProperties.getRegion() + ":uid/" + appid + ":" + bucket + "/" + k).toList();
         var statements = new ArrayList<Map<String, Object>>();
-        var writes = List.of("name/cos:PutObject", "name/cos:InitiateMultipartUpload", "name/cos:CompleteMultipartUpload");
+        var writes = List.of(
+                "name/cos:PutObject",
+                "name/cos:InitiateMultipartUpload",
+                "name/cos:CompleteMultipartUpload"
+        );
         statements.add(Map.of("effect", "allow", "action", writes, "resource", resources,
                 "condition", Map.of("string_equal", Map.of("cos:x-cos-forbid-overwrite", "true"))));
         statements.add(Map.of("effect", "allow", "action", List.of("name/cos:ListParts", "name/cos:UploadPart", "name/cos:AbortMultipartUpload"), "resource", resources));
@@ -81,7 +87,7 @@ public class CosClient {
             statements.add(Map.of("effect", "deny", "action", writes, "resource", resources,
                     "condition", Map.of("null", Map.of("cos:" + header, "false"))));
         try {
-            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(Map.of("version", "2.0", "statement", statements));
+            return objectMapper.writeValueAsString(Map.of("version", "2.0", "statement", statements));
         } catch (JsonProcessingException e) {
             throw new IllegalStateException(e);
         }
@@ -141,7 +147,7 @@ public class CosClient {
      * @return 文件公网 URL
      */
     public String buildPublicUrl(String objectKey) {
-        if (objectKey.startsWith("private/")) throw new IllegalArgumentException("Private objects have no public URL");
+        if (CosStorageBuckets.isPrivateKey(objectKey)) throw new IllegalArgumentException("Private objects have no public URL");
         String prefix = cosProperties.getPublicUrlPrefix();
         if (prefix.endsWith("/")) {
             return prefix + objectKey;
@@ -168,7 +174,7 @@ public class CosClient {
         try {
             privateReady(destinationKey);
             var request = new CopyObjectRequest(bucketFor(sourceKey), sourceKey, bucketFor(destinationKey), destinationKey);
-            if (destinationKey.startsWith("private/"))
+            if (CosStorageBuckets.isPrivateKey(destinationKey))
                 request.setCannedAccessControlList(CannedAccessControlList.Private);
             cosSdkClient.copyObject(request);
         } catch (CosServiceException failure) {

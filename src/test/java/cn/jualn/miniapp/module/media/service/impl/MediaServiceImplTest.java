@@ -91,7 +91,7 @@ class MediaServiceImplTest {
         ArgumentCaptor<List<String>> captor = ArgumentCaptor.forClass(List.class);
         verify(cosService).generateUploadCredential(captor.capture());
         String objectKey = captor.getValue().get(0);
-        assertTrue(objectKey.startsWith("post/7/"));
+        assertTrue(objectKey.startsWith("post/upload/7/"));
         assertTrue(objectKey.endsWith("_mypic.jpg"));
     }
 
@@ -109,7 +109,7 @@ class MediaServiceImplTest {
         mediaService.generateAdminUploadCredential(TargetType.EXAM, List.of("file.pdf"), 9L);
         ArgumentCaptor<List<String>> captor = ArgumentCaptor.forClass(List.class);
         verify(cosService).generateUploadCredential(captor.capture());
-        assertTrue(captor.getValue().get(0).startsWith("exam/9/"));
+        assertTrue(captor.getValue().get(0).startsWith("exam/upload/9/"));
         verify(uploadRecordService).recordPending(org.mockito.ArgumentMatchers.eq(9L),
                 org.mockito.ArgumentMatchers.eq(TargetType.EXAM), any(), any());
     }
@@ -142,7 +142,7 @@ class MediaServiceImplTest {
         UserContext.setUserId(7L);
         AttachmentItemBO item = AttachmentItemBO.builder()
                 .type(MediaType.IMAGE)
-                .objectKey("post/7/image.jpg")
+                .objectKey("post/upload/7/image.jpg")
                 .url("https://untrusted.example/image.jpg")
                 .originalName("image.jpg")
                 .sortOrder(0)
@@ -152,14 +152,14 @@ class MediaServiceImplTest {
                 .targetId(11L)
                 .attachments(List.of(item))
                 .build();
-        when(uploadRecordService.isVerified(7L,TargetType.POST,"post/7/image.jpg")).thenReturn(true);
-        when(cosService.buildPublicUrl("post/7/image.jpg"))
+        when(uploadRecordService.isVerified(7L,TargetType.POST,"post/upload/7/image.jpg")).thenReturn(true);
+        when(cosService.buildPublicUrl("post/upload/7/image.jpg"))
                 .thenReturn("https://cos.example/post/7/image.jpg");
 
         mediaService.replaceAttachments(saveBO);
 
         AttachmentItemBO normalized = saveBO.getAttachments().get(0);
-        assertEquals("post/7/image.jpg", normalized.getObjectKey());
+        assertEquals("post/upload/7/image.jpg", normalized.getObjectKey());
         assertEquals("https://cos.example/post/7/image.jpg", normalized.getUrl());
         verify(mediaAttachmentMapper).insert(any(MediaAttachment.class));
     }
@@ -172,7 +172,7 @@ class MediaServiceImplTest {
                 .targetId(11L)
                 .attachments(List.of(AttachmentItemBO.builder()
                         .type(MediaType.IMAGE)
-                        .objectKey("post/8/image.jpg")
+                        .objectKey("post/upload/8/image.jpg")
                         .url("https://cos.example/post/8/image.jpg")
                         .build()))
                 .build();
@@ -186,7 +186,7 @@ class MediaServiceImplTest {
         UserContext.setUserId(7L);
         when(mediaAttachmentMapper.selectList(any())).thenReturn(List.of(
                 MediaAttachment.builder().id(41L).type(MediaType.IMAGE.getCode())
-                        .objectKey("post/7/old.jpg")
+                        .objectKey("post/upload/7/old.jpg")
                         .url("https://cos.example/post/7/old.jpg")
                         .build()));
         TransactionSynchronizationManager.initSynchronization();
@@ -200,7 +200,7 @@ class MediaServiceImplTest {
 
         verify(cosService, never()).deleteObject(any());
         assertEquals(0, TransactionSynchronizationManager.getSynchronizations().size());
-        verify(uploadRecordService).requestDeletion("post/7/old.jpg", TargetType.POST, 11L);
+        verify(uploadRecordService).requestDeletion("post/upload/7/old.jpg", TargetType.POST, 11L);
     }
 
     @Test
@@ -209,10 +209,10 @@ class MediaServiceImplTest {
         String publicUrl = "https://cos.example/post/7/kept.jpg";
         when(mediaAttachmentMapper.selectList(any())).thenReturn(List.of(
                 MediaAttachment.builder().id(41L).type(MediaType.IMAGE.getCode())
-                        .objectKey("post/7/kept.jpg")
+                        .objectKey("post/upload/7/kept.jpg")
                         .url(publicUrl)
                         .build()));
-        when(cosService.buildPublicUrl("post/7/kept.jpg")).thenReturn(publicUrl);
+        when(cosService.buildPublicUrl("post/upload/7/kept.jpg")).thenReturn(publicUrl);
 
         MediaAttachmentSaveBO saveBO = MediaAttachmentSaveBO.builder()
                 .targetType(TargetType.POST)
@@ -225,7 +225,7 @@ class MediaServiceImplTest {
 
         mediaService.replaceAttachments(saveBO);
 
-        assertEquals("post/7/kept.jpg", saveBO.getAttachments().get(0).getObjectKey());
+        assertEquals("post/upload/7/kept.jpg", saveBO.getAttachments().get(0).getObjectKey());
         verify(cosService, never()).deleteObject(any());
     }
 
@@ -234,17 +234,17 @@ class MediaServiceImplTest {
         String publicUrl = "https://cos.example/post/8/existing.jpg";
         when(mediaAttachmentMapper.selectList(any())).thenReturn(List.of(
                 MediaAttachment.builder().id(41L).type(MediaType.IMAGE.getCode())
-                        .objectKey("post/8/existing.jpg")
+                        .objectKey("post/upload/8/existing.jpg")
                         .url(publicUrl)
                         .build()));
-        when(cosService.buildPublicUrl("post/8/existing.jpg")).thenReturn(publicUrl);
+        when(cosService.buildPublicUrl("post/upload/8/existing.jpg")).thenReturn(publicUrl);
 
         mediaService.replaceAttachments(MediaAttachmentSaveBO.builder()
                 .targetType(TargetType.POST)
                 .targetId(11L)
                 .attachments(List.of(AttachmentItemBO.builder()
                         .type(MediaType.IMAGE)
-                        .objectKey("post/8/existing.jpg")
+                        .objectKey("post/upload/8/existing.jpg")
                         .url(publicUrl)
                         .build()))
                 .build());
@@ -260,7 +260,7 @@ class MediaServiceImplTest {
                 .targetId(11L)
                 .attachments(List.of(AttachmentItemBO.builder()
                         .type(MediaType.IMAGE)
-                        .objectKey("post/8/new.jpg")
+                        .objectKey("post/upload/8/new.jpg")
                         .url("https://cos.example/post/8/new.jpg")
                         .build()))
                 .build();

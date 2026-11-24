@@ -369,7 +369,7 @@ class PostCommunityDatabaseTest {
         db.update("INSERT INTO media_attachment(target_type,target_id,type,kind,object_key,url,sort_order) VALUES(1,?,2,'IMAGE',?,'https://api.example/controlled',0)",post,key);return file.getId();
     }
     @Test void controlledMediaRevokesEveryNewReadAndDoesNotSharePrivatePreviews() throws Exception {
-        long post=create("controlled image");passed(post);String key="private/media-effective/1/99101/"+UUID.randomUUID();long file=privateFile(post,key);
+        long post=create("controlled image");passed(post);String key="post/retained/99101/"+UUID.randomUUID();long file=privateFile(post,key);
         var content=context.getBean(cn.jualn.miniapp.module.media.service.MediaContentService.class);
         assertNotNull(content.require(file,null,false));
         db.update("UPDATE post SET admin_hidden=TRUE WHERE id=?",post);
@@ -383,7 +383,7 @@ class PostCommunityDatabaseTest {
     }
     @Test void controlledCommentImageChecksNodeRootAndSubjectInsteadOfOnlyFileOwnership() {
         long post=create("comment image");passed(post);var writer=context.getBean(CommentService.class);long root=writer.createComment(comment(post,null,null,"root"));publish(root);UserContext.setUserId(99102L);long reply=writer.createComment(comment(post,root,root,"image reply"));publish(reply);
-        String key="private/media-effective/4/99102/"+UUID.randomUUID();long file=privateFile(post,key);
+        String key="comment/retained/99102/"+UUID.randomUUID();long file=privateFile(post,key);
         db.update("DELETE FROM media_attachment WHERE object_key=?",key);db.update("UPDATE media_upload_record SET user_id=99102,target_type=4,bound_target_id=? WHERE id=?",reply,file);db.update("UPDATE comment SET image_object_key=?,image_url='https://api.example/controlled' WHERE id=?",key,reply);
         var content=context.getBean(cn.jualn.miniapp.module.media.service.MediaContentService.class);assertNotNull(content.require(file,null,false));
         UserContext.setUserId(99101L);writer.removeComment(root);assertNotNull(content.require(file,null,false));
@@ -392,7 +392,7 @@ class PostCommunityDatabaseTest {
         db.update("UPDATE post SET admin_hidden=TRUE WHERE id=?",post);assertThrows(RuntimeException.class,()->content.require(file,99102L,false));
     }
     @Test void controlledMediaStreamsBoundedRangesAndHeadWithoutProviderOrSharedCache() throws Exception {
-        long post=create("range image");passed(post);String key="private/media-effective/1/99101/"+UUID.randomUUID();long file=privateFile(post,key);
+        long post=create("range image");passed(post);String key="post/retained/99101/"+UUID.randomUUID();long file=privateFile(post,key);
         var cos=mock(cn.jualn.miniapp.third.cos.client.CosClient.class);var closed=new java.util.concurrent.atomic.AtomicBoolean();
         when(cos.openObject(eq(key),anyLong(),anyLong())).thenAnswer(i->{long start=i.getArgument(1),end=i.getArgument(2);var object=new com.qcloud.cos.model.COSObject();var metadata=new com.qcloud.cos.model.ObjectMetadata();metadata.setContentLength(end-start+1);object.setObjectMetadata(metadata);object.setObjectContent(new java.io.ByteArrayInputStream(java.util.Arrays.copyOfRange(new byte[]{0,1,2,3,4,5},(int)start,(int)end+1)){public void close()throws java.io.IOException{closed.set(true);super.close();}});return object;});
         var mvc=org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new cn.jualn.miniapp.module.media.controller.MediaContentController(context.getBean(cn.jualn.miniapp.module.media.service.MediaContentService.class),cos)).setControllerAdvice(new cn.jualn.miniapp.common.exception.GlobalExceptionHandler()).build();

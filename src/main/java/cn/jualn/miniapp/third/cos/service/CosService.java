@@ -5,6 +5,7 @@ import cn.jualn.miniapp.common.exception.ExternalServiceException;
 import cn.jualn.miniapp.common.result.ResultCode;
 import cn.jualn.miniapp.third.cos.client.CosClient;
 import cn.jualn.miniapp.third.cos.config.CosProperties;
+import cn.jualn.miniapp.third.cos.config.CosStorageBuckets;
 import cn.jualn.miniapp.third.cos.dto.CosUploadCredentialDTO;
 import com.tencent.cloud.Response;
 import lombok.RequiredArgsConstructor;
@@ -64,7 +65,7 @@ public class CosService {
         CosUploadCredentialDTO.CosUploadCredentialDTOBuilder builder = CosUploadCredentialDTO.builder()
                 .bucket(cosClient.bucketFor(objectKeys.get(0)))
                 .region(cosProperties.getRegion())
-                .customDomain(objectKeys.get(0).startsWith("private/")?cosClient.bucketFor(objectKeys.get(0))+".cos."+cosProperties.getRegion()+".myqcloud.com":cosProperties.getCustomDomain())
+                .customDomain(CosStorageBuckets.isPrivateKey(objectKeys.get(0))?cosClient.bucketFor(objectKeys.get(0))+".cos."+cosProperties.getRegion()+".myqcloud.com":cosProperties.getCustomDomain())
                 .objectKeys(objectKeys);
 
         try {

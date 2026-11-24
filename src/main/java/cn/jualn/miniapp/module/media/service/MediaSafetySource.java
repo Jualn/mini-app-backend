@@ -16,7 +16,7 @@ public class MediaSafetySource {
         if(reference==null || !reference.contains(MediaDeliveryUrls.PATH))return reference;
         Long id=urls.fileId(reference);if(id==null)throw MediaContentService.missing();
         var file=records.selectById(id);
-        if(file==null || !file.getObjectKey().startsWith("private/") || !"VERIFIED".equals(file.getDeclaredKind())
+        if(file==null || !MediaObjectKeys.isCommunityRetained(file.getObjectKey()) || !"VERIFIED".equals(file.getDeclaredKind())
                 || file.getCleanupStartedAt()!=null || (file.getStatus()!=0 && file.getStatus()!=1)
                 || file.getStatus()==0 && !file.getCleanupAfter().isAfter(java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))))throw MediaContentService.missing();
         return cos.providerReadUrl(file.getObjectKey());

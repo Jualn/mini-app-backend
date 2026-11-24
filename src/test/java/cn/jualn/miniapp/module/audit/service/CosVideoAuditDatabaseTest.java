@@ -42,8 +42,8 @@ class CosVideoAuditDatabaseTest {
         jdbc.update("DELETE FROM async_job WHERE job_type=?",CosVideoAuditWriter.JOB_TYPE); jdbc.update("DELETE FROM media_video_audit");
     }
     @AfterEach void close() { context.close(); }
-    MediaAttachmentBO video() { return MediaAttachmentBO.builder().id(777L).kind("VIDEO").verified(true).objectKey("article-resource/9/video").sizeBytes(100L).durationSeconds(30d).build(); }
-    long reserve() { safety.reserve(777,"article-resource/9/video",100,9); return rows.find(777,safety.policyKey()).getId(); }
+    MediaAttachmentBO video() { return MediaAttachmentBO.builder().id(777L).kind("VIDEO").verified(true).objectKey("article/retained/9/video").sizeBytes(100L).durationSeconds(30d).build(); }
+    long reserve() { safety.reserve(777,"article/retained/9/video",100,9); return rows.find(777,safety.policyKey()).getId(); }
     CosVideoAuditPayload payload(long id,int sequence) { return new CosVideoAuditPayload(id,sequence); }
     JobExecutionContext claim(long id,int sequence) throws Exception {
         AsyncJob job=jobs.selectByDedupe(CosVideoAuditWriter.JOB_TYPE,"video-audit:"+id+":"+sequence);
@@ -71,19 +71,19 @@ class CosVideoAuditDatabaseTest {
     @Test void pollResultNeedsExactIdentityAndExplicitPassBeforePublication() throws Exception {
         long id=reserve(); var submit=payload(id,0); var owner=claim(id,0);
         var client=mock(CosVideoAuditClient.class); var handler=new CosVideoAuditJobHandler(writer,client,policy);
-        when(client.submit(anyString(),anyString(),anyString(),anyString(),anyString(),anyInt())).thenReturn(new CosVideoAuditResult("v123","article-video-audit:"+id,"article-resource/9/video","Submitted",CosVideoAuditResult.Decision.PENDING));
+        when(client.submit(anyString(),anyString(),anyString(),anyString(),anyString(),anyInt())).thenReturn(new CosVideoAuditResult("v123","article-video-audit:"+id,"article/retained/9/video","Submitted",CosVideoAuditResult.Decision.PENDING));
         handler.handle(submit,owner); assertEquals("RUNNING",rows.selectById(id).getState());
         assertThrows(cn.jualn.miniapp.common.exception.ContractProblemException.class,()->safety.requirePassed(video(),9));
         var poll=payload(id,1); var pollOwner=claim(id,1);
-        var forged=new CosVideoAuditResult("v123","article-video-audit:"+id,"article-resource/9/other","Success",CosVideoAuditResult.Decision.PASS);
+        var forged=new CosVideoAuditResult("v123","article-video-audit:"+id,"article/retained/9/other","Success",CosVideoAuditResult.Decision.PASS);
         assertThrows(IllegalArgumentException.class,()->writer.observed(poll,forged,30,pollOwner)); assertEquals("RUNNING",rows.selectById(id).getState());
-        var normal=new CosVideoAuditResult("v123","article-video-audit:"+id,"article-resource/9/video","Success",CosVideoAuditResult.Decision.PASS);
+        var normal=new CosVideoAuditResult("v123","article-video-audit:"+id,"article/retained/9/video","Success",CosVideoAuditResult.Decision.PASS);
         writer.observed(poll,normal,30,pollOwner); assertEquals("PASS",rows.selectById(id).getState());
         assertDoesNotThrow(()->safety.requirePassed(video(),9));
         policy.setPolicyRevision("2"); assertThrows(cn.jualn.miniapp.common.exception.ContractProblemException.class,()->safety.requirePassed(video(),9));
         assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM media_video_audit",Integer.class));
         // A stale duplicate cannot overwrite an already completed result.
-        writer.observed(poll,new CosVideoAuditResult("v123","article-video-audit:"+id,"article-resource/9/video","Success",CosVideoAuditResult.Decision.REJECT),30,pollOwner);
+        writer.observed(poll,new CosVideoAuditResult("v123","article-video-audit:"+id,"article/retained/9/video","Success",CosVideoAuditResult.Decision.REJECT),30,pollOwner);
         assertEquals("PASS",rows.selectById(id).getState());
     }
     @Test void crashAfterSubmissionClaimBecomesUnknownAndCannotResubmit() throws Exception {
@@ -97,7 +97,7 @@ class CosVideoAuditDatabaseTest {
     @Test void pendingPollSchedulesOneSuccessorAndStaleOwnerCannotWrite() throws Exception {
         long id=reserve(); var owner=claim(id,0); writer.begin(payload(id,0),owner); writer.submitted(payload(id,0),"v123",30,owner);
         var poll=payload(id,1); var pollOwner=claim(id,1);
-        var pending=new CosVideoAuditResult("v123","article-video-audit:"+id,"article-resource/9/video","Auditing",CosVideoAuditResult.Decision.PENDING);
+        var pending=new CosVideoAuditResult("v123","article-video-audit:"+id,"article/retained/9/video","Auditing",CosVideoAuditResult.Decision.PENDING);
         writer.observed(poll,pending,30,pollOwner); writer.observed(poll,pending,30,pollOwner);
         assertEquals(2,rows.selectById(id).getPollSequence());
         assertEquals(3,jdbc.queryForObject("SELECT COUNT(*) FROM async_job WHERE job_type=?",Integer.class,CosVideoAuditWriter.JOB_TYPE));
@@ -109,7 +109,7 @@ class CosVideoAuditDatabaseTest {
         for(var decision:List.of(CosVideoAuditResult.Decision.REVIEW,CosVideoAuditResult.Decision.REJECT,CosVideoAuditResult.Decision.FAILED)) {
             jdbc.update("DELETE FROM async_job WHERE job_type=?",CosVideoAuditWriter.JOB_TYPE); jdbc.update("DELETE FROM media_video_audit");
             long id=reserve(); var owner=claim(id,0); writer.begin(payload(id,0),owner); writer.submitted(payload(id,0),"v123",30,owner);
-            writer.observed(payload(id,1),new CosVideoAuditResult("v123","article-video-audit:"+id,"article-resource/9/video","Success",decision),30,claim(id,1));
+            writer.observed(payload(id,1),new CosVideoAuditResult("v123","article-video-audit:"+id,"article/retained/9/video","Success",decision),30,claim(id,1));
             assertThrows(cn.jualn.miniapp.common.exception.ContractProblemException.class,()->safety.requirePassed(video(),9));
         }
         jdbc.update("DELETE FROM async_job WHERE job_type=?",CosVideoAuditWriter.JOB_TYPE); jdbc.update("DELETE FROM media_video_audit");

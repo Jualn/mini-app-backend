@@ -176,12 +176,7 @@ public class LearningTaskRecipientOptions {
     }
 
     private String displayStage(String person, boolean required) {
-        try {
-            return persons.developmentStage(person, persons.now());
-        } catch (cn.jualn.miniapp.common.exception.ContractProblemException unavailable) {
-            if (required || unavailable.getStatus() != org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE)
-                throw unavailable;
-            return null;
-        }
+        return required ? persons.developmentStage(person, persons.now())
+                : persons.developmentStageForDisplay(person, persons.now());
     }
 }

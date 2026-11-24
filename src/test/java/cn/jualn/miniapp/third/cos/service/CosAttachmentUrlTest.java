@@ -14,22 +14,22 @@ class CosAttachmentUrlTest {
                     "https://public.example/media", 600, "cdn.example"), new ObjectMapper());
 
     @Test void acceptsConfiguredBasesAndNativeBucketWithExactlyOneDecode() {
-        assertEquals("activity/1/文件.pdf", service.resolveManagedObjectKey("https://cdn.example/activity/1/%E6%96%87%E4%BB%B6.pdf"));
-        assertEquals("exam/1/a.pdf", service.resolveManagedObjectKey("https://public.example/media/exam/1/a.pdf"));
-        assertEquals("activity/1/a.pdf", service.resolveManagedObjectKey("https://campus-123.cos.ap-test.myqcloud.com/activity/1/a.pdf"));
-        assertTrue(service.managedPublicUrls("activity/1/文件.pdf").contains("https://cdn.example/activity/1/%E6%96%87%E4%BB%B6.pdf"));
+        assertEquals("activity/upload/1/文件.pdf", service.resolveManagedObjectKey("https://cdn.example/activity/upload/1/%E6%96%87%E4%BB%B6.pdf"));
+        assertEquals("exam/upload/1/a.pdf", service.resolveManagedObjectKey("https://public.example/media/exam/upload/1/a.pdf"));
+        assertEquals("activity/upload/1/a.pdf", service.resolveManagedObjectKey("https://campus-123.cos.ap-test.myqcloud.com/activity/upload/1/a.pdf"));
+        assertTrue(service.managedPublicUrls("activity/upload/1/文件.pdf").contains("https://cdn.example/activity/upload/1/%E6%96%87%E4%BB%B6.pdf"));
     }
 
     @Test void externalHostIsNotBound() {
-        assertNull(service.resolveManagedObjectKey("https://outside.example/activity/1/a.pdf"));
-        assertNull(service.resolveManagedObjectKey("https://cdn.example.evil.example/activity/1/a.pdf"));
+        assertNull(service.resolveManagedObjectKey("https://outside.example/activity/upload/1/a.pdf"));
+        assertNull(service.resolveManagedObjectKey("https://cdn.example.evil.example/activity/upload/1/a.pdf"));
     }
 
     @Test void rejectsManagedAmbiguityTraversalAndWrongBase() {
-        for (String url : java.util.List.of("https://cdn.example/activity/1/%2Fa.pdf",
-                "https://cdn.example/activity/1/%252e%252e/a.pdf", "https://cdn.example/activity/1/../a.pdf",
-                "https://cdn.example/activity/1/a.pdf?key=x", "https://user@cdn.example/activity/1/a.pdf",
-                "https://cdn.example:444/activity/1/a.pdf", "https://public.example/other/a.pdf")) {
+        for (String url : java.util.List.of("https://cdn.example/activity/upload/1/%2Fa.pdf",
+                "https://cdn.example/activity/upload/1/%252e%252e/a.pdf", "https://cdn.example/activity/upload/1/../a.pdf",
+                "https://cdn.example/activity/upload/1/a.pdf?key=x", "https://user@cdn.example/activity/upload/1/a.pdf",
+                "https://cdn.example:444/activity/upload/1/a.pdf", "https://public.example/other/a.pdf")) {
             assertThrows(BusinessException.class, () -> service.resolveManagedObjectKey(url), url);
         }
     }

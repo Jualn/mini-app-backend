@@ -37,9 +37,9 @@ Article 仅保存原 categoryId。公开及管理文章列表默认精确匹配�
 
 ## 媒体生命周期
 
-Article 上传凭证限定本次 objectKeys，允许必要的分片上传，旧上传凭证语义不变；对象级范围参照 [COS STS SDK](https://github.com/tencentyun/qcloud-cos-sts-sdk/blob/master/java/src/main/java/com/tencent/cloud/CosStsClient.java)。声明保存在既有上传记录中。客户端不能获得 `article-resource/` 的写凭证。
+Article 上传凭证限定本次 objectKeys，允许必要的分片上传，旧上传凭证语义不变；对象级范围参照 [COS STS SDK](https://github.com/tencentyun/qcloud-cos-sts-sdk/blob/master/java/src/main/java/com/tencent/cloud/CosStsClient.java)。声明保存在既有上传记录中。客户端不能获得 `article/retained/` 的写凭证。
 
-登记流程在远程复制前持久化快照的清理责任，再从管理员此次 `article/` 上传复制到服务端 `article-resource/`。检查实际大小和类型；JPEG / PNG / WebP 通过 ImageIO 实际解码（WebP 插件为 [TwelveMonkeys](https://github.com/haraldk/TwelveMonkeys)），先限制解码像素规模；MP4 至少检查文件头；配置 ffprobe 后再检查容器、H.264 / 可选 AAC、尺寸和时长。临时本地文件在调用完成后清理。未配置 ffprobe 时允许视频登记，播放表示仅返回 contentType，不虚构宽高或时长；基础 verified 只表示已完成当前技术检查，不表示编码或可解码性已验证。配置工具后执行失败仍拒绝登记，不静默降级。
+登记流程在远程复制前持久化快照的清理责任，再从管理员此次 `article/upload/` 上传复制到服务端 `article/retained/`。检查实际大小和类型；JPEG / PNG / WebP 通过 ImageIO 实际解码（WebP 插件为 [TwelveMonkeys](https://github.com/haraldk/TwelveMonkeys)），先限制解码像素规模；MP4 至少检查文件头；配置 ffprobe 后再检查容器、H.264 / 可选 AAC、尺寸和时长。临时本地文件在调用完成后清理。未配置 ffprobe 时允许视频登记，播放表示仅返回 contentType，不虚构宽高或时长；基础 verified 只表示已完成当前技术检查，不表示编码或可解码性已验证。配置工具后执行失败仍拒绝登记，不静默降级。
 
 最后的登记事务核对管理员、上传声明和待绑定状态，原子写入不可变 Attachment 并绑定快照上传记录。失败保留 PENDING 清理责任，不能留下错误 BOUND。原临时上传继续过期回收；已登记快照由独立资源保留。
 
@@ -87,7 +87,7 @@ ARTICLE_EDIT / ARTICLE_PUBLISH 复用 CONTENT_EDITOR / CONTENT_PUBLISHER × ARTI
 
 文章文本审核兼容微信的关键词未命中明细。只有微信客户端从原始响应验证综合结果和内容模型均明确通过，且缺少建议的关键词项恰好只有 `strategy=keyword` 和数字 `errcode=0`，才接受该明细。
 
-视频审核使用 [COS 数据万象异步审核](https://cloud.tencent.com/document/product/436/119485)，与微信图片 / 音频接口分开。media 在视频登记事务内调用 audit 的 VideoSafetyChecks 预占；audit 的 `media_video_audit` 保存资源 ID、不可变 objectKey、大小、桶 / 地域、策略指纹和 provider JobId，并同事务创建既有 `async_job`。开启前登记的视频在下一次发布校验时补预占。只接受 `article-resource/` 的服务端不可变资源；更换附件或策略版本重新审核，不能把旧视频 PASS 赋给新视频。
+视频审核使用 [COS 数据万象异步审核](https://cloud.tencent.com/document/product/436/119485)，与微信图片 / 音频接口分开。media 在视频登记事务内调用 audit 的 VideoSafetyChecks 预占；audit 的 `media_video_audit` 保存资源 ID、不可变 objectKey、大小、桶 / 地域、策略指纹和 provider JobId，并同事务创建既有 `async_job`。开启前登记的视频在下一次发布校验时补预占。只接受 `article/retained/` 的服务端不可变资源；更换附件或策略版本重新审核，不能把旧视频 PASS 赋给新视频。
 
 `audit.cos-video.check` Handler 在事务外提交 / 查询，固定 HTTPS CI 域名，复用现有 COS SDK 签名；提交显式指定审核策略、`DetectContent=1`、每秒截图及最多 10000 帧，不配置对象冻结或公网回调。主动查询不要求开放回调端点；纯查询最多 4 次执行尝试，正常审核中的结果则同事务创建下一轮有界延迟 Job，直至截止时间。每次落库重查 Job ownership 与序号，旧 worker / 重复响应不能覆盖结果。复用现有 Job 指标、DEAD 与恢复入口，不建设第二套队列。
 
@@ -108,7 +108,7 @@ Article 内容基础消费自 `article-content-v1-r1`；当前协议权威为 ca
 
 V83 增量存储场景映射、独立文件 ID 顺序、来源、删除标记及 User 收藏。V92 初始化六个固定入口的主栏目，保留已有合法的一对一绑定及启停状态，补齐缺失项。重复绑定、多重绑定或目录容量不足时迁移失败。数据库约束限制每个主栏目至多一个入口，并保证入口唯一。管理写入可省略场景或回传原绑定。入口主栏目停用时查询返回空集。场景游标绑定当前根/子分类集合，q、categoryId、includeChildren 和身份也参与绑定。
 
-独立资料沿 Article 专用凭证和不可变 `article-resource/` 快照登记，复用 Attachment 候选和业务事务接管。ArticleDocumentInspector 使用现有 PDFBox / POI 被动解析：PDF 严格解析，拒绝加密及主动动作/嵌入内容；DOC 拒绝宏、嵌入和加密结构；DOCX 先检查 ZIP 条目、展开量、宏/嵌入及外部关系，再提取正文与表格。解析边界为单文件 10MiB、PDF 1000 页、展开/解码总量 40MiB、提取文字每文件 20 万字符、每文章 100 万字符。超限拒绝，不截断后冒充完整检查。发布在写事务外重新读取不可变文件，提取为空时当前策略拒绝发布；显示名、来源和提取文字进入既有文字安全检查，正文媒体继续原图片/视频策略。没有新增杀毒或人工审批状态。
+独立资料沿 Article 专用凭证和不可变 `article/retained/` 快照登记，复用 Attachment 候选和业务事务接管。ArticleDocumentInspector 使用现有 PDFBox / POI 被动解析：PDF 严格解析，拒绝加密及主动动作/嵌入内容；DOC 拒绝宏、嵌入和加密结构；DOCX 先检查 ZIP 条目、展开量、宏/嵌入及外部关系，再提取正文与表格。解析边界为单文件 10MiB、PDF 1000 页、展开/解码总量 40MiB、提取文字每文件 20 万字符、每文章 100 万字符。超限拒绝，不截断后冒充完整检查。发布在写事务外重新读取不可变文件，提取为空时当前策略拒绝发布；显示名、来源和提取文字进入既有文字安全检查，正文媒体继续原图片/视频策略。没有新增杀毒或人工审批状态。
 
 旧替换省略 attachmentIds/source 时在同一强版本下保留；显式空附件数组或 null 来源清除。最终写事务重读原字段并维护所有实际引用，错误不部分接管。文件仅进入详情 attachments，正文 media 仍仅 IMAGE/VIDEO。技术核验、文字检查及真实终端打开分别验收。
 

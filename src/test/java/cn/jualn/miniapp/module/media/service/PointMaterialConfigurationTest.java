@@ -36,7 +36,7 @@ class PointMaterialConfigurationTest {
         runner.run(context -> {
             var provider = context.getBean(CosPointMaterialProvider.class);
             var failure = assertThrows(ContractProblemException.class, () -> provider.credentials("synthetic",
-                    List.of("points/tmp/synthetic"), LocalDateTime.now().plusMinutes(10)));
+                    List.of("points/upload/synthetic"), LocalDateTime.now().plusMinutes(10)));
             assertEquals(expected, failure.getMessage());
             verifyNoInteractions(context.getBean(COSClient.class));
         });

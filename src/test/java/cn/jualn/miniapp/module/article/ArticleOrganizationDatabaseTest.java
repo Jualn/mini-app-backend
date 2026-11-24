@@ -249,7 +249,7 @@ class ArticleOrganizationDatabaseTest {
   assertTrue(unified.dutySummary(root,List.of("ARTICLE_EDIT","ARTICLE_PUBLISH")).items().stream().allMatch(i->i.effective()));
   assertTrue(unified.effective(root,root,50,null).items().isEmpty());
   var first=articles.create(command(a));var second=articles.create(command(b));
-  String object="article-resource/"+editor+"/"+key();
+  String object="article/retained/"+editor+"/"+key();
   db.update("INSERT INTO media_attachment(type,kind,registered,registered_by,object_key,url,original_name,sort_order,content_type,size_bytes,width,height,verified,retention) VALUES(1,'IMAGE',1,?,?,?,'Image',0,'image/png',100,2,2,1,'FORMAL')",editor,object,"https://cdn.example/"+object);
   long file=db.queryForObject("SELECT id FROM media_attachment WHERE object_key=?",Long.class,object);
   db.update("INSERT INTO event_attachment_link(target_type,target_id,attachment_id,display_order) VALUES(8,?,?,0)",second.id(),file);

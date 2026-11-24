@@ -38,7 +38,7 @@ public class ArticleMediaService {
 
     public boolean handles(String kind, String url) {
         String key = cos.resolveManagedObjectKey(url);
-        return "VIDEO".equals(kind) || (key != null && (key.startsWith("article/") || key.startsWith("article-resource/")));
+        return "VIDEO".equals(kind) || (key != null && key.startsWith("article/"));
     }
 
     public CosUploadCredentialDTO upload(List<ArticleUploadFileBO> files, long operator) {
@@ -52,7 +52,7 @@ public class ArticleMediaService {
                     : "VIDEO".equals(file.kind()) ? "video/mp4".equals(file.contentType()) && file.sizeBytes() <= 209715200L
                     : Set.of("PDF","WORD").contains(file.kind()) && ArticleDocumentInspector.type(file.kind(),file.fileName()).equals(file.contentType()) && file.sizeBytes()<=10485760L))
                 ArticleBodyCodec.invalid("#/files", "Invalid file declaration");
-            keys.add("article/" + operator + "/" + UUID.randomUUID() + switch (file.contentType()) {
+            keys.add("article/upload/" + operator + "/" + UUID.randomUUID() + switch (file.contentType()) {
                 case "image/jpeg" -> ".jpg";
                 case "image/png" -> ".png";
                 case "image/webp" -> ".webp";
@@ -84,7 +84,7 @@ public class ArticleMediaService {
         if (!Set.of("IMAGE", "VIDEO", "PDF", "WORD").contains(kind) || name == null || ArticleBodyCodec.blank(name) || ArticleBodyCodec.length(name) > 200)
             ArticleBodyCodec.invalid("#", "Invalid Article attachment");
         String source = cos.resolveManagedObjectKey(url);
-        if (source == null || !(source.startsWith("article/" + operator + "/") || source.startsWith("article-resource/" + operator + "/")))
+        if (source == null || !(source.startsWith("article/upload/" + operator + "/") || source.startsWith("article/retained/" + operator + "/")))
             ArticleBodyCodec.invalid("#/url", "Use this administrator's managed Article upload");
         var upload = uploads.selectOne(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<cn.jualn.miniapp.module.media.entity.MediaUploadRecord>().eq(cn.jualn.miniapp.module.media.entity.MediaUploadRecord::getObjectKey, source));
         if (upload != null && !source.equals(upload.getObjectKey()))
@@ -103,7 +103,7 @@ public class ArticleMediaService {
         if (!kind.equals(upload.getDeclaredKind()))
             ArticleBodyCodec.invalid("#/kind", "Attachment kind differs from upload declaration");
         if(Set.of("PDF","WORD").contains(kind) && (!ArticleDocumentInspector.type(kind,name).equals(upload.getDeclaredContentType()) || !ArticleDocumentInspector.type(kind,source).equals(upload.getDeclaredContentType()))) ArticleBodyCodec.invalid("#/name","Document extension must match the declared format");
-        String snapshot = "article-resource/" + operator + "/" + UUID.randomUUID();
+        String snapshot = "article/retained/" + operator + "/" + UUID.randomUUID();
         // Persist cleanup responsibility before the remote copy; no lost response creates an untracked object.
         lifecycle.recordPending(operator, TargetType.ARTICLE, List.of(snapshot), LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")).plusDays(1));
         cos.copyObject(source, snapshot);
@@ -117,7 +117,7 @@ public class ArticleMediaService {
         if (values.size() != references.size()) invalidReference();
         for (var value : values) {
             if (Boolean.TRUE.equals(value.getDeleted()) || "CANDIDATE".equals(value.getRetention()) && (value.getExpiresAt()==null || !value.getExpiresAt().isAfter(LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")))) || !Boolean.TRUE.equals(value.getRegistered()) || !Boolean.TRUE.equals(value.getVerified())
-                    || value.getObjectKey() == null || !value.getObjectKey().startsWith("article-resource/") || !references.get(value.getId()).equals(value.getKind())
+                    || value.getObjectKey() == null || !value.getObjectKey().startsWith("article/retained/") || !references.get(value.getId()).equals(value.getKind())
                     || value.getSizeBytes() == null || value.getSizeBytes() <= 0
                     || !("IMAGE".equals(value.getKind()) ? Set.of("image/jpeg", "image/png", "image/webp").contains(value.getContentType()) && value.getSizeBytes() <= 10485760L
                     && value.getWidth() != null && value.getWidth() > 0 && value.getHeight() != null && value.getHeight() > 0

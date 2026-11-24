@@ -4,7 +4,7 @@
 <mapper namespace="cn.jualn.miniapp.module.media.mapper.MediaAttachmentMapper">
 
     <sql id="articleMediaScope">
-      AND (NOT (COALESCE(a.kind,'')='VIDEO' OR COALESCE(a.object_key,'') LIKE 'article-resource/%' OR EXISTS(SELECT 1 FROM event_attachment_link al WHERE al.attachment_id=a.id AND al.target_type=8))
+      AND (NOT (COALESCE(a.kind,'')='VIDEO' OR COALESCE(a.object_key,'') LIKE 'article/retained/%' OR EXISTS(SELECT 1 FROM event_attachment_link al WHERE al.attachment_id=a.id AND al.target_type=8))
         OR (<choose><when test="articleAllowed">1=1</when><otherwise>1=0</otherwise></choose>
           AND (NOT EXISTS(SELECT 1 FROM event_attachment_link al WHERE al.attachment_id=a.id AND al.target_type=8)
           OR EXISTS(SELECT 1 FROM event_attachment_link al JOIN article ON article.id=al.target_id
@@ -25,7 +25,7 @@
           AND a.target_type IS NULL AND a.target_id IS NULL
           AND (1=0
           <if test="legacy">
-            OR (COALESCE(a.kind,'')!='VIDEO' AND (a.object_key IS NULL OR a.object_key NOT LIKE 'article-resource/%'))
+            OR (COALESCE(a.kind,'')!='VIDEO' AND (a.object_key IS NULL OR a.object_key NOT LIKE 'article/retained/%'))
           </if>
           <if test="types != null and !types.isEmpty()">
             OR EXISTS (SELECT 1 FROM event_attachment_link l WHERE l.attachment_id=a.id AND l.target_type IN

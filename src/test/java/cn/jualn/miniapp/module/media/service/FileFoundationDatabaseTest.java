@@ -39,7 +39,7 @@ import static org.mockito.Mockito.*;
 /** Real V73 -> V74 upgrade, MyBatis and Spring transactions; COS and current identity are explicit doubles. */
 @EnabledIfSystemProperty(named="event.test.jdbcUrl",matches="jdbc:mysql://127[.]0[.]0[.]1:[0-9]+/file_foundation_test(_[a-z0-9]+)?")
 class FileFoundationDatabaseTest {
- static final String KEY="activity/9/source.pdf", URL="https://cdn.example/"+KEY;
+ static final String KEY="activity/upload/9/source.pdf", URL="https://cdn.example/"+KEY;
  AnnotationConfigApplicationContext context; JdbcTemplate jdbc; AttachmentRegistrationService registration;
  MediaService media; cn.jualn.miniapp.module.media.service.MediaQueries queries; cn.jualn.miniapp.module.media.service.MediaAccess access; MediaUploadRecordService lifecycle; MediaUploadRecordMapper uploads;
  AttachmentManagementService management; CosClient cos; TransactionTemplate tx;
@@ -77,6 +77,7 @@ class FileFoundationDatabaseTest {
  int count(String table) {return jdbc.queryForObject("SELECT COUNT(*) FROM "+table,Integer.class);}
  @Test void registrationReplaysCurrentStateAndNeverRenewsExpiry() {
   var a=register("intent");assertEquals("CANDIDATE",a.getRetention());assertNotNull(a.getExpiresAt());
+  assertTrue(a.getObjectKey().startsWith("activity/retained/9/"));
   var replay=register("intent");assertEquals(a.getId(),replay.getId());assertEquals(a.getExpiresAt(),replay.getExpiresAt());
   assertEquals(a.getId(),register("same-object-other-key").getId());assertEquals(1,count("media_attachment"));
   assertEquals("/problems/idempotency-key-reused",assertThrows(ContractProblemException.class,()->registration.register(9,"intent","PDF","changed",URL)).getType());
@@ -133,21 +134,21 @@ class FileFoundationDatabaseTest {
   assertEquals("/problems/attachment-deleted",assertThrows(ContractProblemException.class,()->register("delete")).getType());
  }
  @Test void ordinaryBindingsRequireInspectedServerSnapshotAndRollbackAtomically() throws Exception {
-  String source="post/9/photo.png";lifecycle.recordPending(9L,TargetType.POST,List.of(source),now().plusHours(1));
+  String source="post/upload/9/photo.png";lifecycle.recordPending(9L,TargetType.POST,List.of(source),now().plusHours(1));
   assertThrows(BusinessException.class,()->tx.executeWithoutResult(s->lifecycle.bindPending(9L,TargetType.POST,1L,List.of(source))));
   doAnswer(i->{var image=new java.awt.image.BufferedImage(2,2,java.awt.image.BufferedImage.TYPE_INT_RGB);
    javax.imageio.ImageIO.write(image,"png",((java.nio.file.Path)i.getArgument(1)).toFile());return null;}).when(cos).downloadObject(anyString(),any(),anyLong());
-  String snapshot=media.prepareOwnedImage(TargetType.POST,source);assertTrue(snapshot.startsWith("private/media-effective/"));
+  String snapshot=media.prepareOwnedImage(TargetType.POST,source);assertTrue(snapshot.startsWith("post/retained/"));
   assertThrows(IllegalStateException.class,()->tx.executeWithoutResult(s->{lifecycle.bindPending(9L,TargetType.POST,1L,List.of(snapshot));throw new IllegalStateException();}));
   assertEquals(0,uploads.selectForUpdate(snapshot).getStatus());
   tx.executeWithoutResult(s->lifecycle.bindPending(9L,TargetType.POST,1L,List.of(snapshot)));
   assertEquals(1,uploads.selectForUpdate(snapshot).getStatus());
  }
  @Test void privateCommunityImageKeepsStorageCapabilityOutOfThePublishedDeclaration() {
-  String source="private/post/9/photo.png";lifecycle.recordPending(9L,TargetType.POST,List.of(source),now().plusHours(1));
+  String source="post/upload/9/photo.png";lifecycle.recordPending(9L,TargetType.POST,List.of(source),now().plusHours(1));
   doAnswer(i->{var image=new java.awt.image.BufferedImage(2,2,java.awt.image.BufferedImage.TYPE_INT_RGB);javax.imageio.ImageIO.write(image,"png",((java.nio.file.Path)i.getArgument(1)).toFile());return null;}).when(cos).downloadObject(anyString(),any(),anyLong());
   var prepared=media.prepareNewAttachments(TargetType.POST,List.of(AttachmentItemBO.builder().type(cn.jualn.miniapp.module.media.enums.MediaType.IMAGE).objectKey(source).build()));
-  assertTrue(prepared.get(0).getObjectKey().startsWith("private/media-effective/"));assertTrue(prepared.get(0).getUrl().matches("https://api[.]example/v1/media/files/[0-9]+/content"));assertFalse(prepared.get(0).getUrl().contains("signature"));
+  assertTrue(prepared.get(0).getObjectKey().startsWith("post/retained/"));assertTrue(prepared.get(0).getUrl().matches("https://api[.]example/v1/media/files/[0-9]+/content"));assertFalse(prepared.get(0).getUrl().contains("signature"));
   tx.executeWithoutResult(s->media.replaceAttachments(MediaAttachmentSaveBO.builder().targetType(TargetType.POST).targetId(1L).attachments(prepared).build()));
   assertEquals(1,uploads.selectForUpdate(prepared.get(0).getObjectKey()).getStatus());assertEquals(prepared.get(0).getUrl(),queries.listAttachments(TargetType.POST,1L).get(0).getUrl());
  }
@@ -204,17 +205,17 @@ class FileFoundationDatabaseTest {
   var current=json.readTree(formal.getContentAsString());assertEquals("FORMAL",current.path("retention").asText());assertFalse(current.has("expiresAt"));
  }
  @Test void lostOrdinaryCopyResponseIsTrackedAndCannotBind() {
-  String source="post/9/uncertain.png";lifecycle.recordPending(9L,TargetType.POST,List.of(source),now().plusHours(1));
+  String source="post/upload/9/uncertain.png";lifecycle.recordPending(9L,TargetType.POST,List.of(source),now().plusHours(1));
   doThrow(new ExternalServiceException(cn.jualn.miniapp.common.result.ResultCode.EXTERNAL_SERVICE_ERROR,"cos","unknown copy")).when(cos).copyObject(eq(source),anyString());
   assertEquals(503,assertThrows(ContractProblemException.class,()->media.prepareOwnedImage(TargetType.POST,source)).getStatus().value());
   assertEquals(3,count("media_upload_record"));assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM media_upload_record WHERE status=1",Integer.class));
  }
  @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(strings={"IMAGE","VIDEO"})
  void articleRegistrationKeepsPlaybackAndAdoptsAllMediaAtomically(String kind) {
-  String type="IMAGE".equals(kind)?"image/png":"video/mp4";String source="article/9/source-"+kind;
+  String type="IMAGE".equals(kind)?"image/png":"video/mp4";String source="article/upload/9/source-"+kind;
   context.getBean(ArticleMediaWriter.class).pending(List.of(source),List.of(new ArticleUploadFileBO("source",kind,type,24)),9);
   var value=registration.register(9,"article-"+kind,kind,"media","https://cdn.example/"+source);
-  assertEquals("CANDIDATE",value.getRetention());assertTrue(value.getObjectKey().startsWith("article-resource/9/"));
+  assertEquals("CANDIDATE",value.getRetention());assertTrue(value.getObjectKey().startsWith("article/retained/9/"));
   if("VIDEO".equals(kind)) assertEquals(3.0,value.getDurationSeconds());
   assertEquals(value.getId(),registration.register(9,"article-other-"+kind,kind,"media","https://cdn.example/"+source).getId());
   assertThrows(IllegalStateException.class,()->tx.executeWithoutResult(s->{media.replaceAttachmentLinks(TargetType.ARTICLE,201L,List.of(new AttachmentLinkBO(value.getId(),0)));throw new IllegalStateException();}));
@@ -232,8 +233,9 @@ class FileFoundationDatabaseTest {
  }
  @Test void readablePurposeAndOwnershipAreFilteredBeforePagingAndCounting() {
   var first=register("scope-activity");media.replaceAttachmentLinks(TargetType.EXAM,101L,List.of(new AttachmentLinkBO(first.getId(),0)));
-  String key="exam/9/another.pdf";lifecycle.recordPending(9L,TargetType.EXAM,List.of(key),now().plusHours(1));
+  String key="exam/upload/9/another.pdf";lifecycle.recordPending(9L,TargetType.EXAM,List.of(key),now().plusHours(1));
   var second=registration.register(9,"scope-event","PDF","other","https://cdn.example/"+key);
+  assertTrue(second.getObjectKey().startsWith("exam/retained/9/"));
   media.replaceAttachmentLinks(TargetType.EXAM,102L,List.of(new AttachmentLinkBO(second.getId(),0)));
   var auth=context.getBean(CurrentAuthorization.class);
   when(auth.current(9)).thenReturn(new RbacModels.Decision(9,RbacModels.Source.ASSIGNMENT,"v","c",now(),true,List.of(),

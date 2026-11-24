@@ -117,8 +117,8 @@ class HomeV1DatabaseTest {
                 new ClassPathResource("mapper/ArticleMapper.xml"), new ClassPathResource("mapper/MediaAttachmentMapper.xml"));
         var sql = new SqlSessionTemplate(factory.getObject());
         var mapper = sql.getMapper(HomeBannerMapper.class);
-        var articles = new ArticleServiceImpl(sql.getMapper(ArticleMapper.class), sql.getMapper(ArticleCategoryMapper.class),
-                null, null, null, null, null, null, null, json, null);
+        var articles = new ArticleServiceImpl(sql.getMapper(ArticleMapper.class), org.mockito.Mockito.mock(cn.jualn.miniapp.module.learningtask.service.LearningTaskArticleUsage.class), sql.getMapper(ArticleCategoryMapper.class),
+                null, null, null, null, null, null, null, null, json, null);
         var timelines = mock(TimelineService.class);
         var now = LocalDateTime.now(ZoneId.of("Asia/Shanghai"));
         var ongoing = main(now.minusHours(1), now.plusHours(1), 2);
@@ -265,8 +265,8 @@ class HomeV1DatabaseTest {
                 """);
         db.update("""
                 INSERT INTO media_attachment (id,type,kind,registered,registered_by,object_key,url,retention,expires_at)
-                VALUES (201,1,'IMAGE',1,7,'attachment-resource/7/cover','https://example.org/cover.jpg','FORMAL',NULL),
-                       (202,1,'IMAGE',1,7,'attachment-resource/7/candidate','https://example.org/candidate.jpg',
+                VALUES (201,1,'IMAGE',1,7,'post/retained/7/cover','https://example.org/cover.jpg','FORMAL',NULL),
+                       (202,1,'IMAGE',1,7,'post/retained/7/candidate','https://example.org/candidate.jpg',
                            'CANDIDATE',NOW() + INTERVAL 1 HOUR)
                 """);
         for (int id = 31; id <= 36; id++) {

@@ -109,7 +109,7 @@ class WechatPointMaterialSafetyDatabaseTest {
         owner = Objects.requireNonNull(db.queryForObject("SELECT id FROM user_profile WHERE openid=?", Long.class, "synthetic-points-" + id));
         retained = "points/retained/" + id;
         db.update("INSERT INTO media_point_upload(upload_id,owner_user_id,request_key,fingerprint,expires_at) VALUES(?,?,? ,?,UTC_TIMESTAMP()+INTERVAL 15 MINUTE)", id, owner, id, "a".repeat(64));
-        db.update("INSERT INTO media_point_file(file_id,upload_id,file_index,owner_user_id,file_name,kind,content_type,size_bytes,source_key,retained_key,state,upload_expires_at,cleanup_after) VALUES(?,?,0,?,'proof.png','IMAGE','image/png',67,?,?,'UPLOADING',UTC_TIMESTAMP()+INTERVAL 15 MINUTE,UTC_TIMESTAMP()+INTERVAL 1 DAY)", id, id, owner, "points/tmp/" + id, retained);
+        db.update("INSERT INTO media_point_file(file_id,upload_id,file_index,owner_user_id,file_name,kind,content_type,size_bytes,source_key,retained_key,state,upload_expires_at,cleanup_after) VALUES(?,?,0,?,'proof.png','IMAGE','image/png',67,?,?,'UPLOADING',UTC_TIMESTAMP()+INTERVAL 15 MINUTE,UTC_TIMESTAMP()+INTERVAL 1 DAY)", id, id, owner, "points/upload/" + id, retained);
         when(users.getMiniOpenid(owner)).thenReturn("synthetic-uploader-openid");
         when(cos.generatePresignedUrl(eq("synthetic-private-1250000000"), eq(retained), any(java.util.Date.class), eq(HttpMethodName.GET)))
                 .thenReturn(URI.create("https://example.invalid/transient-signed-image").toURL());

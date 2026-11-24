@@ -5,6 +5,7 @@ import cn.jualn.miniapp.module.media.bo.PointMaterialBO.*;
 import cn.jualn.miniapp.third.cos.config.CosProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qcloud.cos.COSClient;
+import com.qcloud.cos.exception.CosServiceException;
 import com.qcloud.cos.http.HttpMethodName;
 import com.qcloud.cos.model.*;
 import com.tencent.cloud.CosStsClient;
@@ -18,6 +19,7 @@ import javax.imageio.ImageIO;
 
 import org.apache.pdfbox.Loader;
 import org.apache.poi.hwpf.HWPFDocument;
+import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -79,7 +81,7 @@ public class CosPointMaterialProvider implements PointMaterialProvider {
             throw unavailable(Dependency.CONTENT_SAFETY);
         try {
             privateAcl(cos.getBucketAcl(bucket));
-        } catch (cn.jualn.miniapp.common.exception.ContractProblemException failure) {
+        } catch (ContractProblemException failure) {
             throw failure;
         } catch (RuntimeException failure) {
             throw unavailable(Dependency.PRIVATE_MEDIA);
@@ -171,7 +173,7 @@ public class CosPointMaterialProvider implements PointMaterialProvider {
             if (expired > expires.toEpochSecond(ZoneOffset.UTC) || expired <= Instant.now().getEpochSecond())
                 throw unavailable(Dependency.PRIVATE_MEDIA);
             return new Credentials(bucket, properties.getRegion(), keys, secret.path("tmpSecretId").asText(null), secret.path("tmpSecretKey").asText(null), secret.path("sessionToken").asText(null), expired, null, upload, LocalDateTime.ofEpochSecond(expired, 0, ZoneOffset.UTC));
-        } catch (cn.jualn.miniapp.common.exception.ContractProblemException e) {
+        } catch (ContractProblemException e) {
             throw e;
         } catch (Exception e) {
             throw unavailable(Dependency.PRIVATE_MEDIA);
@@ -193,7 +195,7 @@ public class CosPointMaterialProvider implements PointMaterialProvider {
             request.putCustomRequestHeader("x-cos-forbid-overwrite", "true");
             try {
                 cos.copyObject(request);
-            } catch (com.qcloud.cos.exception.CosServiceException e) {
+            } catch (CosServiceException e) {
                 if (e.getStatusCode() != 409) throw e;
             }
             privateAcl(cos.getObjectAcl(bucket, retained));
@@ -294,7 +296,7 @@ public class CosPointMaterialProvider implements PointMaterialProvider {
             try (var input = Files.newInputStream(file); var document = new XWPFDocument(input)) {
                 if (document.getPackage().getParts().stream().anyMatch(p -> p.getContentType().toLowerCase(Locale.ROOT).contains("macroenabled") || p.getPartName().getName().contains("vbaProject")))
                     throw PointMaterialService.invalidReference("uploadId");
-            } catch (IOException | org.apache.poi.openxml4j.exceptions.InvalidFormatException | RuntimeException e) {
+            } catch (IOException | InvalidFormatException | RuntimeException e) {
                 throw PointMaterialService.invalidReference("uploadId");
             }
         }
@@ -306,7 +308,7 @@ public class CosPointMaterialProvider implements PointMaterialProvider {
         if (!"video/mp4".equals(declaration.contentType())) throw PointMaterialService.invalidReference("uploadId");
         try {
             inspector.video(file, declaration.sizeBytes());
-        } catch (cn.jualn.miniapp.common.exception.ContractProblemException failure) {
+        } catch (ContractProblemException failure) {
             if (failure.getStatus().is5xxServerError()) throw unavailable(Dependency.PRIVATE_MEDIA);
             throw PointMaterialService.invalidReference("uploadId");
         }
@@ -323,7 +325,7 @@ public class CosPointMaterialProvider implements PointMaterialProvider {
             String url = cos.generatePresignedUrl(request).toExternalForm();
             if (!url.startsWith("https://")) throw unavailable(Dependency.PRIVATE_MEDIA);
             return new Access(url, expires);
-        } catch (cn.jualn.miniapp.common.exception.ContractProblemException failure) {
+        } catch (ContractProblemException failure) {
             throw failure;
         } catch (RuntimeException failure) {
             throw unavailable(Dependency.PRIVATE_MEDIA);

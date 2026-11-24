@@ -159,7 +159,7 @@ class OfficialContentDatabaseTest {
     }
     @Test void managedOfficialUploadBindsOnRegistrationAndRejectsOtherOperator() {
         assertThrows(BusinessException.class, () -> media.generateUploadCredential(TargetType.OFFICIAL_CONTENT, List.of("video.mp4")));
-        String key = "official-content/9/"+UUID.randomUUID()+".mp4";
+        String key = "official-content/upload/9/"+UUID.randomUUID()+".mp4";
         jdbc.update("INSERT INTO media_upload_record(user_id,target_type,object_key,status,cleanup_after) VALUES(9,7,?,0,DATE_ADD(NOW(),INTERVAL 1 HOUR))",key);
         assertThrows(BusinessException.class,() -> media.registerAttachment("LINK","视频","https://cdn.example/"+key,10L));
         var attachment = media.registerAttachment("LINK","视频","https://cdn.example/"+key,9L);

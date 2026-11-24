@@ -60,15 +60,15 @@ class ArticleSafetyCheckTest {
   assertTrue(capture.getAllValues().stream().allMatch(r->r.getContent().codePointCount(0,r.getContent().length())<=2000));
  }
  @Test void videoIsNotApprovedByImageOrTextChecksAndLateCallbacksCannotPublish() {
-  var video=MediaAttachmentBO.builder().kind("VIDEO").verified(true).objectKey("article-resource/video").build();
+  var video=MediaAttachmentBO.builder().kind("VIDEO").verified(true).objectKey("article/retained/video").build();
   doThrow(ArticleSafetyChecks.unavailable()).when(videos).requirePassed(video,9L);
   assertEquals(503,assertThrows(ContractProblemException.class,()->checks.media(9,1,List.of(video))).getStatus().value()); verifyNoInteractions(reservations,wx);
   var callback=new ArticleCandidateAuditCallback(); assertDoesNotThrow(()->callback.onPass(1L,2L)); assertDoesNotThrow(()->callback.onReject(1L,2L,"late"));
  }
  @Test void imageAuditCanBeDisabledWhileKeepingImageVerification() {
-  var image=MediaAttachmentBO.builder().kind("IMAGE").verified(true).objectKey("article-resource/image").build();
+  var image=MediaAttachmentBO.builder().kind("IMAGE").verified(true).objectKey("article/retained/image").build();
   assertDoesNotThrow(()->checks.media(9,1,List.of(image)));
-  var unverified=MediaAttachmentBO.builder().kind("IMAGE").verified(false).objectKey("article-resource/image").build();
+  var unverified=MediaAttachmentBO.builder().kind("IMAGE").verified(false).objectKey("article/retained/image").build();
   assertEquals(503,assertThrows(ContractProblemException.class,()->checks.media(9,1,List.of(unverified))).getStatus().value());
   verifyNoInteractions(reservations);
 

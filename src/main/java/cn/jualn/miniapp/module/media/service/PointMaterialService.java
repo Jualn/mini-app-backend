@@ -110,7 +110,7 @@ public class PointMaterialService {
                     row.setKind(declaration.kind());
                     row.setContentType(declaration.contentType());
                     row.setSizeBytes(declaration.sizeBytes());
-                    row.setSourceKey("points/tmp/" + user + "/" + id + "/" + index);
+                    row.setSourceKey("points/upload/" + user + "/" + id + "/" + index);
                     row.setRetainedKey("points/retained/" + row.getFileId());
                     row.setState("UPLOADING");
                     row.setUploadExpiresAt(expiry);

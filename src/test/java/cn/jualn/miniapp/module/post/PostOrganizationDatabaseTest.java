@@ -269,7 +269,7 @@ class PostOrganizationDatabaseTest {
     @Test void failedMediaBindingRollsBackPostAndAllTopicLinks() {
         long t=topic("ROLLBACK_A");int before=jdbc.queryForObject("SELECT COUNT(*) FROM post",Integer.class);
         doThrow(new IllegalStateException("synthetic binding failure")).when(context.getBean(TestMediaService.class)).replaceAttachments(any());
-        var c=PostCreateBO.builder().content("transaction").topicIds(List.of(t)).attachmentItems(List.of(cn.jualn.miniapp.module.media.bo.AttachmentItemBO.builder().type(MediaType.IMAGE).url("https://cdn.example/img").objectKey("post/42/img").build())).build();
+        var c=PostCreateBO.builder().content("transaction").topicIds(List.of(t)).attachmentItems(List.of(cn.jualn.miniapp.module.media.bo.AttachmentItemBO.builder().type(MediaType.IMAGE).url("https://cdn.example/img").objectKey("post/upload/42/img").build())).build();
         assertThrows(IllegalStateException.class,()->posts.createPost(c));
         assertEquals(before,jdbc.queryForObject("SELECT COUNT(*) FROM post",Integer.class));assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM post_topic WHERE topic_id=?",Integer.class,t));
     }

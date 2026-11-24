@@ -139,7 +139,7 @@ LearningTask 私有成果由 Media 的 LearningMaterialService 拥有专用 allo
 
 配置保持最小改动：`COS_BUCKET` 继续供既有 `cos.bucket` 使用，含义限定为当前环境的公开媒体桶；`COS_PRIVATE_BUCKET` 显式绑定 `app.points.private-bucket`，不回落到公开桶。两桶当前共用 `COS_REGION` 和该环境的一组 `COS_SECRET_ID` / `COS_SECRET_KEY`，因此部署时使用同一地域、仅限这两个桶的应用身份。生产与测试必须使用不同应用身份；云端巡检/建桶身份与应用运行身份分开。COS 配置直接放在后端 `.env.dev` / `.env.prod` 中，与其他服务配置一起维护，旧桶配置注释保留，不另设 COS 片段。启动器负责加载对应文件中的环境变量，Spring 不因这些文件存在而自动加载。
 
-帖子及评论的新图片使用共享私有桶的 `private/` 存储命名空间；上传、核验快照、清理按同一 key 路由到私有桶，不能降级到公开桶。`cos.private-bucket` 与既有 Points 的私有桶配置均绑定 COS_PRIVATE_BUCKET，配置归 storage，媒体不依赖 Points service。其他上传用途保留原路径与存储语义。
+对象键统一使用 `<业务>/upload/...` 作为客户端原始上传位置、`<业务>/retained/...` 作为服务端核验快照位置。`user`、`activity`、`exam`、`official-content`、`article` 进入当前环境的公开媒体桶；`post`、`comment`、`growth-record` 进入共享私有桶；Points 与 LearningTask 沿用各自私有 Provider 的桶配置和启用边界，均不能降级到公开桶。上传、核验快照和清理必须按同一 key 路由。独立附件登记同样按上传用途生成对应业务的 `retained/` 快照，不使用跨业务资源前缀。`cos.private-bucket` 与既有 Points 的私有桶配置均绑定 COS_PRIVATE_BUCKET，配置归 storage，媒体不依赖 Points service。
 
 `MediaContentService` 在短读取事务中复核文件生命周期和实际引用，通过 `MediaContentPolicy` SPI 由 Post / Comment owner 决定公开、作者预览和管理读取；不持有业务实体到传输层，不在 COS 客户端查询帖子或权限表。`MediaDeliveryUrls` 返回稳定的不透明文件 URL，配置 `app.media.public-base-url` / MEDIA_PUBLIC_BASE_URL 必须是实际 Backend HTTPS 入口。公开 URL 无凭证只读当前公开图片，作者私有预览必须携带当前普通会话；管理 URL 使用独立 admin 会话及真实主体读取职责。
 
@@ -153,7 +153,7 @@ LearningTask 私有成果由 Media 的 LearningMaterialService 拥有专用 allo
 
 旧地址迁移由核准清单、文件核验和精确数据库 URL 映射负责，不引入前端全局字符串转换。客户端静态分享图不在业务数据库中，需单独盘点并随环境配置切换；Mini 通过 config/index.ts 的 defaultShareImageUrl 统一配置。该配置在域名切换前仍指向现用地址，不代表测试隔离已经完成。具体字段/接口仍以所属 Contracts 为准，本节不新增协议或一套前端存储路由。
 
-对象键沿用既有 owner 分区，例如 `points/tmp/...` 与 `points/retained/...`；目录前缀不是环境隔离或访问授权。私有正式材料、软删除保留资源以及仍被业务引用的对象不能套用全桶按龄删除规则。公开直传桶必须保持版本控制 Off：腾讯 COS 在开启版本控制时忽略 forbid-overwrite，凭证签发会实时检查并在证据缺失/不符时返回 503。其他桶的版本恢复策略独立决定；历史版本保留期和永久清理须另行明确，不能采用控制台默认历史版本删除期限。
+对象键在业务命名空间内区分原始上传与正式快照，例如 `points/upload/...` 与 `points/retained/...`；目录前缀不是环境隔离或访问授权。私有正式材料、软删除保留资源以及仍被业务引用的对象不能套用全桶按龄删除规则。公开直传桶必须保持版本控制 Off：腾讯 COS 在开启版本控制时忽略 forbid-overwrite，凭证签发会实时检查并在证据缺失/不符时返回 503。其他桶的版本恢复策略独立决定；历史版本保留期和永久清理须另行明确，不能采用控制台默认历史版本删除期限。
 
 不立即建设通用存储路由表或双桶回退框架。当前元数据多为 objectKey/URL，存量切换应优先按核准清单、受控写入维护窗口、保持 key 的复制及精确 URL/引用映射完成。若实际发布要求新旧桶长期并行，才单独定义可持久追溯的 bucket/region/key 定位模型及其数据库、Contract 影响，不能靠配置默默猜旧对象属于哪个桶。
 

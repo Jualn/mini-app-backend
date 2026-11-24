@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class CosVideoAuditClientTest {
     byte[] response(String state,String extra) {
         return ("<Response><JobsDetail><JobId>v123</JobId><DataId>article-video-audit:7</DataId>"
-                +"<Object>article-resource/9/video</Object><State>"+state+"</State>"+extra+"</JobsDetail></Response>").getBytes(StandardCharsets.UTF_8);
+                +"<Object>article/retained/9/video</Object><State>"+state+"</State>"+extra+"</JobsDetail></Response>").getBytes(StandardCharsets.UTF_8);
     }
     @Test void onlyCompleteSuccessWithExplicitNormalResultsPasses() {
         assertEquals(Decision.PENDING,CosVideoAuditClient.parse(response("Auditing","")).decision());
@@ -38,9 +38,9 @@ class CosVideoAuditClientTest {
                 captured.set(xml); path.set(resource); return response("Submitted","");
             }
         };
-        client.submit("bucket-1250000000","ap-guangzhou","article-resource/9/a&b","article-video-audit:7","strategy",1);
+        client.submit("bucket-1250000000","ap-guangzhou","article/retained/9/a&b","article-video-audit:7","strategy",1);
         assertEquals("/video/auditing",path.get());
-        assertTrue(captured.get().contains("<Object>article-resource/9/a&amp;b</Object>"));
+        assertTrue(captured.get().contains("<Object>article/retained/9/a&amp;b</Object>"));
         assertTrue(captured.get().contains("<DetectContent>1</DetectContent>"));
         assertTrue(captured.get().contains("<BizType>strategy</BizType>"));
         assertTrue(captured.get().contains("<Count>10000</Count>"));
@@ -64,14 +64,14 @@ class CosVideoAuditClientTest {
                     return (java.net.HttpURLConnection)java.net.URI.create("http://127.0.0.1:"+server.getAddress().getPort()+uri.getPath()).toURL().openConnection();
                 }
             };
-            assertEquals(Decision.PENDING,client.submit(cos.getBucket(),cos.getRegion(),"article-resource/9/video","article-video-audit:7","strategy",1).decision());
+            assertEquals(Decision.PENDING,client.submit(cos.getBucket(),cos.getRegion(),"article/retained/9/video","article-video-audit:7","strategy",1).decision());
             assertTrue(authorization.get().contains("q-sign-algorithm=sha1")); assertTrue(authorization.get().contains("content-md5"));
             assertEquals(java.util.Base64.getEncoder().encodeToString(java.security.MessageDigest.getInstance("MD5").digest(requestBody.get())),digest.get());
             server.removeContext("/video/auditing"); server.createContext("/video/auditing",exchange->{
                 requests.incrementAndGet(); exchange.getResponseHeaders().set("Location","http://127.0.0.1:"+server.getAddress().getPort()+"/unexpected");
                 exchange.sendResponseHeaders(307,-1); exchange.close();
             });
-            assertThrows(ExternalServiceException.class,()->client.submit(cos.getBucket(),cos.getRegion(),"article-resource/9/video","article-video-audit:7","strategy",1));
+            assertThrows(ExternalServiceException.class,()->client.submit(cos.getBucket(),cos.getRegion(),"article/retained/9/video","article-video-audit:7","strategy",1));
             assertEquals(2,requests.get());
         } finally { server.stop(0); }
     }

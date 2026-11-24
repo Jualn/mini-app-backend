@@ -23,21 +23,21 @@ class MediaProfileSnapshotTest {
     @BeforeEach void setup() { UserContext.setUserId(7L); }
     @AfterEach void close() { UserContext.clear(); }
     @Test void profileUsesTheOwnerVerifiedSnapshotAndServerUrl() {
-        when(records.prepareVerified(7L,TargetType.USER,"user/7/source.png","IMAGE")).thenReturn("media-effective/5/7/snapshot");
-        when(cos.buildPublicUrl("media-effective/5/7/snapshot")).thenReturn("https://media.example/snapshot");
-        var value=media.prepareProfileSnapshot("user/7/source.png");
-        assertEquals("media-effective/5/7/snapshot",value.objectKey());assertEquals("https://media.example/snapshot",value.url());
-        verify(records).prepareVerified(7L,TargetType.USER,"user/7/source.png","IMAGE");
+        when(records.prepareVerified(7L,TargetType.USER,"user/upload/7/source.png","IMAGE")).thenReturn("user/retained/7/snapshot");
+        when(cos.buildPublicUrl("user/retained/7/snapshot")).thenReturn("https://media.example/snapshot");
+        var value=media.prepareProfileSnapshot("user/upload/7/source.png");
+        assertEquals("user/retained/7/snapshot",value.objectKey());assertEquals("https://media.example/snapshot",value.url());
+        verify(records).prepareVerified(7L,TargetType.USER,"user/upload/7/source.png","IMAGE");
     }
     @Test void ineligibleUploadsCannotProduceProfileSnapshots() {
         doThrow(new BusinessException(ResultCode.INVALID_OPERATION)).when(records).prepareVerified(eq(7L),eq(TargetType.USER),anyString(),eq("IMAGE"));
-        assertThrows(BusinessException.class,()->media.prepareProfileSnapshot("user/8/source.png"));
+        assertThrows(BusinessException.class,()->media.prepareProfileSnapshot("user/upload/8/source.png"));
         verify(cos,never()).buildPublicUrl(anyString());
     }
     @Test void unknownPreparationCannotBeTreatedAsSuccessfulProfileSave() {
         doThrow(new cn.jualn.miniapp.common.exception.ContractProblemException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,"/problems/service-unavailable","unknown"))
-            .when(records).prepareVerified(7L,TargetType.USER,"user/7/source.png","IMAGE");
-        assertThrows(cn.jualn.miniapp.common.exception.ContractProblemException.class,()->media.prepareProfileSnapshot("user/7/source.png"));
+            .when(records).prepareVerified(7L,TargetType.USER,"user/upload/7/source.png","IMAGE");
+        assertThrows(cn.jualn.miniapp.common.exception.ContractProblemException.class,()->media.prepareProfileSnapshot("user/upload/7/source.png"));
         verify(records,never()).bindPending(any(),any(),any(),any());
     }
 }

@@ -14,6 +14,7 @@ sa-token:
 
 app:
   media:
+    # 本服务地址，用于帖子、评论、成长记录等受控媒体。就是通过访问这个地址然后会进行鉴权然后从cos获取能够访问的url返回给前端, 可以是本服务的域名或者是nginx的域名
     public-base-url: ${MEDIA_PUBLIC_BASE_URL:}
   article:
     # Optional deep format probe for Article and Points MP4; blank keeps header checks and video upload enabled.

@@ -51,9 +51,9 @@ class EventContentServiceImplTest {
     }
     @Test void resolvesSameSaveObjectKey() {
         when(media.listAttachments(TargetType.ACTIVITY, 1L)).thenReturn(List.of(
-                MediaAttachmentBO.builder().id(9L).type(MediaType.IMAGE).objectKey("activity/1/qr.png").build()));
+                MediaAttachmentBO.builder().id(9L).type(MediaType.IMAGE).objectKey("activity/upload/1/qr.png").build()));
         service.saveActions(TargetType.ACTIVITY, 1L, List.of(EventActionBO.builder().actionKey("join").actionType(5).label("加群")
-                .attachmentObjectKey("activity/1/qr.png").isRequired(true).build()));
+                .attachmentObjectKey("activity/upload/1/qr.png").isRequired(true).build()));
         ArgumentCaptor<EventAction> captor = ArgumentCaptor.forClass(EventAction.class);
         verify(actions).insert(captor.capture());
         assertEquals(9L, captor.getValue().getAttachmentId());

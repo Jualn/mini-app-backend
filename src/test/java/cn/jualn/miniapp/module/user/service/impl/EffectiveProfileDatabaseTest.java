@@ -70,14 +70,14 @@ class EffectiveProfileDatabaseTest {
     private void unchanged() { assertEquals("原昵称", field("nickname")); assertEquals("原简介", field("bio")); assertEquals("0", field("profile_revision")); }
 
     @Test void snapshotDependencyKeepsProfileFailureRepresentationAndOldEffectiveFields() {
-        when(media.prepareProfileSnapshot("user/"+id+"/new.png")).thenThrow(new ContractProblemException(
+        when(media.prepareProfileSnapshot("user/upload/"+id+"/new.png")).thenThrow(new ContractProblemException(
             org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,"/problems/service-unavailable","snapshot unavailable"));
-        var error=assertThrows(ContractProblemException.class,()->service.updateCurrentProfile(UserProfileUpdateBO.builder().avatarObjectKey("user/"+id+"/new.png").build()));
+        var error=assertThrows(ContractProblemException.class,()->service.updateCurrentProfile(UserProfileUpdateBO.builder().avatarObjectKey("user/upload/"+id+"/new.png").build()));
         assertEquals("/problems/profile-safety-check-unavailable",error.getType());unchanged();
     }
     @Test void incompleteOrInvalidSnapshotIsAnInvalidProfileReference() {
-        when(media.prepareProfileSnapshot("user/"+id+"/new.png")).thenThrow(ContractProblemException.conflict("attachment-not-ready","not ready"));
-        var error=assertThrows(ContractProblemException.class,()->service.updateCurrentProfile(UserProfileUpdateBO.builder().avatarObjectKey("user/"+id+"/new.png").build()));
+        when(media.prepareProfileSnapshot("user/upload/"+id+"/new.png")).thenThrow(ContractProblemException.conflict("attachment-not-ready","not ready"));
+        var error=assertThrows(ContractProblemException.class,()->service.updateCurrentProfile(UserProfileUpdateBO.builder().avatarObjectKey("user/upload/"+id+"/new.png").build()));
         assertEquals(400,error.getStatus().value());unchanged();
     }
 
@@ -164,31 +164,31 @@ class EffectiveProfileDatabaseTest {
         } finally { release.countDown(); executor.shutdownNow(); }
     }
     private void snapshot() {
-        when(media.resolveOwnedUploadUrl(TargetType.USER, "user/test/avatar")).thenReturn("https://media.example/source");
-        when(media.prepareProfileSnapshot("user/test/avatar")).thenReturn(new ProfileMediaSnapshotBO("profile-effective/test/copy", "https://media.example/frozen"));
+        when(media.resolveOwnedUploadUrl(TargetType.USER, "user/upload/test/avatar")).thenReturn("https://media.example/source");
+        when(media.prepareProfileSnapshot("user/upload/test/avatar")).thenReturn(new ProfileMediaSnapshotBO("user/retained/test/copy", "https://media.example/frozen"));
     }
     private void backgroundSnapshot() {
-        when(media.resolveOwnedUploadUrl(TargetType.USER, "user/test/background")).thenReturn("https://media.example/background-source");
-        when(media.prepareProfileSnapshot("user/test/background")).thenReturn(new ProfileMediaSnapshotBO("profile-effective/test/background", "https://media.example/background"));
+        when(media.resolveOwnedUploadUrl(TargetType.USER, "user/upload/test/background")).thenReturn("https://media.example/background-source");
+        when(media.prepareProfileSnapshot("user/upload/test/background")).thenReturn(new ProfileMediaSnapshotBO("user/retained/test/background", "https://media.example/background"));
     }
     @Test void backgroundOnlyUpdatePreservesOtherFieldsAndIsPublicAfterChecks() {
         backgroundSnapshot();
         doAnswer(call -> { unchanged(); assertNull(field("background_url")); return null; })
                 .when(safety).checkMedia(id, AuditScene.USER_BACKGROUND, "https://media.example/background");
-        var result = service.updateEffectiveProfile(UserProfileUpdateBO.builder().backgroundObjectKey("user/test/background").build());
+        var result = service.updateEffectiveProfile(UserProfileUpdateBO.builder().backgroundObjectKey("user/upload/test/background").build());
         assertEquals("https://media.example/background", result.getBackgroundUrl());
         assertEquals("原昵称", result.getNickname()); assertEquals("原简介", result.getBio());
         assertEquals(result.getBackgroundUrl(), service.getEffectiveProfile(null).getBackgroundUrl());
         UserContext.setUserId(id + 1);
         assertEquals(result.getBackgroundUrl(), service.getEffectiveProfile(id).getBackgroundUrl());
         assertNull(service.getEffectiveProfile(null).getBackgroundUrl());
-        assertEquals("profile-effective/test/background", field("background_snapshot_key"));
-        verify(media).bindPendingUploads(TargetType.USER, id, List.of("profile-effective/test/background"));
+        assertEquals("user/retained/test/background", field("background_snapshot_key"));
+        verify(media).bindPendingUploads(TargetType.USER, id, List.of("user/retained/test/background"));
     }
     @Test void mixedBackgroundAndAvatarPassCommitTogether() {
         snapshot(); backgroundSnapshot();
         var result = service.updateEffectiveProfile(UserProfileUpdateBO.builder().nickname("新昵称").bio("新简介")
-                .avatarObjectKey("user/test/avatar").backgroundObjectKey("user/test/background").build());
+                .avatarObjectKey("user/upload/test/avatar").backgroundObjectKey("user/upload/test/background").build());
         assertEquals("新昵称", result.getNickname()); assertEquals("新简介", result.getBio());
         assertEquals("https://media.example/frozen", result.getAvatarUrl());
         assertEquals("https://media.example/background", result.getBackgroundUrl());
@@ -201,16 +201,16 @@ class EffectiveProfileDatabaseTest {
         for (var failure : List.of(ProfileSafetyCheckService.rejected(), ProfileSafetyCheckService.unavailable())) {
             doThrow(failure).when(safety).checkMedia(id, AuditScene.USER_BACKGROUND, "https://media.example/background");
             assertThrows(ContractProblemException.class, () -> service.updateEffectiveProfile(UserProfileUpdateBO.builder()
-                    .nickname("新昵称").bio("新简介").avatarObjectKey("user/test/avatar").backgroundObjectKey("user/test/background").build()));
+                    .nickname("新昵称").bio("新简介").avatarObjectKey("user/upload/test/avatar").backgroundObjectKey("user/upload/test/background").build()));
             unchanged(); assertNull(field("avatar_url")); assertNull(field("background_url"));
         }
         verify(media, never()).bindPendingUploads(any(), any(), any());
     }
     @Test void retainedBackgroundDoesNotUploadOrCheckAgain() {
-        jdbc.update("UPDATE user_profile SET background_object_key='user/test/background',background_url='https://media.example/old-background' WHERE id=?", id);
+        jdbc.update("UPDATE user_profile SET background_object_key='user/upload/test/background',background_url='https://media.example/old-background' WHERE id=?", id);
         backgroundSnapshot();
         assertEquals("https://media.example/old-background", service.updateEffectiveProfile(UserProfileUpdateBO.builder()
-                .backgroundObjectKey("user/test/background").build()).getBackgroundUrl());
+                .backgroundObjectKey("user/upload/test/background").build()).getBackgroundUrl());
         verify(media, never()).prepareProfileSnapshot(anyString()); verify(safety, never()).checkMedia(any(), any(), any());
     }
     @Test void backgroundReferenceValidationKeepsPreviousProfile() {
@@ -229,19 +229,19 @@ class EffectiveProfileDatabaseTest {
         snapshot();
         doAnswer(call -> { assertNull(field("avatar_url")); assertFalse(TransactionSynchronizationManager.isActualTransactionActive()); return null; })
                 .when(safety).checkMedia(id, AuditScene.USER_AVATAR, "https://media.example/frozen");
-        assertEquals("https://media.example/frozen", service.updateEffectiveProfile(UserProfileUpdateBO.builder().avatarObjectKey("user/test/avatar").build()).getAvatarUrl());
-        assertEquals("profile-effective/test/copy", field("avatar_snapshot_key"));
-        verify(media).bindPendingUploads(TargetType.USER, id, List.of("profile-effective/test/copy"));
+        assertEquals("https://media.example/frozen", service.updateEffectiveProfile(UserProfileUpdateBO.builder().avatarObjectKey("user/upload/test/avatar").build()).getAvatarUrl());
+        assertEquals("user/retained/test/copy", field("avatar_snapshot_key"));
+        verify(media).bindPendingUploads(TargetType.USER, id, List.of("user/retained/test/copy"));
     }
     @Test void lateBackgroundAuditDoesNotClearTheCurrentEffectiveBackground() {
         backgroundSnapshot();
-        service.updateEffectiveProfile(UserProfileUpdateBO.builder().backgroundObjectKey("user/test/background").build());
+        service.updateEffectiveProfile(UserProfileUpdateBO.builder().backgroundObjectKey("user/upload/test/background").build());
         var callback = new cn.jualn.miniapp.module.user.audit.UserBackgroundAuditCallback(
                 context.getBean(UserProfileMapper.class), context.getBean(RedisService.class),
                 mock(cn.jualn.miniapp.module.notify.service.NotifyService.class));
         callback.onReject(id, 1L, "late result"); callback.onPass(id, 1L);
         assertEquals("https://media.example/background", field("background_url"));
-        assertEquals("profile-effective/test/background", field("background_snapshot_key"));
+        assertEquals("user/retained/test/background", field("background_snapshot_key"));
         assertEquals("1", field("profile_revision"));
     }
     @Test void imageRejectOrUnavailableKeepsTextAndImageUnchanged() {
@@ -249,15 +249,15 @@ class EffectiveProfileDatabaseTest {
         for (ContractProblemException failure : List.of(ProfileSafetyCheckService.rejected(), ProfileSafetyCheckService.unavailable())) {
             doThrow(failure).when(safety).checkMedia(anyLong(), any(), anyString());
             assertThrows(ContractProblemException.class, () -> service.updateEffectiveProfile(UserProfileUpdateBO.builder()
-                    .avatarObjectKey("user/test/avatar").nickname("新昵称").bio("新简介").build()));
+                    .avatarObjectKey("user/upload/test/avatar").nickname("新昵称").bio("新简介").build()));
             unchanged(); assertNull(field("avatar_url"));
         }
         verify(media, never()).bindPendingUploads(any(), any(), any());
     }
     @Test void retainedCurrentReferenceNeedsNoUploadOrRepeatedMediaCheck() {
-        jdbc.update("UPDATE user_profile SET avatar_object_key='user/test/avatar',avatar_url='https://media.example/current' WHERE id=?", id);
-        when(media.resolveOwnedUploadUrl(TargetType.USER, "user/test/avatar")).thenReturn("https://media.example/source");
-        assertEquals("https://media.example/current", service.updateEffectiveProfile(UserProfileUpdateBO.builder().avatarObjectKey("user/test/avatar").build()).getAvatarUrl());
+        jdbc.update("UPDATE user_profile SET avatar_object_key='user/upload/test/avatar',avatar_url='https://media.example/current' WHERE id=?", id);
+        when(media.resolveOwnedUploadUrl(TargetType.USER, "user/upload/test/avatar")).thenReturn("https://media.example/source");
+        assertEquals("https://media.example/current", service.updateEffectiveProfile(UserProfileUpdateBO.builder().avatarObjectKey("user/upload/test/avatar").build()).getAvatarUrl());
         verify(media, never()).prepareProfileSnapshot(anyString()); verify(safety, never()).checkMedia(any(), any(), any());
     }
     @Test void failedMediaBindingRollsBackWithoutPartialProfile() {
@@ -267,7 +267,7 @@ class EffectiveProfileDatabaseTest {
             throw new BusinessException(cn.jualn.miniapp.common.result.ResultCode.INVALID_OPERATION);
         }).when(media).bindPendingUploads(any(), any(), any());
         assertThrows(ContractProblemException.class, () -> service.updateEffectiveProfile(UserProfileUpdateBO.builder()
-                .avatarObjectKey("user/test/avatar").nickname("新昵称").build()));
+                .avatarObjectKey("user/upload/test/avatar").nickname("新昵称").build()));
         unchanged(); assertEquals("0", field("gender"));
     }
     @Test void invalidReferenceUsesTheContractPointerAndCannotChangeText() {

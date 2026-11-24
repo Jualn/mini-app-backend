@@ -179,7 +179,7 @@ class ActivityReminderDatabaseTest {
         assertEquals(List.of(firstUser,firstUser+1,firstUser+2,firstUser+3),received(8));
         assertEquals(8,jdbc.queryForObject("SELECT COUNT(*) FROM notification_delivery WHERE channel='IN_APP' AND status='DELIVERED'",Integer.class));
         var row=notifications.selectCanonicalInbox(firstUser,null,null,List.of(23),false,10).get(0);
-        var view=new NotificationSnapshotProjection(json,new SimpleMeterRegistry()).item(row);
+        var view=new NotificationSnapshotProjection(json,new SimpleMeterRegistry(),java.util.List.of()).item(row);
         assertEquals("ACTIVITY",view.category()); assertEquals("ACTIVITY_REGISTRATION_START_REMINDER",view.type());
         assertEquals("ACTIVITY_DETAIL",view.target().type()); assertEquals("new title",view.presentation().subjectTitle());
         assertTrue(notifications.selectCanonicalInbox(firstUser,null,null,null,true,10).isEmpty());

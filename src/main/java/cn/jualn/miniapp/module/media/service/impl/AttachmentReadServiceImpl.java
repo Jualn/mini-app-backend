@@ -60,7 +60,7 @@ public class AttachmentReadServiceImpl implements AttachmentReadService {
         try {
             mediaAccess.authorizeReusableRead(attachmentId,AdminStpUtil.STP_LOGIC.getLoginIdAsLong());
             var value=mediaService.getAttachment(attachmentId);
-            if("VIDEO".equals(value.getKind()) || (value.getObjectKey()!=null && value.getObjectKey().startsWith("article-resource/"))) mediaAccess.authorizeArticleMedia();
+            if("VIDEO".equals(value.getKind()) || (value.getObjectKey()!=null && value.getObjectKey().startsWith("article/retained/"))) mediaAccess.authorizeArticleMedia();
             if(value.getUrl()!=null && value.getUrl().contains(cn.jualn.miniapp.module.media.service.MediaDeliveryUrls.PATH))value.setUrl(deliveryUrls.getObject().adminVariant(value.getUrl()));
             return value;
         } catch (BusinessException forbidden) {

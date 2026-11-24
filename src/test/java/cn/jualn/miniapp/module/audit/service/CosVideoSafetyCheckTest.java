@@ -13,17 +13,17 @@ class CosVideoSafetyCheckTest {
     final CosVideoAuditProperties policy=new CosVideoAuditProperties();
     final CosProperties cos=new CosProperties("id","secret","bucket-1250000000","ap-guangzhou","https://cdn.example",1800,"cdn.example");
     final CosVideoSafetyCheckService safety=new CosVideoSafetyCheckService(writer,cos,policy);
-    MediaAttachmentBO video() { return MediaAttachmentBO.builder().id(1L).objectKey("article-resource/9/video").kind("VIDEO").verified(true).sizeBytes(100L).durationSeconds(30d).build(); }
+    MediaAttachmentBO video() { return MediaAttachmentBO.builder().id(1L).objectKey("article/retained/9/video").kind("VIDEO").verified(true).sizeBytes(100L).durationSeconds(30d).build(); }
 
     @Test void disabledModerationAllowsVerifiedVideoWithoutEnqueuingAndEnabledNeedsPolicy() {
-        safety.reserve(1,"article-resource/9/video",100,9);
+        safety.reserve(1,"article/retained/9/video",100,9);
         assertDoesNotThrow(()->safety.requirePassed(video(),9));
         var basic=video(); basic.setDurationSeconds(null);
         assertDoesNotThrow(()->safety.requirePassed(basic,9));
         var invalid=video();invalid.setVerified(false);
         assertThrows(ContractProblemException.class,()->safety.requirePassed(invalid,9));
         verifyNoInteractions(writer); policy.setEnabled(true);
-        assertThrows(ContractProblemException.class,()->safety.reserve(1,"article-resource/9/video",100,9));
+        assertThrows(ContractProblemException.class,()->safety.reserve(1,"article/retained/9/video",100,9));
     }
     @Test void publicationUsesOnlyExactPolicyPassAndChangingPolicyInvalidatesPriorApproval() {
         policy.setEnabled(true); policy.setBizType("strategy");

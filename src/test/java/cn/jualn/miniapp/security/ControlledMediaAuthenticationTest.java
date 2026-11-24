@@ -19,7 +19,7 @@ class ControlledMediaAuthenticationTest {
     @Test void publicImageNeedsNoSessionButCookieContextDoesNotAuthorizePrivatePreview() throws Exception {
         try(var sa=mockStatic(StpUtil.class)) {
             sa.when(StpUtil::isLogin).thenReturn(true);sa.when(StpUtil::getLoginId).thenReturn(7L);
-            var user=mock(UserAccountService.class);var media=mock(MediaContentService.class);when(media.require(1,null,false)).thenReturn(new MediaContentBO("private/a","image/png",3));
+            var user=mock(UserAccountService.class);var media=mock(MediaContentService.class);when(media.require(1,null,false)).thenReturn(new MediaContentBO("post/retained/7/a","image/png",3));
             assertEquals(200,mvc(user,media).perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head("/v1/media/files/1/content")).andReturn().getResponse().getStatus());
             verify(media).require(1,null,false);verifyNoInteractions(user);
         }
@@ -35,7 +35,7 @@ class ControlledMediaAuthenticationTest {
     @Test void authorPreviewRequiresCurrentAccountAndSessionVersionBeforeOwnerRead() throws Exception {
         try(var sa=mockStatic(StpUtil.class)) {
             sa.when(StpUtil::getLoginIdAsLong).thenReturn(7L);sa.when(StpUtil::isLogin).thenReturn(true);sa.when(StpUtil::getLoginId).thenReturn(7L);sa.when(()->StpUtil.getExtra(UserAccountService.SESSION_VERSION)).thenReturn("current");
-            var user=mock(UserAccountService.class);var media=mock(MediaContentService.class);when(media.require(1,7L,false)).thenReturn(new MediaContentBO("private/a","image/png",3));
+            var user=mock(UserAccountService.class);var media=mock(MediaContentService.class);when(media.require(1,7L,false)).thenReturn(new MediaContentBO("post/retained/7/a","image/png",3));
             assertEquals(200,mvc(user,media).perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head("/v1/media/files/1/content").header("Authorization","Bearer valid")).andReturn().getResponse().getStatus());
             verify(user).assertLoginAllowed(7L);verify(user).requireSessionVersion(7L,"current");verify(media).require(1,7L,false);
         }

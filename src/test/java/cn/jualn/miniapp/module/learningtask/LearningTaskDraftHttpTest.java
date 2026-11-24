@@ -214,7 +214,8 @@ class LearningTaskDraftHttpTest {
                         List.of("learning-task:read","learning-task:edit"),null)));
         org.mockito.Mockito.when(authorization.current(9)).thenReturn(decision);
         provider.formal=new cn.jualn.miniapp.module.learningtask.service.LearningTaskAuthorizationPolicy(authorization,catalog,
-                org.mockito.Mockito.mock(cn.jualn.miniapp.module.user.service.UserAccountService.class));
+                org.mockito.Mockito.mock(cn.jualn.miniapp.module.user.service.UserAccountService.class),
+                org.mockito.Mockito.mock(cn.jualn.miniapp.module.learningtask.service.LearningTaskScopePolicy.class));
         var scopeDouble=org.mockito.Mockito.mock(cn.jualn.miniapp.module.learningtask.service.LearningTaskScopePolicy.class);
         org.mockito.Mockito.when(scopeDouble.decision(org.mockito.ArgumentMatchers.anyLong())).thenAnswer(i->authorization.current(i.getArgument(0)));
         org.springframework.test.util.ReflectionTestUtils.setField(provider.formal,"scopes",scopeDouble);

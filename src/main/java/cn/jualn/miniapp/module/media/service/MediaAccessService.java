@@ -35,7 +35,7 @@ public class MediaAccessService implements MediaAccess {
             var access = mediaAttachmentMapper.selectBatchAccess(ids, actor);
             var result = new ArrayList<AdminAttachmentReadBO>();
             boolean articleAllowed=decision.allows("media:read","ARTICLE");
-            var articleIds=ids.stream().filter(id->{var value=metadata.get(id);return value!=null && ("VIDEO".equals(value.getKind()) || value.getObjectKey()!=null && value.getObjectKey().startsWith("article-resource/") || access.stream().anyMatch(r->id.equals(r.getAttachmentId()) && Integer.valueOf(8).equals(r.getTargetType())));}).toList();
+            var articleIds=ids.stream().filter(id->{var value=metadata.get(id);return value!=null && ("VIDEO".equals(value.getKind()) || value.getObjectKey()!=null && value.getObjectKey().startsWith("article/retained/") || access.stream().anyMatch(r->id.equals(r.getAttachmentId()) && Integer.valueOf(8).equals(r.getTargetType())));}).toList();
             Set<Long> articleReadable=new HashSet<>();
             RuntimeException articleFailure=null;
             if(articleAllowed && !articleIds.isEmpty()) try {articleReadable.addAll(mediaAttachmentMapper.readableArticleMedia(articleIds,actor,true,articleOrganizations.mediaOrganizations()));}catch(RuntimeException failure) {articleFailure=failure;}
@@ -82,7 +82,7 @@ public class MediaAccessService implements MediaAccess {
     public void authorizeReusableRead(Long attachmentId, long actor) {
         var readable = queries.getAttachment(attachmentId);
         var currentTargets = queries.listAttachmentTargets(attachmentId);
-        if("VIDEO".equals(readable.getKind()) || readable.getObjectKey()!=null && readable.getObjectKey().startsWith("article-resource/") || currentTargets.stream().anyMatch(t->Integer.valueOf(8).equals(t.targetType()))) {
+        if("VIDEO".equals(readable.getKind()) || readable.getObjectKey()!=null && readable.getObjectKey().startsWith("article/retained/") || currentTargets.stream().anyMatch(t->Integer.valueOf(8).equals(t.targetType()))) {
             articleMediaService.authorizeRead();
             var allowed=mediaAttachmentMapper.readableArticleMedia(List.of(attachmentId),actor,true,articleOrganizations.mediaOrganizations());
             if(!allowed.contains(attachmentId)) throw new BusinessException(ResultCode.MEDIA_ATTACHMENT_NOT_FOUND);

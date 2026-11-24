@@ -23,7 +23,7 @@ public class AttachmentConverter {
     }
     public AttachmentVO toVO(MediaAttachmentBO value) {
         boolean articleDocument=("PDF".equals(value.getKind()) || "WORD".equals(value.getKind()))
-                && value.getObjectKey()!=null && value.getObjectKey().startsWith("article-resource/");
+                && value.getObjectKey()!=null && value.getObjectKey().startsWith("article/retained/");
         return new AttachmentVO(value.getId().toString(), value.getKind() != null ? value.getKind() :
                 switch (Objects.requireNonNull(value.getType(), "attachment type")) {
                     case IMAGE -> "IMAGE";
