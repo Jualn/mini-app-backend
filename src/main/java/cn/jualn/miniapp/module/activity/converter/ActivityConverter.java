@@ -3,7 +3,11 @@ package cn.jualn.miniapp.module.activity.converter;
 import cn.jualn.miniapp.module.activity.bo.*;
 import cn.jualn.miniapp.module.activity.dto.request.ActivityCreateRequest;
 import cn.jualn.miniapp.module.activity.dto.request.ActivityUpdateRequest;
+import cn.jualn.miniapp.module.activity.dto.request.EventActionRequest;
+import cn.jualn.miniapp.module.activity.dto.request.EventSectionRequest;
 import cn.jualn.miniapp.module.activity.entity.Activity;
+import cn.jualn.miniapp.module.activity.vo.EventActionVO;
+import cn.jualn.miniapp.module.activity.vo.EventSectionVO;
 import cn.jualn.miniapp.module.timeline.converter.TimelineConverter;
 import cn.jualn.miniapp.common.mapper.EnumConverter;
 import cn.jualn.miniapp.module.activity.vo.ActivityDetailVO;
@@ -16,17 +20,17 @@ import java.util.List;
  */
 @Mapper(componentModel = "spring", uses = {TimelineConverter.class, EnumConverter.class, ActivityEnumMappings.class})
 public interface ActivityConverter {
-    cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO toEventSectionBO(cn.jualn.miniapp.module.activity.dto.request.EventSectionRequest request);
+    cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO toEventSectionBO(EventSectionRequest request);
 
-    cn.jualn.miniapp.module.activity.vo.EventSectionVO toEventSectionVO(cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO bo);
+    EventSectionVO toEventSectionVO(cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO bo);
 
-    java.util.List<cn.jualn.miniapp.module.activity.vo.EventSectionVO> toEventSectionVOs(java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO> bo);
+    List<EventSectionVO> toEventSectionVOs(java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventSectionBO> bo);
 
-    cn.jualn.miniapp.module.eventcontent.bo.EventActionBO toEventActionBO(cn.jualn.miniapp.module.activity.dto.request.EventActionRequest request);
+    cn.jualn.miniapp.module.eventcontent.bo.EventActionBO toEventActionBO(EventActionRequest request);
 
-    cn.jualn.miniapp.module.activity.vo.EventActionVO toEventActionVO(cn.jualn.miniapp.module.eventcontent.bo.EventActionBO bo);
+    EventActionVO toEventActionVO(cn.jualn.miniapp.module.eventcontent.bo.EventActionBO bo);
 
-    java.util.List<cn.jualn.miniapp.module.activity.vo.EventActionVO> toEventActionVOs(java.util.List<cn.jualn.miniapp.module.eventcontent.bo.EventActionBO> bo);
+    List<EventActionVO> toEventActionVOs(List<cn.jualn.miniapp.module.eventcontent.bo.EventActionBO> bo);
 
 
     ActivityCreateBO toCreateBO(ActivityCreateRequest request);

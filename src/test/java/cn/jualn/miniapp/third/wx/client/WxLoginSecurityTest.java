@@ -6,8 +6,6 @@ import ch.qos.logback.classic.spi.ThrowableProxyUtil;
 import ch.qos.logback.core.read.ListAppender;
 import cn.jualn.miniapp.common.exception.GlobalExceptionHandler;
 import cn.jualn.miniapp.infrastructure.cache.RedisService;
-import cn.jualn.miniapp.module.auth.controller.AuthController;
-import cn.jualn.miniapp.module.auth.service.impl.AuthServiceImpl;
 import cn.jualn.miniapp.third.wx.config.WxProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
