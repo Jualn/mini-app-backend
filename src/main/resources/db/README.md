@@ -2,7 +2,9 @@
 
 ## 日常业务独立操作 V101
 
-`V101__add_independent_business_operations.sql` 发布29项细分操作角色及举报目标处置权限，更新受控目录摘要，不改写旧角色成员、既有授权或委派上限。与对应Provider和管理端目录投影匹配发布；旧Provider不能与新摘要混用。新增角色仍依赖其使用权限在目标环境真实可用，不能由静态READY推定数据库已经发布。
+`V101__add_independent_business_operations.sql` 发布29项细分操作角色及举报目标处置权限，更新受控目录摘要，不改写旧角色成员、既有授权、Authority、人员或委派上限。与对应Provider和管理端目录投影匹配发布；旧Provider不能与新摘要混用。新增角色仍依赖其使用权限在目标环境真实可用，不能由静态READY推定数据库已经发布。
+
+迁移成功后保持 app 停止并直接部署匹配 JAR，不能先重启旧 JAR。部署失败优先保留 V101 并以前向修复版本恢复；不得回写旧 digest、删除新增角色或仅凭 Actuator UP 判定旧 JAR 兼容。整库时间点恢复必须与 pre-V101 JAR 配套，停写并明确批准恢复点后的数据损失。首次 RBAC 人员初始化是独立运维阶段，不由 V101 或普通 Flyway 自动执行。
 
 ## 通知首版 V98
 
@@ -340,9 +342,9 @@ V30 不从历史 URL 或目录数字伪造上传归属，也不批量认定 COS 
 
 ## RBAC V41 与 Authority 启动门禁
 
-V41只登记六表和73项Permission/18个候选Role，全部NOT_READY且不可授予，不初始化人员或回填Authority；不得修改已执行V41。G2本身没有新Flyway版本；V48另行增量登记人员基础权限/角色及更新目录摘要，仍不创建人员Assignment。新User与明确LEGACY Authority在同一事务建立；历史User必须在启动强制Reader的新二进制前显式回填。缺失/损坏Authority会使AuthorizationReadinessGate阻止启动，不默认LEGACY。
+V41只登记六表和73项Permission/18个候选Role，全部NOT_READY且不可授予，不初始化人员或回填Authority；不得修改已执行V41。G2本身没有新Flyway版本；V48另行增量登记人员基础权限/角色及更新目录摘要，仍不创建人员Assignment。新User与无 Grant 的 ASSIGNMENT Authority 在同一事务建立；历史User必须在启动强制Reader的新二进制前显式初始化。缺失、损坏或 LEGACY 来源以及不唯一的未撤销 ROOT 都会使 `AuthorizationReadinessGate` 阻止启动，不存在缺行默认来源。
 
-目标环境须批准、备份并静默旧User writer：V41→[只读preflight](validation/rbac_authority_preflight.sql)→[显式LEGACY回填](validation/rbac_authority_legacy_backfill.sql)→提交后再次核对missing=0/corrupt=0→新二进制启动门禁→开放流量。保留目标、批次、插入/缺失/冲突计数；重复no-op且绝不覆盖ASSIGNMENT及version。本文不批准任何真实环境执行、ROOT引导或来源切换。实际隔离测试/兼容约束及未来旧reader回滚限制见[RBAC基础](../../../../docs/rbac-foundation.md)。
+首次且无 ROOT 历史的目标环境须批准、备份并静默旧User writer：V41及匹配目录迁移→[只读preflight](validation/rbac_authority_preflight.sql)→[显式LEGACY回填](validation/rbac_authority_legacy_backfill.sql)→提交后核对missing=0/corrupt=0→`RbacInitialMigration` Inspect/Dry Run/按精确计划SHA256 Execute→新二进制启动门禁→开放流量。初始迁移在同一事务把整批账号切为ASSIGNMENT，只给批准的一个账号建立ROOT，并写operation/effect；不能只回填LEGACY就启动，也不再执行`RbacRootOperations BOOTSTRAP`。保留目标、批次、计划、回执及缺失/冲突计数；回填重复no-op且绝不覆盖ASSIGNMENT及version。已有ROOT历史或普通Assignment的环境不属于此首次流程，不能用工具拼接冒充通用增量修复。本文不批准任何真实环境执行、ROOT引导或来源切换。实际隔离测试/兼容约束及未来旧reader回滚限制见[RBAC基础](../../../../docs/rbac-foundation.md)。
 
 当前异步实现的可执行结构由 `V17__add_async_processing_foundation.sql` 创建：`outbox_event`、`async_job`、局部消费者幂等表 `async_event_consumption` 以及 `notification.source_key` 唯一约束。其状态含义、保留期与恢复责任由 [Async Processing Architecture](../../../../docs/async-processing.md) 定义；目标环境是否已执行 V17 仍以 `flyway_schema_history` 和真实结构为准。
 

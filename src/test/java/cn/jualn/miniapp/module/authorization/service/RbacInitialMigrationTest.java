@@ -15,6 +15,8 @@ class RbacInitialMigrationTest {
     static String url;
     static DriverManagerDataSource ds;
     static JdbcTemplate jdbc;
+    static List<Map<String,Object>> currentPermissions;
+    static List<Map<String,Object>> currentRoles;
     RbacInitialMigration tool;
     @BeforeAll static void migrate() {
         url=System.getProperty("event.test.jdbcUrl");
@@ -22,14 +24,19 @@ class RbacInitialMigrationTest {
         admin.execute("CREATE DATABASE rbac_initial_test");
         ds=new DriverManagerDataSource(url+"?sslMode=DISABLED&allowPublicKeyRetrieval=true&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true","root","");
         jdbc=new JdbcTemplate(ds);
-        Flyway.configure().dataSource(ds).target("44").load().migrate();
-        jdbc.update("INSERT INTO user_profile(id,openid,role,status) VALUES(99,'preserved-before-v45',1,1)");
+        Flyway.configure().dataSource(ds).target("40").load().migrate();
+        for (long id=1;id<=102;id++) {
+            jdbc.update("INSERT INTO user_profile(id,openid,role,status) VALUES(?,?,?,1)",id,"historical-before-rbac-"+id,id%3+1);
+        }
         var before=jdbc.queryForMap("SELECT * FROM user_profile WHERE id=99");
         Flyway.configure().dataSource(ds).load().migrate();
         Flyway.configure().dataSource(ds).load().validate();
         before.put("session_version", 0L); // V78 initializes credential generation without changing prior facts.
         assertEquals(before,jdbc.queryForMap("SELECT * FROM user_profile WHERE id=99"));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_authorization_authority",Integer.class));
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_user_role_assignment",Integer.class));
+        currentPermissions=jdbc.queryForList("SELECT code,lifecycle,readiness,grantable,unavailable_reason FROM rbac_permission_definition ORDER BY code");
+        currentRoles=jdbc.queryForList("SELECT code,lifecycle,readiness,grantable,unavailable_reason FROM rbac_role ORDER BY code");
     }
     @BeforeEach void reset() throws Exception {
         for(String table:List.of("rbac_offline_effect","rbac_offline_operation","rbac_authorization_change","rbac_user_role_assignment","rbac_authorization_authority","user_profile"))jdbc.update("DELETE FROM "+table);
@@ -50,6 +57,56 @@ class RbacInitialMigrationTest {
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_offline_operation",Integer.class));
         assertEquals("LEGACY",jdbc.queryForObject("SELECT source FROM rbac_authorization_authority WHERE user_id=1",String.class));
     }
+    @Test void currentCatalogFirstDeploymentBackfills102UsersThenBootstrapsOnlyApprovedRoot() throws Exception {
+        for (String table:List.of("rbac_offline_effect","rbac_offline_operation","rbac_authorization_change","rbac_user_role_assignment","rbac_authorization_authority","user_profile")) {
+            jdbc.update("DELETE FROM "+table);
+        }
+        for (long id=1;id<=102;id++) {
+            jdbc.update("INSERT INTO user_profile(id,openid,role,status) VALUES(?,?,?,1)",id,"historical-before-rbac-"+id,id%3+1);
+        }
+        for (var row:currentPermissions) {
+            jdbc.update("UPDATE rbac_permission_definition SET lifecycle=?,readiness=?,grantable=?,unavailable_reason=? WHERE code=?",
+                row.get("lifecycle"),row.get("readiness"),row.get("grantable"),row.get("unavailable_reason"),row.get("code"));
+        }
+        for (var row:currentRoles) {
+            jdbc.update("UPDATE rbac_role SET lifecycle=?,readiness=?,grantable=?,unavailable_reason=? WHERE code=?",
+                row.get("lifecycle"),row.get("readiness"),row.get("grantable"),row.get("unavailable_reason"),row.get("code"));
+        }
+        assertEquals(20,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_permission_definition WHERE grantable=1",Integer.class));
+        var users=jdbc.queryForList("SELECT * FROM user_profile ORDER BY id");
+        runAuthorityBackfill();
+        assertEquals(102,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_authorization_authority WHERE source='LEGACY'",Integer.class));
+
+        var approved=tool.inspect("synthetic-current-production",1,"synthetic-operator","approved-first-production-cutover","d".repeat(64));
+        tool.dryRun(approved);
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_offline_operation",Integer.class));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_user_role_assignment",Integer.class));
+        var receipt=tool.execute(approved);
+        assertEquals(receipt,tool.execute(approved));
+
+        assertEquals(users,jdbc.queryForList("SELECT * FROM user_profile ORDER BY id"));
+        assertEquals(102,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_authorization_authority WHERE source='ASSIGNMENT'",Integer.class));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_user_role_assignment",Integer.class));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_user_role_assignment WHERE user_id=1 AND role_code='ROOT' AND namespace='AUTHORIZATION' AND revoked_at IS NULL",Integer.class));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_user_role_assignment WHERE user_id<>1",Integer.class));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_offline_operation WHERE snapshot_version=2 AND kind='BOOTSTRAP'",Integer.class));
+        assertEquals(102,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_offline_effect",Integer.class));
+        assertEquals(30,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_permission_definition WHERE grantable=1",Integer.class));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_role WHERE code='ROOT' AND grantable=1",Integer.class));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM rbac_role WHERE code='LEARNING_MANAGER' AND grantable=1",Integer.class));
+        assertThrows(IllegalStateException.class,()->tool.inspect("synthetic-later-batch",2,"synthetic-operator","must-not-regrant","e".repeat(64)));
+    }
+
+    private void runAuthorityBackfill() throws Exception {
+        try (var input=new org.springframework.core.io.ClassPathResource("db/validation/rbac_authority_legacy_backfill.sql").getInputStream();
+             var connection=ds.getConnection(); var statement=connection.createStatement()) {
+            for (String sql:new String(input.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8).split(";")) {
+                sql=sql.replaceAll("(?m)^--[^\\r\\n]*","").trim();
+                if (!sql.isEmpty()) statement.execute(sql);
+            }
+        }
+    }
+
     @Test void singleRootMigrationPreservesOthersAndReplaysWithoutRegranting() {
         var p=plan(); var users=jdbc.queryForList("SELECT * FROM user_profile ORDER BY id");
         var other=jdbc.queryForList("SELECT * FROM rbac_authorization_authority WHERE user_id IN (2,3) ORDER BY user_id");

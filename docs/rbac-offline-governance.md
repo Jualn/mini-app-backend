@@ -70,8 +70,8 @@ v1 合成工具仍要求 guard、固定环境、双签和完整目录。v2 首�
 
 `RbacInitialMigration` 是独立 CLI，无 Bean、HTTP、启动自动迁移或 ROOT 通配。只在 operator 所在主机的显式 loopback host/port/database 执行，数据库凭据来自临时环境变量，不在参数/清单中。工具不创建假身份、不改旧 role、不清空历史。环境、ROOT 和普通用户集合必须来自本批有效批准清单，不在长期文档固定真实账号 ID。以后线上必须重新指定环境、真实 User、批准及备份，不能复制本次 plan、ID、server UUID 或测试 profile 当作生产批准。
 
-1. 停止受影响流量，准备含 v2 Reader 的新构建、V45 和当前 RBAC/用户角色快照备份。目标无 Flyway history 时，不自动 baseline/repair；显式记录本次 DDL 摘要与执行事实，后续另按数据库说明接管历史。
-2. Inspect 读取当前全部有 Authority 的账号（最多 1000 人），固定环境 ID、主库 server UUID/schema/URL、ROOT ID、当前 User/Authority/版本及无 shadow Assignment、完整目录摘要和状态、批准引用/文件摘要、30 分钟有效期和唯一 operationId。计划明确每个其他账号仅切 ASSIGNMENT、无角色；普通用户登录/学习归属仍用原 User。不做全体新管理授权，也不重置旧 role。
+1. 停止受影响流量，准备含 v2 Reader 的新构建、V45 及当前匹配目录迁移和 RBAC/用户角色快照备份。目标无 Flyway history 时，不自动 baseline/repair；显式记录本次 DDL 摘要与执行事实，后续另按数据库说明接管历史。V101 等目录迁移不回填人员；若历史用户缺 Authority，先按批准目标执行显式 LEGACY 回填并核对 `missing=0/corrupt=0`，不能把缺行直接当 ASSIGNMENT。
+2. Inspect 读取当前全部有 Authority 的账号（最多 1000 人），固定环境 ID、主库 server UUID/schema/URL、ROOT ID、当前 User/Authority/版本及无 shadow Assignment、完整目录摘要和状态、批准引用/文件摘要、30 分钟有效期和唯一 operationId。计划明确每个其他账号仅切 ASSIGNMENT、无角色；普通用户登录/学习归属仍用原 User。不做全体新管理授权，也不重置旧 role。当前 V101/r13 目录仍允许 snapshot v2 BOOTSTRAP；兼容性不代表放宽无 ROOT 历史、无普通 Assignment 和 ROOT/LEARNING_MANAGER 原始登记状态这些前提。
 3. 默认 DryRun 只验证，不写。Execute 必须显式给出已复核 plan 文件的精确 SHA-256。该批准方式是现有主机运维身份 + 文件清单摘要/外部批准引用，**不声称密码学双人审批或远程批准人认证**；保管与审批由运维流程承担。
 4. 事务取 ROOT mutex → 本批 User 按 ID 顺序锁 → 当前账号、Authority、目录、历史、批准期限及账号集合重验。只有正常未删、显式 LEGACY/ASSIGNMENT、无历史/当前 ROOT 和无任何 shadow Assignment 的首次迁移可执行。当前其他账号的资格/限制原样保留，不通过迁移解除限制；本批任何状态/版本/集合变化均拒绝。
 5. 一个 READ_COMMITTED 事务启用完整 ROOT/LEARNING_MANAGER 目录，只给指定 User 建 ROOT/AUTHORIZATION/GLOBAL/无期限，其他本批 User 只切来源且无管理角色；operation、每个 User 的 before/after effect、固定回执和真实 Assignment 审计引用同事务提交。真实 Reader 必须当场判定 ROOT 有效，否则全回滚。

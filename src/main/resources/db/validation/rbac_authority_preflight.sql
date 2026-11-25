@@ -13,4 +13,5 @@ SELECT lifecycle,readiness,grantable,COUNT(*) AS permissions
 FROM rbac_permission_definition GROUP BY lifecycle,readiness,grantable;
 SELECT lifecycle,readiness,grantable,COUNT(*) AS roles
 FROM rbac_role GROUP BY lifecycle,readiness,grantable;
--- Startup requires missing=0 and corrupt=0. These counts do not approve source switching.
+-- Initial migration requires missing=0 and corrupt=0. Current startup additionally
+-- requires legacy=0 and exactly one unrevoked ROOT. These counts do not approve source switching.

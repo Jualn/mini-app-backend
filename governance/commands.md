@@ -246,11 +246,11 @@ node tools/validate-person-foundation.mjs
 
 ## RBAC offline governance validation
 
-指定初始 ROOT 的实际运维迁移见 [离线治理 §8](../docs/rbac-offline-governance.md#8-指定初始-root-的运维迁移)，不使用下文仅合成库的旧双签 CLI。新入口为 `tools/invoke-rbac-initial-migration.ps1`：显式 `-JdbcUrl`、`-RuntimeClasspath`；`-Mode Inspect` 另需环境 ID、ROOT User ID、执行/批准引用和批准文件；默认 `-Mode DryRun -PlanPath` 只验清单，执行还需 `-Mode Execute -ApprovedPlanSha256`。可显式 `-EnvironmentFile .env` 仅临时读取 MYSQL_USER/PASSWORD，或预设 RBAC_INITIAL_DB_USER/PASSWORD；不打印凭据。输出 Inspect 的 JSON 需原样保存为 plan 再计算文件 SHA-256，不重建 operationId。
+指定初始 ROOT 的实际运维迁移见 [离线治理 §8](../docs/rbac-offline-governance.md#8-指定初始-root-的运维迁移)，不使用下文仅合成库的旧双签 CLI。Windows入口为 `tools/invoke-rbac-initial-migration.ps1`：显式 `-JdbcUrl`、`-RuntimeClasspath`；`-Mode Inspect` 另需环境 ID、ROOT User ID、执行/批准引用和批准文件；默认 `-Mode DryRun -PlanPath` 只验清单，执行还需 `-Mode Execute -ApprovedPlanSha256`。可显式 `-EnvironmentFile .env` 仅临时读取 MYSQL_USER/PASSWORD，或预设 RBAC_INITIAL_DB_USER/PASSWORD；不打印凭据。输出 Inspect 的 JSON 需原样保存为 plan 再计算文件 SHA-256，不重建 operationId。生产包提供等价 `tools/invoke-rbac-initial-migration.sh`。服务器不需要 Java/Maven 或 MySQL端口映射：脚本复用`jualncampus-app`镜像的Java17，通过`container:jualncampus-mysql`共享网络命名空间，挂载经独立SHA256校验的候选JAR，用嵌套运行依赖执行小型离线CLI；不会使用镜像内旧JAR或启动第二个Spring Boot。
 
-运行 classpath 用已编译 main classes + `mvnw.cmd dependency:build-classpath '-DincludeScope=runtime' '-Dmdep.outputFile=target/rbac-initial-runtime-classpath.txt'` 的依赖。工具不执行 DDL；V45 按已批准目标单独执行。隔离验证 `RbacInitialMigrationTest` 只接受全新独占 `jdbc:mysql://127.0.0.1:<port>/rbac_initial_test`，会完整重放/验证 V1–V45 及 V44→V45、事务/审计失败回滚、原计划重放、过期/账号/目录变化拒绝和 default/prod profile 失败拒绝；不能指向业务库。
+运行 classpath 用已编译 main classes + `mvnw.cmd dependency:build-classpath '-DincludeScope=runtime' '-Dmdep.outputFile=target/rbac-initial-runtime-classpath.txt'` 的依赖。工具不执行 DDL；V45及当前匹配目录迁移按已批准目标单独执行。隔离验证 `RbacInitialMigrationTest` 只接受全新独占 `jdbc:mysql://127.0.0.1:<port>/rbac_initial_test`，会从含102个历史User的V40升级到当前V101、验证零Authority事实、真实LEGACY回填、Dry Run、唯一ROOT初始迁移、102条effect及普通账号零管理任命，并覆盖事务/审计失败回滚、原计划重放、过期/账号/目录变化拒绝；不能指向业务库。
 
-服务器的 ROOT 初始化、计划交接、应急恢复及旧任命盘点使用 [ROOT 运维流程](../docs/operations/runbook.md#root-运维与旧任命退出)。通过生产发布包内的 shell 脚本及同包应用 JAR 运行。
+服务器首次历史用户切换按[首次生产切换](../docs/operations/runbook.md#已有历史用户的首次生产切换)执行：`release.sh --prepare-rbac`→preflight/backfill→同包Inspect/DryRun→带精确计划SHA256的正式`release.sh`。后续 ROOT 初始化（已全量ASSIGNMENT且从未有ROOT）、计划交接、应急恢复及旧任命盘点使用 [ROOT 运维流程](../docs/operations/runbook.md#root-运维与旧任命退出)。通过生产发布包内的 shell 脚本及同包应用 JAR 运行。
 
 先运行`node tools/validate-rbac-offline-plan.mjs`，只核对ROOT/NOTICE_MONITOR完整成员及namespace交集、V41与Catalog哈希、生产support仍空和V43仅建两表，输出`target/rbac-offline-support-plan.json`；不执行SQL、不启用目录。
 
