@@ -14,7 +14,7 @@ Flyway 检查和应用争用内存时，先按服务器真实脚本核对维护�
 
 ## 1. First response
 
-RBAC G2的新二进制要求完整显式Authority。启动若报 `RBAC Authority coverage incomplete`，停止发布并按[数据库说明](../../src/main/resources/db/README.md#rbac-v41-与-authority-启动门禁)核对目标/V41、旧User writer静默和preflight；仅在批准目标执行显式LEGACY回填，保留batch及缺失/冲突计数，提交后再次核对。数据库不可读同样不得绕过门禁。不得加“缺行即LEGACY”、覆盖ASSIGNMENT、给真实账号ROOT或为恢复服务启用候选角色。人员来源切换及旧reader回滚保持独立批准，详见[RBAC基础](../rbac-foundation.md)。
+当前新二进制要求 `missing=0`、`corrupt=0`、`legacy=0` 且恰好一个未撤销 ROOT。启动若报 `ASSIGNMENT-only authority coverage required; inspect sources and establish the approved unique ROOT before switching`，停止发布并按[数据库说明](../../src/main/resources/db/README.md#rbac-v41-与-authority-启动门禁)核对目标、迁移历史和preflight。首次且无 ROOT 历史时，在批准目标执行显式LEGACY回填，保留batch及缺失/冲突计数，再执行 `RbacInitialMigration` 整批切源和唯一 ROOT 初始化；仅补 LEGACY 仍不能启动。数据库不可读同样不得绕过门禁。不得加“缺行即LEGACY”、覆盖ASSIGNMENT、给真实账号ROOT或为恢复服务启用候选角色。已有 ROOT 历史或普通 Assignment 时不属于首次工具前提，必须另行批准增量方案。人员来源切换及旧reader回滚保持独立批准，详见[RBAC基础](../rbac-foundation.md)。
 
 正式RBAC HTTP使用独立admin认证、QR activation/revocation和当前ROOT；旧ADMIN不成为ROOT。有效且无grant的会话可读取`/v1/admin/authorization/me/capabilities`得到false/[]，不是重新登录或放权依据；来源缺失/存储故障为503，不能回旧role。已实现能力默认纳入运行支持清单，运行支持不替代数据库目录状态或真实账号授权。V42仅增加审计发布序号，目标DDL及人员初始化保持独立批准。
 
@@ -403,6 +403,116 @@ PATCH 失败按 [canonical Post contract](../../../contracts/api/paths/post.yaml
 
 
 ## RBAC 发布与恢复
+
+### 已有历史用户的首次生产切换
+
+仅当目标库**从未有 ROOT Assignment/首次引导历史、普通账号没有 Assignment、ROOT 与 LEARNING_MANAGER 仍为原始登记状态**时使用本节。真实 ROOT ID、批准文件、执行身份和环境 ID必须当次审批，不能复制测试值。已有 ROOT 历史或普通 Assignment 的环境需要另行设计增量迁移，不能套用本节。
+
+实际拓扑为 `/opt/jualncampus`、数据库 `jualncampus_db`、MySQL 容器 `jualncampus-mysql`、应用容器 `jualncampus-app`、网络 `jualncampus_app-net`。MySQL 不配置 `ports`，以下命令也不新增端口。宿主机不需要 Java：包装器从 `jualncampus-app` 的现有镜像取得 OpenJDK 17，通过 `--network container:jualncampus-mysql` 共享网络命名空间，以 `127.0.0.1:3306` 连接。**镜像只提供 Java，运行的是另行挂载且独立核对 SHA256 的候选 JAR，不是镜像内的旧 `/app/app.jar`。** Inspect、Dry Run 和 Execute 都只启动小型离线 CLI，不启动第二个 Spring Boot；容器限制384 MiB内存/512 MiB内存+Swap、JVM最大堆192 MiB，适应1.6 GiB物理内存和2 GiB Swap。
+
+#### 1. 替换生产运维脚本
+
+先将审阅后的 `release.sh`、`db-migrate.sh`、`deploy.sh`、`accept-release-upload.sh` 和对应 `SHA256SUMS` 放到受限的 `/root/rbac-operations`。不要从当前旧 JAR或运行容器提取脚本。目标路径如下：
+
+| 来源 | 生产目标 | 动作 |
+|---|---|---|
+| `release.sh` | `/opt/jualncampus/release.sh` | 替换 |
+| `scripts/db-migrate.sh` | `/opt/jualncampus/scripts/db-migrate.sh` | 替换 |
+| `deploy.sh` | `/opt/jualncampus/deploy.sh` | 替换，保留既有超时配置 |
+| `scripts/accept-release-upload.sh` | `/opt/jualncampus/scripts/accept-release-upload.sh` | 新增；维护期间保护候选不被其他 CD 上传覆盖 |
+| Backend `tools/invoke-rbac-initial-migration.sh` | 发布包内 `tools/invoke-rbac-initial-migration.sh` | 随不可变发布包提供，不单独安装 |
+
+```sh
+sudo -i
+umask 077
+cd /root/rbac-operations
+sha256sum -c SHA256SUMS
+install -o root -g root -m 0755 release.sh /opt/jualncampus/release.sh
+install -o root -g root -m 0755 db-migrate.sh /opt/jualncampus/scripts/db-migrate.sh
+install -o root -g root -m 0755 deploy.sh /opt/jualncampus/deploy.sh
+install -o root -g root -m 0755 accept-release-upload.sh /opt/jualncampus/scripts/accept-release-upload.sh
+bash -n /opt/jualncampus/release.sh
+bash -n /opt/jualncampus/scripts/db-migrate.sh
+bash -n /opt/jualncampus/scripts/accept-release-upload.sh
+bash -n /opt/jualncampus/deploy.sh
+```
+
+Backend Workflow 已提供 `prepare_rbac_only` 输入。选择目标 commit 手工运行 **Backend CI/CD**，设置 `prepare_rbac_only=true`，完成 production Environment 审核。等价的已有 GitHub CLI 命令为：
+
+```sh
+gh workflow run backend-ci-cd.yml -R Jualn/mini-app-backend --ref main -f prepare_rbac_only=true
+```
+
+该任务仍构建、验证、上传 `release.tar.gz` 和外部摘要，但服务器只执行 `release.sh --prepare-rbac`，不部署新应用。它核验包和历史 SQL、应用 Pending 迁移并写入 `PREPARED <commit>` 维护标记；普通 push 的后续 release 会被该标记阻断。若制品已经上传但尚未准备，可直接执行：
+
+```sh
+/opt/jualncampus/release.sh --prepare-rbac
+/opt/jualncampus/scripts/db-migrate.sh --rbac-authority-preflight
+/opt/jualncampus/scripts/db-migrate.sh --rbac-authority-backfill
+/opt/jualncampus/scripts/db-migrate.sh --rbac-authority-preflight
+```
+
+回填命令要求输入实际数据库名 `jualncampus_db` 和 `BACKFILL_LEGACY`，先备份，再只给缺行补 LEGACY；保留批次和输出。此时 `legacy` 等于历史用户数是正常的，不能直接启动新应用。
+
+#### 2. 使用候选 JAR Inspect 和 Dry Run
+
+```sh
+cd /opt/jualncampus/incoming
+sha256sum -c release.tar.gz.sha256
+RBAC_TOOLS_DIR="$(mktemp -d /opt/jualncampus/incoming/rbac-initial.XXXXXX)"
+tar -xzf release.tar.gz -C "$RBAC_TOOLS_DIR"
+cd "$RBAC_TOOLS_DIR"
+sha256sum -c SHA256SUMS
+
+CANDIDATE_JAR_SHA256="$(sha256sum app.jar | awk '{print $1}')"
+export RBAC_INITIAL_JAR_SHA256="$CANDIDATE_JAR_SHA256"
+JDBC_URL='jdbc:mysql://127.0.0.1:3306/jualncampus_db'
+ENVIRONMENT_ID='<本次批准的生产环境标识>'
+ROOT_USER_ID='<本次批准的 ROOT 用户 ID>'
+EXECUTOR_REF='<本次主机运维执行身份>'
+APPROVAL_REF='<本次批准记录引用>'
+APPROVAL_FILE='/secure/path/to/approval.txt'
+RBAC_INITIAL_DB_USER='<独立运维数据库身份>'
+read -r -s -p 'RBAC DB password: ' RBAC_INITIAL_DB_PASSWORD; printf '\n'
+export RBAC_INITIAL_DB_USER RBAC_INITIAL_DB_PASSWORD
+
+bash tools/invoke-rbac-initial-migration.sh app.jar "$JDBC_URL" \
+  inspect "$ENVIRONMENT_ID" "$ROOT_USER_ID" "$EXECUTOR_REF" \
+  "$APPROVAL_REF" "$APPROVAL_FILE" > /opt/jualncampus/incoming/rbac-initial-plan.json
+bash tools/invoke-rbac-initial-migration.sh app.jar "$JDBC_URL" \
+  /opt/jualncampus/incoming/rbac-initial-plan.json
+APPROVED_PLAN_SHA256="$(sha256sum /opt/jualncampus/incoming/rbac-initial-plan.json | awk '{print $1}')"
+printf 'Candidate JAR SHA256: %s\nApproved plan SHA256: %s\n' \
+  "$CANDIDATE_JAR_SHA256" "$APPROVED_PLAN_SHA256"
+```
+
+Inspect 最多接受1000个账号。Dry Run 不写库、不生成成功审计；必须核对计划覆盖全部历史账号、服务器 UUID、`jualncampus_db`、目录摘要、唯一 ROOT，以及其他账号无角色。包装器默认容器名就是上述生产名称；不要设置 `RBAC_JAVA_IMAGE` 或改用旧 JAR。每次调用使用 `--rm` 清理临时容器，数据库密码仅通过环境传入，不出现在参数或计划中。
+
+#### 3. 批准并正式执行
+
+```sh
+export RBAC_INITIAL_PLAN='/opt/jualncampus/incoming/rbac-initial-plan.json'
+export RBAC_INITIAL_APPROVED_PLAN_SHA256="$APPROVED_PLAN_SHA256"
+export RBAC_INITIAL_JDBC_URL="$JDBC_URL"
+/opt/jualncampus/release.sh
+unset RBAC_INITIAL_DB_PASSWORD
+curl --fail --silent --show-error http://127.0.0.1:8080/actuator/health
+/opt/jualncampus/scripts/db-migrate.sh --rbac-authority-preflight
+```
+
+正式 release 再次核验发布包、候选 JAR、计划和摘要，以相同临时容器方式执行 `RbacInitialMigration`，再部署同包 JAR。它只发布 ROOT 四项和 LEARNING_MANAGER 六项权限，只给批准的 ROOT 创建任命，其他账号仅切为 ASSIGNMENT。成功后再完成真实 ROOT 扫码、当前能力读取和必要业务探测。健康 UP 单独不证明目录兼容。
+
+#### 4. 并发、失败重放和恢复 CD
+
+- GitHub 使用 `production-deploy` concurrency group，新任务排队而不取消正在执行的任务。上传先写 `.next`，再由现有唯一 sudo 入口 `release.sh --accept-upload` 调用 `accept-release-upload.sh`，在同一 release 锁内核对外部 SHA256 和维护标记后原子接收；人工迁移中的其他 CD 不会覆盖原候选。
+- `/run/lock/jualncampus-release.lock` 覆盖完整正式 release；`/opt/jualncampus/.mysql-maintenance.lock` 串行每次 Flyway/SQL维护；`/run/lock/jualncampus-deploy.lock` 串行应用切换。
+- `/opt/jualncampus/incoming/.rbac-initial-maintenance` 跨越人工步骤保持 `PREPARED/EXECUTING <commit>`。普通 release、直接 deploy 和其他数据库写操作被拒绝；preflight保持只读可用。正式 release 必须匹配同一 commit，成功后才自动删除标记。不得为绕过阻断手工删除它。
+- 首次计划提交后若部署失败，保持停机并向前修复，**不得恢复 pre-RBAC JAR**。数据库写入或 RBAC 来源切换后的 `DEPLOY_NO_ROLLBACK=1` 保持生效。提交结果未知或重跑时保留原计划、operationId和摘要，使用同一正式 release 命令恢复固定回执，不换计划、不重复执行 `RbacRootOperations BOOTSTRAP`；同一操作不会新增第二份 operation/effect或任命。
+- 应用恢复健康且 preflight 为 `missing=0/corrupt=0/legacy=0` 后，**新启动一次普通** `workflow_dispatch`，设置 `prepare_rbac_only=false`，或对目标 main 发起正常 push；不要 Re-run 输入仍为 true 的准备任务。恢复后普通发布不需要 `RBAC_INITIAL_*`，维护标记已解除，也不执行人员迁移。
+
+```sh
+gh workflow run backend-ci-cd.yml -R Jualn/mini-app-backend --ref main -f prepare_rbac_only=false
+```
 
 ### ROOT 运维与旧任命退出
 

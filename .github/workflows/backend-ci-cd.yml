@@ -15,6 +15,11 @@ on:
 
   # GitHub Actions 页面允许人工重新执行。
   workflow_dispatch:
+    inputs:
+      prepare_rbac_only:
+        description: 'Upload the verified candidate and stop after RBAC preparation; no application deployment'
+        type: boolean
+        default: false
 
 # 默认只授予 workflow 读取仓库内容的权限。
 permissions:
@@ -39,7 +44,7 @@ jobs:
 
     services:
       mysql:
-        image: mysql:8.0.40
+        image: mysql:8.4.13
         env:
           MYSQL_ROOT_PASSWORD: ci-root-password
           MYSQL_DATABASE: jualncampus
@@ -192,16 +197,19 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           rm -rf release-content release-dist
-          mkdir -p release-content/db/migration release-content/tools release-dist
+          mkdir -p release-content/db/migration release-content/db/validation release-content/tools release-dist
 
           cp "$JAR_PATH" release-content/app.jar
           install -m 0755 tools/invoke-root-operations.sh release-content/tools/invoke-root-operations.sh
+          install -m 0755 tools/invoke-rbac-initial-migration.sh release-content/tools/invoke-rbac-initial-migration.sh
           cp "$MIGRATION_PATH"/V*__*.sql release-content/db/migration/
+          install -m 0644 src/main/resources/db/validation/rbac_authority_preflight.sql release-content/db/validation/
+          install -m 0644 src/main/resources/db/validation/rbac_authority_legacy_backfill.sql release-content/db/validation/
           printf '%s\n' "$GITHUB_SHA" > release-content/RELEASE_COMMIT
 
           (
             cd release-content
-            find app.jar RELEASE_COMMIT db/migration tools -type f -print0 \
+            find app.jar RELEASE_COMMIT db tools -type f -print0 \
               | sort -z \
               | xargs -0 sha256sum > SHA256SUMS
           )
@@ -411,7 +419,7 @@ jobs:
             production:/opt/jualncampus/incoming/release.tar.gz.sha256.next
 
           ssh production \
-            'set -eu; cd /opt/jualncampus/incoming; mv -f release.tar.gz.next release.tar.gz; mv -f release.tar.gz.sha256.next release.tar.gz.sha256'
+            'sudo /opt/jualncampus/release.sh --accept-upload'
 
       # ----------------------------------------------------
       # 7. 调用服务器统一发布程序
@@ -433,9 +441,16 @@ jobs:
       # ----------------------------------------------------
       - name: Release application and database
         id: production_deploy
+        env:
+          PREPARE_RBAC_ONLY: ${{ inputs.prepare_rbac_only }}
         run: |
-          ssh production \
-            'sudo /opt/jualncampus/release.sh'
+          if [[ "$PREPARE_RBAC_ONLY" == "true" ]]; then
+            ssh production \
+              'sudo /opt/jualncampus/release.sh --prepare-rbac'
+          else
+            ssh production \
+              'sudo /opt/jualncampus/release.sh'
+          fi
 
       # ----------------------------------------------------
       # 8. 写 Actions Summary

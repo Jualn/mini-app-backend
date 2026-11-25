@@ -101,7 +101,7 @@ Notify 的个人入口按职责归组：`service/inbox` 包含 `PersonalNotifica
 
 微信接入的目标分工见 [WeChat §10](wechat-integration.md#10-整个微信接入的目标结构)：`third/wx` 承担 provider 协议、凭据、纯值格式化与结果分类，`module/wx` 承担入口、应用编排和通知映射；`module/wx/notice` 持有不可变有效模板目录、业务字段白名单、应用跳转与渠道 Adapter 边界，现有用户微信标识的持久化仍归 user；third 层不反向依赖业务模块编排或持久模型。发现实现偏离时在受影响链路修正，不从旧实施批次推导当前状态。
 content/audit/subject 的跨表 Mapper 仅承担各自受控读取或锁定投影；任何目标写入仍委托数据所有者 Service，不因聚合查询例外扩大跨模块写权限。
-authorization 的 RbacMapper仅投影当前User ID、账号状态、旧角色与限制期限以判断资格，不写user_profile；限制时间使用User owner的北京时间语义，RBAC事实独立UTC。User限制/恢复/旧role修改在显式READ_COMMITTED事务、业务User锁之前调用统一ROOT guard；新User与LEGACY Authority同事务建立。历史Authority显式回填后才可启动强制Reader的新二进制，启动门禁拒绝缺失/损坏来源。当前没有通用账号删除或公共source切换入口；首次迁移owner见下文，其余未来写路径须遵守同一锁顺序。Sa粗权限候选不等于资源授权；Service检查真实namespace/动作及既有业务规则。
+authorization 的 RbacMapper仅投影当前User ID、账号状态、旧角色与限制期限以判断资格，不写user_profile；限制时间使用User owner的北京时间语义，RBAC事实独立UTC。User限制/恢复/旧role修改在显式READ_COMMITTED事务、业务User锁之前调用统一ROOT guard；新User与无 Grant 的ASSIGNMENT Authority同事务建立。历史Authority显式初始化、整批切为ASSIGNMENT并建立唯一ROOT后才可启动强制Reader的新二进制，启动门禁拒绝缺失/损坏/LEGACY来源。当前没有通用账号删除或公共source切换入口；首次迁移owner见下文，其余未来写路径须遵守同一锁顺序。Sa粗权限候选不等于资源授权；Service检查真实namespace/动作及既有业务规则。
 
 ROOT 的首次初始化、计划交接及应急恢复由非应用 Bean 的 `RbacRootOperations` 执行，使用固定运维计划及审计回执。历史 LEGACY 首次来源迁移保留 `RbacInitialMigration`。当前普通业务授权统一由 Duty 提交生成关联任命。详见[运维手册](operations/runbook.md#root-运维与旧任命退出)。
 共享子资源由其所属 Service 处理；活动/公共事项主体负责业务资格及组合用例，不能因为一张表被共享使用就形成多个写入所有者。
